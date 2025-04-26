@@ -1,0 +1,2 @@
+requests==2.26.0
+growattApi==0.4.1  # or the version you're using

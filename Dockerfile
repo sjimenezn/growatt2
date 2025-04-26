@@ -1,0 +1,18 @@
+# Use a Python image
+FROM python:3.9-slim
+
+# Set the working directory
+WORKDIR /app
+
+# Copy the requirements.txt and install dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Copy the rest of your application files (script, etc.)
+COPY . .
+
+# Expose a port (this is optional since we're not running a web server)
+EXPOSE 3000
+
+# Command to run the monitoring script
+CMD ["python", "app.py"]
