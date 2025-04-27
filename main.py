@@ -1,36 +1,54 @@
+import requests
 import growattServer
 
-# Step 2: Set your Growatt credentials
+# Credentials for Growatt
 username = "vospina"
 password = "Vospina.2025"
 
-# Step 3: Create an API instance
-api = growattServer.GrowattApi()
+# Telegram Config
+TELEGRAM_TOKEN = "7653969082:AAGJ5_P23E6SbkJnTSHOjHhUGlKwcE_hao8"
+CHAT_ID = "5715745951"
 
-# Step 4: Set a mobile Chrome on iPhone user-agent
+# Setup Growatt API
+api = growattServer.GrowattApi()
 api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/117.0.5938.117 Mobile/15E148 Safari/604.1'
 })
 
-# Step 5: Log in and try to retrieve plant data
-try:
-    # Login
-    login_response = api.login(username, password)
-    print("✅ Login successful!")
-    print("Login response:", login_response)  # Log the entire response
+# Function to send messages to Telegram
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message}
+    try:
+        response = requests.post(url, data=payload, timeout=10)
+        response.raise_for_status()  # Check if the request was successful
+        print("✅ Message sent to Telegram!")
+    except Exception as e:
+        print(f"❌ Failed to send message: {e}")
 
-    # Check if 'userId' exists in the response and proceed accordingly
-    if 'userId' in login_response:
-        user_id = login_response['userId']  # Get userId from the response
+# Main function
+def main():
+    try:
+        # Login to Growatt
+        login_response = api.login(username, password)
+        print("✅ Login successful!")
+        
+        # Retrieve user ID and plant info
+        user_id = login_response['user']['id']
         plant_info = api.plant_list(user_id)
         plant_id = plant_info['data'][0]['plantId']
-        print("🌿 Plant ID:", plant_id)
-
-        # Stop here, as we don't want to continue if the rest is problematic
+        print(f"🌿 Plant ID: {plant_id}")
+        
+        # Send userId and plantId to Telegram
+        message = f"✅ Login successful!\nUser ID: {user_id}\nPlant ID: {plant_id}"
+        send_telegram_message(message)
+        
+        # Stop execution here after sending the message
         print("✅ Successfully retrieved userId and plantId. Stopping execution.")
-    else:
-        print("❌ 'userId' field not found in login response!")
+        
+    except Exception as e:
+        print("❌ Error during login or data fetch.")
+        print(f"Error: {e}")
 
-except Exception as e:
-    print("❌ Error during login or data fetch.")
-    print("Error:", e)
+if __name__ == "__main__":
+    main()
