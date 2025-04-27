@@ -76,7 +76,7 @@ Battery %           : {battery_pct}"""
                 log_message(message)
 
                 if ac_input_v != "N/A" and float(ac_input_v) < 140:
-                    send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + message)
+                    send_telegram_message("⚠️ Se fue la luz!\n\n" + message)
 
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
