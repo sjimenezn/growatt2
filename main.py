@@ -33,7 +33,6 @@ def main():
         # Login to Growatt
         login_response = api.login(username, password)
         print("✅ Login successful!")
-        print("Login Response:", login_response)  # Log the response
 
         # Create a timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -41,46 +40,21 @@ def main():
         # Fetch userId and plantId
         user_id = login_response['userId']
         plant_info = api.plant_list(user_id)
-        print("Plant Info Response:", plant_info)  # Log the plant info response
         plant_id = plant_info['data'][0]['plantId']
 
-        # Fetch inverter info
-        inverter_list = api.inverter_list(plant_id)
-        inverter_sn = inverter_list[0]['deviceSn']
-        print(f"🔌 Inverter SN: {inverter_sn}")
+        # Prepare the message with userId, plantId, and timestamp
+        message = (
+            f"Growatt Info:\n"
+            f"User ID: {user_id}\n"
+            f"Plant ID: {plant_id}\n"
+            f"Timestamp: {timestamp}"
+        )
 
-        # Try getting storage details
-        try:
-            storage_data = api.storage_detail(inverter_sn)
-            print("📦 Raw storage_detail response:")
-            print(storage_data)  # Log the storage data response
+        # Send message
+        send_telegram_message(message)
 
-            # Log parsed storage values
-            print("\n🔎 Parsed keys and values:")
-            for key, value in storage_data.get("data", {}).items():
-                print(f"{key}: {value}")
-
-            # Send the formatted message to Telegram
-            message = (
-                f"Growatt Info:\n"
-                f"User ID: {user_id}\n"
-                f"Plant ID: {plant_id}\n"
-                f"Timestamp: {timestamp}\n"
-                f"Storage Data:\n"
-                f"AC Input Voltage    : {storage_data.get('vGrid')} V\n"
-                f"AC Input Frequency  : {storage_data.get('freqGrid')} Hz\n"
-                f"AC Output Voltage   : {storage_data.get('outPutVolt')} V\n"
-                f"AC Output Frequency : {storage_data.get('freqOutPut')} Hz\n"
-                f"Battery Voltage     : {storage_data.get('vbat')} V\n"
-                f"Active Power Output : {storage_data.get('activePower')} W\n"
-                f"Battery Capacity    : {storage_data.get('capacity')}%\n"
-                f"Load Percentage     : {storage_data.get('loadPercent')}%"
-            )
-            send_telegram_message(message)
-
-        except Exception as e:
-            print("❌ Failed to get storage_detail.")
-            print("Error:", e)
+        # Stop execution here after sending the message
+        print("✅ Successfully sent a message to Telegram. Stopping execution.")
 
     except Exception as e:
         print("❌ Error during login or data fetch.")
