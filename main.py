@@ -1,69 +1,117 @@
-from flask import Flask, jsonify, request
+import time
 import growattServer
-import os
-import logging
+import requests
+from flask import Flask, jsonify
+import threading
 
 app = Flask(__name__)
 
-# Set up logging to log everything
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
-# Growatt credentials
+# Set your Growatt credentials
 username = "vospina"
 password = "Vospina.2025"
-
-# Create an API instance
 api = growattServer.GrowattApi()
 
-# Set a mobile Chrome on iPhone user-agent
+# Set the mobile Chrome user-agent
 api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/117.0.5938.117 Mobile/15E148 Safari/604.1'
 })
 
-@app.route('/')
-def index():
-    return "Growatt Monitoring API"
+# Your Telegram bot token and chat ID
+telegram_token = "your-telegram-bot-token"
+chat_id = "your-chat-id"
 
-@app.route('/get_info', methods=['GET'])
-def get_info():
+
+# Function to login to Growatt and fetch the data
+def fetch_data():
     try:
         # Login to Growatt
         login_response = api.login(username, password)
-        logger.debug(f"Login Response: {login_response}")
-
-        if not login_response.get('success'):
-            return jsonify({'error': 'Login failed'}), 400
+        print("✅ Login successful!")
 
         # Get user ID and plant info
         user_id = login_response['user']['id']
         plant_info = api.plant_list(user_id)
-        logger.debug(f"Plant Info Response: {plant_info}")
-
         plant_id = plant_info['data'][0]['plantId']
+        print(f"🌿 Plant ID: {plant_id}")
+
+        # Get inverter info
         inverter_list = api.inverter_list(plant_id)
         inverter_sn = inverter_list[0]['deviceSn']
+        print(f"🔌 Inverter SN: {inverter_sn}")
 
         # Get storage details
         storage_data = api.storage_detail(inverter_sn)
-        logger.debug(f"Storage Detail Response: {storage_data}")
-
-        parsed_data = {
-            'AC Input Voltage': storage_data.get('vGrid', 'N/A'),
-            'AC Input Frequency': storage_data.get('freqGrid', 'N/A'),
-            'AC Output Voltage': storage_data.get('outPutVolt', 'N/A'),
-            'AC Output Frequency': storage_data.get('freqOutPut', 'N/A'),
-            'Battery Voltage': storage_data.get('vbat', 'N/A'),
-            'Active Power Output': storage_data.get('activePower', 'N/A'),
-            'Battery Capacity': storage_data.get('capacity', 'N/A'),
-            'Load Percentage': storage_data.get('loadPercent', 'N/A'),
+        print("\n🔎 Parsed keys and values:")
+        
+        # Format the data as requested
+        formatted_data = {
+            "AC Input Voltage": f"{storage_data.get('vGrid', 'N/A')} V",
+            "AC Input Frequency": f"{storage_data.get('freqGrid', 'N/A')} Hz",
+            "AC Output Voltage": f"{storage_data.get('outPutVolt', 'N/A')} V",
+            "AC Output Frequency": f"{storage_data.get('freqOutPut', 'N/A')} Hz",
+            "Battery Voltage": f"{storage_data.get('vbat', 'N/A')} V",
+            "Active Power Output": f"{storage_data.get('activePower', 'N/A')} W",
+            "Battery Capacity": f"{storage_data.get('capacity', 'N/A')}%",
+            "Load Percentage": f"{storage_data.get('loadPercent', 'N/A')}%"
         }
-
-        return jsonify(parsed_data)
+        
+        # Print formatted data to console
+        print("📊 Formatted Data:")
+        for key, value in formatted_data.items():
+            print(f"{key}: {value}")
+        
+        return formatted_data
 
     except Exception as e:
-        logger.error(f"Error during login or data fetch: {e}")
-        return jsonify({'error': f"Error: {str(e)}"}), 500
+        print("❌ Error during login or data fetch.")
+        print("Error:", e)
+        return None
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+
+# Function to send data to Telegram
+def send_to_telegram(data):
+    message = "\n".join([f"{key}: {value}" for key, value in data.items()])
+    telegram_url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+    params = {
+        'chat_id': chat_id,
+        'text': message
+    }
+    try:
+        response = requests.get(telegram_url, params=params)
+        if response.status_code == 200:
+            print("✅ Message sent to Telegram!")
+        else:
+            print("❌ Failed to send message to Telegram!")
+    except Exception as e:
+        print(f"❌ Error sending message to Telegram: {e}")
+
+
+# Function to periodically fetch data and send to Telegram every 40 seconds
+def periodic_task():
+    while True:
+        data = fetch_data()
+        if data:
+            send_to_telegram(data)
+        time.sleep(40)  # Wait for 40 seconds before sending again
+
+
+@app.route('/')
+def home():
+    return "Growatt Monitoring API is running!"
+
+
+@app.route('/get_info', methods=['GET'])
+def get_info():
+    data = fetch_data()
+    if data:
+        return jsonify(data)
+    else:
+        return jsonify({"error": "Failed to fetch data"}), 500
+
+
+if __name__ == "__main__":
+    # Start the periodic task in a separate thread
+    threading.Thread(target=periodic_task, daemon=True).start()
+
+    # Run Flask app
+    app.run(debug=True, host="0.0.0.0", port=5000)
