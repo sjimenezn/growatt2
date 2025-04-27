@@ -33,6 +33,9 @@ def main():
         # Login to Growatt
         login_response = api.login(username, password)
         print("✅ Login successful!")
+
+        # Log the login response to Telegram
+        send_telegram_message(f"Login Response: {login_response}")
  
         # Create a timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -67,6 +70,9 @@ def main():
             print("📦 Raw storage_detail response:")
             print(storage_data)  # Print full raw data for inspection
 
+            # Send raw storage data to Telegram
+            send_telegram_message(f"Storage Detail Response: {storage_data}")
+
             # Check if the response is empty or invalid
             if not storage_data:
                 print("❌ Empty response received from storage_detail.")
@@ -95,6 +101,7 @@ def main():
         except Exception as e:
             print("❌ Failed to get storage_detail.")
             print("Error:", e)
+            send_telegram_message(f"Error in storage_detail: {str(e)}")
 
         # Stop execution here after sending the message
         print("✅ Successfully sent a message to Telegram. Stopping execution.")
@@ -102,6 +109,7 @@ def main():
     except Exception as e:
         print("❌ Error during login or data fetch.")
         print(f"Error: {e}")
+        send_telegram_message(f"Error during login or data fetch: {str(e)}")
 
 if __name__ == "__main__":
     main()
