@@ -20,9 +20,9 @@ try:
     print("✅ Login successful!")
     print("Login response:", login_response)  # Log the entire response
 
-    # Check if 'user' exists in the response
-    if 'user' in login_response:
-        user_id = login_response['user']['id']
+    # Check if 'userId' exists in the response and proceed accordingly
+    if 'userId' in login_response:
+        user_id = login_response['userId']  # Get userId from the response
         plant_info = api.plant_list(user_id)
         plant_id = plant_info['data'][0]['plantId']
         print("🌿 Plant ID:", plant_id)
@@ -46,7 +46,7 @@ try:
             print("❌ Failed to get storage_detail.")
             print("Error:", e)
     else:
-        print("❌ 'user' field not found in login response!")
+        print("❌ 'userId' field not found in login response!")
 
 except Exception as e:
     print("❌ Error during login or data fetch.")
