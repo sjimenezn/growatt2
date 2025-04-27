@@ -1,88 +1,114 @@
 from flask import Flask, jsonify
-import growattServer
+import threading
+import time
+import requests
+from growattServer import GrowattApi
 
-# Step 1: Set Growatt credentials
+# Credentials
 username = "vospina"
 password = "Vospina.2025"
 
-# Step 2: Create an API instance
-api = growattServer.GrowattApi()
+# Telegram Config
+TELEGRAM_TOKEN = "7653969082:AAGJ5_P23E6SbkJnTSHOjHhUGlKwcE_hao8"
+CHAT_ID = "5715745951"
 
-# Step 3: Set a mobile Chrome on iPhone user-agent
+# Setup Flask app
+app = Flask(__name__)
+
+# Setup Growatt API
+api = GrowattApi()
 api.session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/117.0.5938.117 Mobile/15E148 Safari/604.1'
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 })
 
-# Step 4: Initialize Flask app
-app = Flask(__name__)
-logs = []  # Save logs here
-
-@app.route('/growatt_data')
-def growatt_data():
-    global logs
-    logs = []  # Reset logs every call
+# Send Telegram message function
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message}
     try:
-        # Login
-        logs.append("✅ Attempting Growatt login...")
-        login_response = api.login(username, password)
-        logs.append(f"Login raw response: {repr(login_response)}")
-
-        # Correct user ID fetching
-        user_id = login_response.get('user', {}).get('id')
-        if not user_id:
-            user_id = login_response.get('userId')  # Alternative method
-        if not user_id:
-            logs.append("❌ Cannot find user ID.")
-            return jsonify({"error": "Cannot find user ID", "logs": logs})
-
-        logs.append(f"🌿 User ID: {user_id}")
-
-        # Get plant info
-        plant_info = api.plant_list(user_id)
-        plant_id = plant_info['data'][0]['plantId']
-        logs.append(f"🌿 Plant ID: {plant_id}")
-
-        # Get inverter info
-        inverter_list = api.inverter_list(plant_id)
-        inverter_sn = inverter_list[0]['deviceSn']
-        logs.append(f"🔌 Inverter SN: {inverter_sn}")
-
-        # Try getting storage details
-        try:
-            storage_data = api.storage_detail(inverter_sn)
-            logs.append("📦 Raw storage_detail response:")
-            logs.append(repr(storage_data))
-
-            # Parsed keys and values
-            for key, value in storage_data.get("data", {}).items():
-                logs.append(f"{key}: {value}")
-
-            # Pretty final values
-            logs.append("\n⚡ Key values:")
-            logs.append(f"AC Input Voltage    : {storage_data.get('vGrid')} V")
-            logs.append(f"AC Input Frequency  : {storage_data.get('freqGrid')} Hz")
-            logs.append(f"AC Output Voltage   : {storage_data.get('outPutVolt')} V")
-            logs.append(f"AC Output Frequency : {storage_data.get('freqOutPut')} Hz")
-            logs.append(f"Battery Voltage     : {storage_data.get('vbat')} V")
-            logs.append(f"Active Power Output : {storage_data.get('activePower')} W")
-            logs.append(f"Battery Capacity    : {storage_data.get('capacity')}%")
-            logs.append(f"Load Percentage     : {storage_data.get('loadPercent')}%")
-
-        except Exception as e:
-            logs.append("❌ Failed to get storage_detail.")
-            logs.append(f"Error: {str(e)}")
-
+        requests.post(url, data=payload, timeout=10)
     except Exception as e:
-        logs.append("❌ Error during login or data fetch.")
-        logs.append(f"Error: {str(e)}")
+        print(f"❌ Failed to send Telegram message: {e}")
 
-    # Return all logs as JSON
-    return jsonify({"logs": logs})
+# Growatt login and initialization
+def login_growatt():
+    login_response = api.login(username, password)
+    plant_info = api.plant_list(login_response['user']['id'])
+    plant_id = plant_info['data'][0]['plantId']
+    inverter_info = api.inverter_list(plant_id)
+    inverter_sn = inverter_info[0]['deviceSn']
+    return inverter_sn
 
-@app.route('/')
+# Monitoring function
+def monitor_growatt():
+    try:
+        inverter_sn = login_growatt()
+        print("✅ Growatt login and initialization successful!")
+
+        while True:
+            try:
+                data = api.storage_detail(inverter_sn)
+
+                ac_input_v = data.get("vGrid", "N/A")
+                ac_input_f = data.get("freqGrid", "N/A")
+                ac_output_v = data.get("outPutVolt", "N/A")
+                ac_output_f = data.get("freqOutPut", "N/A")
+                load_w = data.get("activePower", "N/A")
+                battery_pct = data.get("capacity", "N/A")
+
+                message = f"""\
+AC INPUT          : {ac_input_v} V / {ac_input_f} Hz
+AC OUTPUT      : {ac_output_v} V / {ac_output_f} Hz
+Household load : {load_w} W
+Battery %           : {battery_pct}"""
+
+                print(message)
+
+                if ac_input_v != "N/A" and float(ac_input_v) < 140:
+                    send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + message)
+
+            except Exception as e_inner:
+                print(f"⚠️ Error during monitoring: {e_inner}")
+                print("🔄 Re-logging into Growatt...")
+                inverter_sn = login_growatt()
+
+            time.sleep(10)
+
+    except Exception as e_outer:
+        print(f"❌ Fatal error: {e_outer}")
+
+# Flask route for the home page
+@app.route("/")
 def home():
-    return "✅ Growatt Monitor is Running! Access /growatt_data to see logs."
+    return "✅ Growatt Monitor is Running!"
 
+# Flask route for Growatt data
+@app.route("/growatt_data")
+def growatt_data():
+    try:
+        inverter_sn = login_growatt()
+        data = api.storage_detail(inverter_sn)
+
+        ac_input_v = data.get("vGrid", "N/A")
+        ac_input_f = data.get("freqGrid", "N/A")
+        ac_output_v = data.get("outPutVolt", "N/A")
+        ac_output_f = data.get("freqOutPut", "N/A")
+        load_w = data.get("activePower", "N/A")
+        battery_pct = data.get("capacity", "N/A")
+
+        return jsonify({
+            "ac_input_voltage": ac_input_v,
+            "ac_input_frequency": ac_input_f,
+            "ac_output_voltage": ac_output_v,
+            "ac_output_frequency": ac_output_f,
+            "load_power": load_w,
+            "battery_capacity": battery_pct
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Starting monitoring and Flask server
 if __name__ == "__main__":
-    # Run Flask app
-    app.run(debug=True, host='0.0.0.0', port=8000)
+    threading.Thread(target=monitor_growatt, daemon=True).start()
+    app.run(host="0.0.0.0", port=8000)
+        
