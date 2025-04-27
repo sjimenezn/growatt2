@@ -1,57 +1,62 @@
 import requests
-from datetime import datetime
 import growattServer
+from datetime import datetime
 
-# Step 1: Set your Growatt credentials
+# Credentials for Growatt
 username = "vospina"
 password = "Vospina.2025"
 
-# Step 2: Set the Telegram token and chat ID
+# Telegram Bot Token and Chat ID
 telegram_token = "YOUR_BOT_TOKEN"
 chat_id = "YOUR_CHAT_ID"
 
-# Step 3: Set up the API
+# Setup Growatt API
 api = growattServer.GrowattApi()
-
-# Step 4: Set a mobile Chrome on iPhone user-agent
 api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/117.0.5938.117 Mobile/15E148 Safari/604.1'
 })
 
-# Step 5: Log in and retrieve userId and plantId
-try:
-    # Login
-    login_response = api.login(username, password)
-    print("✅ Login successful!")
+# Main function to retrieve userId and plantId
+def main():
+    try:
+        # Login to Growatt and get the userId and plantId
+        login_response = api.login(username, password)
+        print("✅ Login successful!")
+        
+        # Print the login response to inspect its structure
+        print("Login response:", login_response)
+        
+        # Directly fetch userId and plantId from the login response
+        user_id = login_response['userId']
+        plant_info = api.plant_list(user_id)
+        plant_id = plant_info['data'][0]['plantId']
+        
+        print(f"🌿 User ID: {user_id}")
+        print(f"🌿 Plant ID: {plant_id}")
+        
+        # --- ADD TELEGRAM MESSAGE HERE ---
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        message = f"User ID: {user_id}\nPlant ID: {plant_id}\nTimestamp: {timestamp}"
+        
+        url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+        params = {
+            'chat_id': chat_id,
+            'text': message
+        }
+        response = requests.get(url, params=params)
 
-    # Accessing plant info directly
-    plant_info = api.plant_list()  # Directly fetch plant list without user dependency
-    plant_id = plant_info['data'][0]['plantId']
-    
-    print(f"🌿 Plant ID: {plant_id}")
+        if response.status_code == 200:
+            print("✅ Message sent to Telegram!")
+        else:
+            print(f"❌ Failed to send message: {response.text}")
+        # --- END TELEGRAM MESSAGE ---
 
-    # Get current timestamp with seconds
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # Stop execution after retrieving the data
+        print("✅ Successfully retrieved userId and plantId. Stopping execution.")
+        
+    except Exception as e:
+        print("❌ Error during login or data fetch.")
+        print(f"Error: {e}")
 
-    # Step 6: Send a message to Telegram with the plantId and timestamp
-    message = f"Plant ID: {plant_id}\nTimestamp: {timestamp}"
-    
-    # Send the message to Telegram
-    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-    params = {
-        'chat_id': chat_id,
-        'text': message
-    }
-    response = requests.get(url, params=params)
-
-    if response.status_code == 200:
-        print("✅ Message sent to Telegram!")
-    else:
-        print(f"❌ Failed to send message: {response.text}")
-
-    # Stopping execution
-    print("✅ Successfully sent message to Telegram. Stopping execution.")
-
-except Exception as e:
-    print("❌ Error during login or data fetch.")
-    print("Error:", e)
+if __name__ == "__main__":
+    main()
