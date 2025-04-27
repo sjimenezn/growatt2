@@ -30,7 +30,14 @@ def monitor():
         # Login
         login_response = api.login(username, password)
         print("✅ Login successful!")
-
+        
+        # Debug: Print the full login response
+        print("Login response:", login_response)
+        
+        # Check if 'user' exists in the login response
+        if 'user' not in login_response:
+            raise Exception("❌ 'user' field not found in login response")
+        
         # Get user ID and plant info
         user_id = login_response['user']['id']
         plant_info = api.plant_list(user_id)
