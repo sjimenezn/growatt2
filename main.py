@@ -1,44 +1,70 @@
-# Step 1: Install the growattServer library
-!pip install growattServer
+import time
+import requests
+from growattServer import GrowattApi
 
-# Step 2: Import required modules
-import growattServer
-from datetime import datetime
-
-# Step 3: Set Growatt credentials
+# Credentials
 username = "vospina"
 password = "Vospina.2025"
 
-# Step 4: Initialize the API
-api = growattServer.GrowattApi()
+# Telegram Config
+TELEGRAM_TOKEN = "7653969082:AAGJ5_P23E6SbkJnTSHOjHhUGlKwcE_hao8"
+CHAT_ID = "5715745951"
 
-# Step 5: Set mobile user-agent to avoid captcha
+# Setup Growatt API
+api = GrowattApi()
 api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 })
 
-# Step 6: Login and pull data
-try:
-    # Login
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message}
+    try:
+        requests.post(url, data=payload, timeout=10)
+    except Exception as e:
+        print(f"❌ Failed to send Telegram message: {e}")
+
+def login_growatt():
     login_response = api.login(username, password)
-    print("Login successful!")
+    plant_info = api.plant_list(login_response['user']['id'])
+    plant_id = plant_info['data'][0]['plantId']
+    inverter_info = api.inverter_list(plant_id)
+    inverter_sn = inverter_info[0]['deviceSn']
+    return inverter_sn
 
-    # Extract user ID and plant ID
-    user_id = login_response['user']['id']
-    plant_id = 2817170
+# Main script
+try:
+    inverter_sn = login_growatt()
+    print("✅ Growatt login and initialization successful!")
 
-    # Get the list of devices
-    devices = api.device_list(plant_id)
-    print("Device List:", devices)
+    while True:
+        try:
+            data = api.storage_detail(inverter_sn)
 
-    # Get inverter serial number
-    inverter_sn = devices[0]['deviceSn']
-    print("Inverter Serial Number:", inverter_sn)
+            ac_input_v = data.get("vGrid", "N/A")
+            ac_input_f = data.get("freqGrid", "N/A")
+            ac_output_v = data.get("outPutVolt", "N/A")
+            ac_output_f = data.get("freqOutPut", "N/A")
+            load_w = data.get("activePower", "N/A")
+            battery_pct = data.get("capacity", "N/A")
 
-    # Try to pull storage energy overview with correct arguments
-    storage_data = api.storage_energy_overview(plant_id, inverter_sn)
-    print("Storage Energy Overview:")
-    print(storage_data)
+            message = f"""\
+AC INPUT          : {ac_input_v} V / {ac_input_f} Hz
+AC OUTPUT      : {ac_output_v} V / {ac_output_f} Hz
+Household load : {load_w} W
+Battery %%           : {battery_pct}"""
 
-except Exception as e:
-    print("Error:", e)
+            print(message)
+
+            if ac_input_v != "N/A" and float(ac_input_v) < 90:
+                send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + message)
+
+        except Exception as e_inner:
+            print(f"⚠️ Error during monitoring: {e_inner}")
+            print("🔄 Re-logging into Growatt...")
+            inverter_sn = login_growatt()
+
+        time.sleep(20)
+
+except Exception as e_outer:
+    print(f"❌ Fatal error: {e_outer}")
