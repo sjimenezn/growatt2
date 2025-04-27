@@ -2,9 +2,12 @@ from flask import Flask
 import threading
 import time
 import requests
-import logging
-from io import StringIO
 from growattServer import GrowattApi
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+log = logging.getLogger()
 
 # Credentials
 username = "vospina"
@@ -23,14 +26,7 @@ api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 })
 
-# Setup in-memory log capture (we'll capture logs to a StringIO object)
-log_stream = StringIO()
-
-# Setup Python logging to write logs to StringIO
-logging.basicConfig(stream=log_stream, level=logging.INFO, format="%(asctime)s - %(message)s")
-
-# Track monitoring status
-monitoring_status = "Starting Growatt Monitor..."
+message_log = []  # This will store the logs of sent messages
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -38,14 +34,19 @@ def send_telegram_message(message):
     try:
         response = requests.post(url, data=payload, timeout=10)
         if response.status_code == 200:
-            logging.info("✅ Message sent successfully.")
+            log_msg = f"✅ Message sent successfully! \nMessage: {message}"
+            message_log.append(log_msg)  # Log successful attempt
+            log.info(log_msg)
         else:
-            logging.warning(f"⚠️ Telegram API responded with status code {response.status_code}: {response.text}")
+            log_msg = f"❌ Failed to send message. Status code: {response.status_code} \nMessage: {message}"
+            message_log.append(log_msg)  # Log failure
+            log.error(log_msg)
     except Exception as e:
-        logging.error(f"❌ Failed to send Telegram message: {e}")
+        log_msg = f"❌ Error sending message: {str(e)} \nMessage: {message}"
+        message_log.append(log_msg)  # Log error
+        log.error(log_msg)
 
 def login_growatt():
-    logging.info("🔄 Logging into Growatt...")
     login_response = api.login(username, password)
     plant_info = api.plant_list(login_response['user']['id'])
     plant_id = plant_info['data'][0]['plantId']
@@ -54,11 +55,9 @@ def login_growatt():
     return inverter_sn
 
 def monitor_growatt():
-    global monitoring_status
     try:
         inverter_sn = login_growatt()
-        monitoring_status = "✅ Growatt Monitor is Running!"
-        logging.info("✅ Growatt login and initialization successful!")
+        log.info("✅ Growatt login and initialization successful!")
 
         while True:
             try:
@@ -77,31 +76,25 @@ AC OUTPUT      : {ac_output_v} V / {ac_output_f} Hz
 Household load : {load_w} W
 Battery %           : {battery_pct}"""
 
-                logging.info(message)
+                log.info(message)
 
                 if ac_input_v != "N/A" and float(ac_input_v) < 140:
                     send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + message)
 
             except Exception as e_inner:
-                logging.error(f"⚠️ Error during monitoring: {e_inner}")
-                logging.info("🔄 Re-logging into Growatt...")
+                log.error(f"⚠️ Error during monitoring: {e_inner}")
+                log.info("🔄 Re-logging into Growatt...")
                 inverter_sn = login_growatt()
 
             time.sleep(10)
 
     except Exception as e_outer:
-        monitoring_status = f"❌ Fatal error: {e_outer}"
-        logging.error(f"❌ Fatal error: {e_outer}")
+        log.error(f"❌ Fatal error: {e_outer}")
 
 @app.route("/")
 def home():
-    # Show current monitoring status and logs
-    logs = log_stream.getvalue()
-    return f"""
-    <h1>{monitoring_status}</h1>
-    <h3>Logs from Python Monitoring Script:</h3>
-    <pre>{logs}</pre>
-    """
+    log_display = "\n".join(message_log)  # Display the logs on the page
+    return f"✅ Growatt Monitor is Running!<br><br>Logs from Python Monitoring Script:<br>{log_display}"
 
 if __name__ == "__main__":
     threading.Thread(target=monitor_growatt, daemon=True).start()
