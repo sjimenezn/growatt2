@@ -7,7 +7,7 @@ username = "vospina"
 password = "Vospina.2025"
 
 # Telegram Bot Token and Chat ID
-telegram_token = "7070523158:AAFROcnI1N38T8AFOwDCav2cUI0Ney7boFg"
+telegram_token = "7653969082:AAGJ5_P23E6SbkJnTSHOjHhUGlKwcE_hao8"
 chat_id = "5527163642"
 
 # Setup Growatt API
