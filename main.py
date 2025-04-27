@@ -55,20 +55,23 @@ def main():
         print("\n🔍 Trying `storage_detail` (verbose)...")
         try:
             storage_data = api.storage_detail(inverter_sn)
-            print("📦 Raw storage_detail response:")
-            print(storage_data)  # Print full raw data for inspection
+            
+            # Log the raw storage data response to Telegram
+            send_telegram_message(f"Raw Storage Detail Response: {storage_data}")
+            
+            # Check if the storage data is empty or invalid
+            if not storage_data or 'data' not in storage_data:
+                print("❌ Storage detail response is empty or invalid.")
+                send_telegram_message("❌ Storage detail response is empty or invalid.")
+            else:
+                # Parse and send parsed storage details to Telegram
+                print("\n🔎 Parsed keys and values:")
+                parsed_message = "\n🔎 Parsed Storage Detail:"
+                for key, value in storage_data.get("data", {}).items():
+                    print(f"{key}: {value}")
+                    parsed_message += f"\n{key}: {value}"
 
-            # Log the storage detail response to Telegram
-            send_telegram_message(f"Storage Detail Response: {storage_data}")
-
-            # Parse and send parsed storage details to Telegram
-            print("\n🔎 Parsed keys and values:")
-            parsed_message = "\n🔎 Parsed Storage Detail:"
-            for key, value in storage_data.get("data", {}).items():
-                print(f"{key}: {value}")
-                parsed_message += f"\n{key}: {value}"
-
-            send_telegram_message(parsed_message)
+                send_telegram_message(parsed_message)
 
         except Exception as e:
             print("❌ Failed to get storage_detail.")
