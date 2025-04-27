@@ -1,6 +1,6 @@
 import requests
 import growattServer
-from datetime import datetime  # Add this import
+from datetime import datetime
 
 # Credentials for Growatt
 username = "vospina"
@@ -33,52 +33,58 @@ def main():
         # Login to Growatt
         login_response = api.login(username, password)
         print("✅ Login successful!")
-        # Log the login response for troubleshooting
-        send_telegram_message(f"Login Response: {login_response}")
+        print("Login Response:", login_response)  # Log the response
+
+        # Create a timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Fetch userId and plantId
         user_id = login_response['userId']
         plant_info = api.plant_list(user_id)
-        print("🌿 Plant info:", plant_info)  # Log the full plant info response
-        send_telegram_message(f"Plant Info Response: {plant_info}")
-
+        print("Plant Info Response:", plant_info)  # Log the plant info response
         plant_id = plant_info['data'][0]['plantId']
-        # Get inverter info
+
+        # Fetch inverter info
         inverter_list = api.inverter_list(plant_id)
         inverter_sn = inverter_list[0]['deviceSn']
-        print("🔌 Inverter SN:", inverter_sn)
+        print(f"🔌 Inverter SN: {inverter_sn}")
 
         # Try getting storage details
-        print("\n🔍 Trying `storage_detail` (verbose)...")
         try:
             storage_data = api.storage_detail(inverter_sn)
-            
-            # Log the raw storage data response and inspect if it's empty or invalid
-            if not storage_data:
-                raise ValueError("Empty response from `storage_detail`")
-
             print("📦 Raw storage_detail response:")
-            print(storage_data)  # Print full raw data for inspection
-            send_telegram_message(f"Raw storage_detail response: {storage_data}")
+            print(storage_data)  # Log the storage data response
 
+            # Log parsed storage values
             print("\n🔎 Parsed keys and values:")
-            parsed_values = ""
             for key, value in storage_data.get("data", {}).items():
                 print(f"{key}: {value}")
-                parsed_values += f"{key}: {value}\n"
 
-            # Send parsed values to Telegram
-            send_telegram_message(f"Parsed Storage Data: {parsed_values}")
+            # Send the formatted message to Telegram
+            message = (
+                f"Growatt Info:\n"
+                f"User ID: {user_id}\n"
+                f"Plant ID: {plant_id}\n"
+                f"Timestamp: {timestamp}\n"
+                f"Storage Data:\n"
+                f"AC Input Voltage    : {storage_data.get('vGrid')} V\n"
+                f"AC Input Frequency  : {storage_data.get('freqGrid')} Hz\n"
+                f"AC Output Voltage   : {storage_data.get('outPutVolt')} V\n"
+                f"AC Output Frequency : {storage_data.get('freqOutPut')} Hz\n"
+                f"Battery Voltage     : {storage_data.get('vbat')} V\n"
+                f"Active Power Output : {storage_data.get('activePower')} W\n"
+                f"Battery Capacity    : {storage_data.get('capacity')}%\n"
+                f"Load Percentage     : {storage_data.get('loadPercent')}%"
+            )
+            send_telegram_message(message)
 
         except Exception as e:
             print("❌ Failed to get storage_detail.")
-            print(f"Error: {e}")
-            send_telegram_message(f"Error getting storage_detail: {e}")
+            print("Error:", e)
 
     except Exception as e:
         print("❌ Error during login or data fetch.")
         print(f"Error: {e}")
-        send_telegram_message(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
