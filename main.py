@@ -15,48 +15,50 @@ CHAT_ID = "5715745951"
 
 # === Setup Flask app ===
 app = Flask(__name__)
+message_log = []  # Store logs for the web page
 
-# === Setup Logging ===
+# === Setup Logger ===
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 log = logging.getLogger()
-message_log = []
 
 # === Setup Growatt API ===
 api = GrowattApi()
 api.session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/91.0.4472.77 Mobile/15E148 Safari/604.1'
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Chrome/96.0.4664.45 Mobile/15E148 Safari/604.1'
 })
 
+# === Send Telegram Message ===
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
     try:
         response = requests.post(url, data=payload, timeout=10)
         if response.status_code == 200:
-            log.info("✅ Telegram message sent successfully.")
-            message_log.append("✅ Telegram message sent successfully.")
+            log.info(f"✅ Telegram message sent: {message}")
+            message_log.append(f"✅ Telegram message sent: {message}")
         else:
-            log.error(f"❌ Telegram send failed: {response.text}")
-            message_log.append(f"❌ Telegram send failed: {response.text}")
+            log.warning(f"⚠️ Telegram send failed: {response.text}")
+            message_log.append(f"⚠️ Telegram send failed: {response.text}")
     except Exception as e:
-        log.error(f"❌ Telegram send error: {e}")
-        message_log.append(f"❌ Telegram send error: {e}")
+        log.error(f"❌ Failed to send Telegram message: {e}")
+        message_log.append(f"❌ Failed to send Telegram message: {e}")
 
+# === Growatt Login ===
 def login_growatt():
     login_response = api.login(username, password)
     log.info(f"Login response: {login_response}")
     message_log.append(f"Login response: {login_response}")
-    plant_info = api.plant_list(login_response['user']['id'])
+    plant_info = api.plant_list(login_response['userId'])  # <<< FIXED
     plant_id = plant_info['data'][0]['plantId']
     inverter_info = api.inverter_list(plant_id)
     inverter_sn = inverter_info[0]['deviceSn']
     return inverter_sn
 
+# === Monitoring Function ===
 def monitor_growatt():
     try:
         log.info("🔄 Monitoring started, waiting for data...")
         message_log.append("🔄 Monitoring started, waiting for data...")
-
         inverter_sn = login_growatt()
         log.info("✅ Growatt login and initialization successful!")
         message_log.append("✅ Growatt login and initialization successful!")
@@ -85,7 +87,7 @@ Battery %           : {battery_pct}"""
                     send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + message)
 
             except Exception as e_inner:
-                log.error(f"⚠️ Error during monitoring: {e_inner}")
+                log.warning(f"⚠️ Error during monitoring: {e_inner}")
                 message_log.append(f"⚠️ Error during monitoring: {e_inner}")
                 log.info("🔄 Re-logging into Growatt...")
                 message_log.append("🔄 Re-logging into Growatt...")
@@ -97,20 +99,13 @@ Battery %           : {battery_pct}"""
         log.error(f"❌ Fatal error: {e_outer}")
         message_log.append(f"❌ Fatal error: {e_outer}")
 
+# === Web Endpoint ===
 @app.route("/")
 def home():
-    log_html = "<br>".join(message_log[-50:])  # Last 50 logs only
-    return f"""
-    <html>
-    <head><meta http-equiv="refresh" content="10"></head>
-    <body>
-    <h2>✅ Growatt Monitor is Running!</h2>
-    <h3>Logs from Python Monitoring Script:</h3>
-    <pre>{log_html}</pre>
-    </body>
-    </html>
-    """
+    log_html = "<br>".join(message_log[-50:])  # Show last 50 messages
+    return f"<h2>✅ Growatt Monitor is Running!</h2><br><h3>Logs from Python Monitoring Script:</h3><br>{log_html}"
 
+# === Run Everything ===
 if __name__ == "__main__":
     threading.Thread(target=monitor_growatt, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
