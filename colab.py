@@ -1,3 +1,34 @@
+Requirement already satisfied: growattServer in /usr/local/lib/python3.11/dist-packages (1.7.0)
+Requirement already satisfied: requests in /usr/local/lib/python3.11/dist-packages (from growattServer) (2.32.3)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.11/dist-packages (from requests->growattServer) (3.4.1)
+Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.11/dist-packages (from requests->growattServer) (3.10)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.11/dist-packages (from requests->growattServer) (2.3.0)
+Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.11/dist-packages (from requests->growattServer) (2025.1.31)
+✅ Login successful!
+🌿 Plant ID: 2817170
+🔌 Inverter SN: BNG7CH806N
+
+🔍 Trying `storage_detail` (verbose)...
+📦 Raw storage_detail response:
+{'vpv2': '0', 'eBatDisChargeTotal': '75.2', 'batSn': '', 'vpv1': '199.8', 'pCharge1': '56', 'outPutPower': '49', 'pCharge2': '0', 'loadPercent': '1.6', 'apparentPower': '67', 'vbat': '49.95', 'eBatChargeToday': '2.9', 'iChargePV1': '1.1', 'freqGrid': '59.99', 'iChargePV2': '0', 'outPutVolt': '121.3', 'capacity': '97', 'freqOutPut': '60.01', 'epvToday': '2.9', 'eBatChargeTotal': '359.4', 'epvTotal': '51.2', 'vGrid': '120.5', 'eBatDisChargeToday': '0.4', 'activePower': '49'}
+
+🔎 Parsed keys and values:
+
+⚡ Key values:
+AC Input Voltage    : 120.5 V
+AC Input Frequency  : 59.99 Hz
+AC Output Voltage   : 121.3 V
+AC Output Frequency : 60.01 Hz
+Battery Voltage     : 49.95 V
+Active Power Output : 49 W
+Battery Capacity    : 97%
+Load Percentage     : 1.6%
+
+
+
+
+
+
 # Step 1: Install the growattServer library
 !pip install growattServer
 
