@@ -1,7 +1,3 @@
-# Install the growattServer library
-!pip install growattServer
-
-# Import libraries
 import growattServer
 import requests
 import time
