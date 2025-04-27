@@ -1,5 +1,6 @@
 import requests
 import growattServer
+from datetime import datetime  # Add this import
 
 # Credentials for Growatt
 username = "vospina"
@@ -32,13 +33,16 @@ def main():
         # Login to Growatt
         login_response = api.login(username, password)
         print("✅ Login successful!")
-        
-        # Just send a test message to Telegram
-        send_telegram_message("Test message from Growatt monitoring script.")
-        
+
+        # Create a timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Send message with timestamp
+        send_telegram_message(f"Test message from Growatt monitoring script. Timestamp: {timestamp}")
+
         # Stop execution here after sending the message
         print("✅ Successfully sent a test message to Telegram. Stopping execution.")
-        
+
     except Exception as e:
         print("❌ Error during login.")
         print(f"Error: {e}")
