@@ -93,7 +93,7 @@ Battery %           : {battery_pct}"""
 
 @app.route("/")
 def home():
-    log_display = "\n".join(message_log)  # Display the logs on the page
+    log_display = "<br>".join(message_log)  # Join logs with <br> to show them line by line on the webpage
     return f"✅ Growatt Monitor is Running!<br><br>Logs from Python Monitoring Script:<br>{log_display}"
 
 if __name__ == "__main__":
