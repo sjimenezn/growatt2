@@ -1,27 +1,25 @@
-from flask import Flask, jsonify
-import threading
-import time
-import requests
-from growattServer import GrowattApi
+# Install the growattServer library
+!pip install growattServer
 
-# Credentials
+# Import libraries
+import growattServer
+import requests
+import time
+
+# Growatt credentials
 username = "vospina"
 password = "Vospina.2025"
 
-# Telegram Config
+# Telegram config
 TELEGRAM_TOKEN = "7653969082:AAGJ5_P23E6SbkJnTSHOjHhUGlKwcE_hao8"
 CHAT_ID = "5715745951"
 
-# Setup Flask app
-app = Flask(__name__)
-
-# Setup Growatt API
-api = GrowattApi()
+# Create Growatt API instance
+api = growattServer.GrowattApi()
 api.session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/117.0.5938.117 Mobile/15E148 Safari/604.1'
 })
 
-# Send Telegram message function
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
@@ -30,85 +28,52 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"❌ Failed to send Telegram message: {e}")
 
-# Growatt login and initialization
-def login_growatt():
-    login_response = api.login(username, password)
-    plant_info = api.plant_list(login_response['user']['id'])
-    plant_id = plant_info['data'][0]['plantId']
-    inverter_info = api.inverter_list(plant_id)
-    inverter_sn = inverter_info[0]['deviceSn']
-    return inverter_sn
-
-# Monitoring function
-def monitor_growatt():
+# Main monitoring function
+def monitor():
     try:
-        inverter_sn = login_growatt()
-        print("✅ Growatt login and initialization successful!")
+        # Login
+        login_response = api.login(username, password)
+        print("✅ Login successful!")
+
+        # Get user ID and plant info
+        user_id = login_response['user']['id']
+        plant_info = api.plant_list(user_id)
+        plant_id = plant_info['data'][0]['plantId']
+        print("🌿 Plant ID:", plant_id)
+
+        # Get inverter info
+        inverter_list = api.inverter_list(plant_id)
+        inverter_sn = inverter_list[0]['deviceSn']
+        print("🔌 Inverter SN:", inverter_sn)
 
         while True:
             try:
-                data = api.storage_detail(inverter_sn)
+                storage_data = api.storage_detail(inverter_sn)
 
-                ac_input_v = data.get("vGrid", "N/A")
-                ac_input_f = data.get("freqGrid", "N/A")
-                ac_output_v = data.get("outPutVolt", "N/A")
-                ac_output_f = data.get("freqOutPut", "N/A")
-                load_w = data.get("activePower", "N/A")
-                battery_pct = data.get("capacity", "N/A")
-
+                # Prepare the message
                 message = f"""\
-AC INPUT          : {ac_input_v} V / {ac_input_f} Hz
-AC OUTPUT      : {ac_output_v} V / {ac_output_f} Hz
-Household load : {load_w} W
-Battery %           : {battery_pct}"""
-
+AC Input Voltage    : {storage_data.get('vGrid')} V
+AC Input Frequency  : {storage_data.get('freqGrid')} Hz
+AC Output Voltage   : {storage_data.get('outPutVolt')} V
+AC Output Frequency : {storage_data.get('freqOutPut')} Hz
+Battery Voltage     : {storage_data.get('vbat')} V
+Active Power Output : {storage_data.get('activePower')} W
+Battery Capacity    : {storage_data.get('capacity')}%
+Load Percentage     : {storage_data.get('loadPercent')}%
+"""
                 print(message)
 
-                if ac_input_v != "N/A" and float(ac_input_v) < 140:
-                    send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + message)
+                # Send to Telegram
+                send_telegram_message(message)
 
             except Exception as e_inner:
-                print(f"⚠️ Error during monitoring: {e_inner}")
-                print("🔄 Re-logging into Growatt...")
-                inverter_sn = login_growatt()
+                print(f"⚠️ Error during storage fetch: {e_inner}")
 
-            time.sleep(10)
+            # Wait 60 seconds before next check
+            time.sleep(60)
 
     except Exception as e_outer:
-        print(f"❌ Fatal error: {e_outer}")
+        print(f"❌ Fatal error during startup: {e_outer}")
 
-# Flask route for the home page
-@app.route("/")
-def home():
-    return "✅ Growatt Monitor is Running!"
-
-# Flask route for Growatt data
-@app.route("/growatt_data")
-def growatt_data():
-    try:
-        inverter_sn = login_growatt()
-        data = api.storage_detail(inverter_sn)
-
-        ac_input_v = data.get("vGrid", "N/A")
-        ac_input_f = data.get("freqGrid", "N/A")
-        ac_output_v = data.get("outPutVolt", "N/A")
-        ac_output_f = data.get("freqOutPut", "N/A")
-        load_w = data.get("activePower", "N/A")
-        battery_pct = data.get("capacity", "N/A")
-
-        return jsonify({
-            "ac_input_voltage": ac_input_v,
-            "ac_input_frequency": ac_input_f,
-            "ac_output_voltage": ac_output_v,
-            "ac_output_frequency": ac_output_f,
-            "load_power": load_w,
-            "battery_capacity": battery_pct
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Starting monitoring and Flask server
 if __name__ == "__main__":
-    threading.Thread(target=monitor_growatt, daemon=True).start()
-    app.run(host="0.0.0.0", port=8000)
-        
+    monitor()
