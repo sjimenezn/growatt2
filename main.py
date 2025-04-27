@@ -53,6 +53,42 @@ def main():
         # Send message
         send_telegram_message(message)
 
+        # Fetch inverter info
+        inverter_list = api.inverter_list(plant_id)
+        inverter_sn = inverter_list[0]['deviceSn']
+        print("🔌 Inverter SN:", inverter_sn)
+
+        # Try getting storage details
+        print("\n🔍 Trying `storage_detail` (verbose)...")
+        try:
+            storage_data = api.storage_detail(inverter_sn)
+            print("📦 Raw storage_detail response:")
+            print(storage_data)  # Print full raw data for inspection
+
+            print("\n🔎 Parsed keys and values:")
+            for key, value in storage_data.get("data", {}).items():
+                print(f"{key}: {value}")
+
+            # Prepare message with storage data values
+            storage_message = (
+                f"\n⚡ Key values:\n"
+                f"AC Input Voltage    : {storage_data.get('vGrid')} V\n"
+                f"AC Input Frequency  : {storage_data.get('freqGrid')} Hz\n"
+                f"AC Output Voltage   : {storage_data.get('outPutVolt')} V\n"
+                f"AC Output Frequency : {storage_data.get('freqOutPut')} Hz\n"
+                f"Battery Voltage     : {storage_data.get('vbat')} V\n"
+                f"Active Power Output : {storage_data.get('activePower')} W\n"
+                f"Battery Capacity    : {storage_data.get('capacity')}%\n"
+                f"Load Percentage     : {storage_data.get('loadPercent')}%\n"
+            )
+
+            # Send storage data to Telegram
+            send_telegram_message(storage_message)
+
+        except Exception as e:
+            print("❌ Failed to get storage_detail.")
+            print("Error:", e)
+
         # Stop execution here after sending the message
         print("✅ Successfully sent a message to Telegram. Stopping execution.")
 
