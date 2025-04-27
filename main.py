@@ -33,21 +33,14 @@ def main():
         login_response = api.login(username, password)
         print("✅ Login successful!")
         
-        # Retrieve user ID and plant info
-        user_id = login_response['user']['id']
-        plant_info = api.plant_list(user_id)
-        plant_id = plant_info['data'][0]['plantId']
-        print(f"🌿 Plant ID: {plant_id}")
-        
-        # Send userId and plantId to Telegram
-        message = f"✅ Login successful!\nUser ID: {user_id}\nPlant ID: {plant_id}"
-        send_telegram_message(message)
+        # Just send a test message to Telegram
+        send_telegram_message("Test message from Growatt monitoring script.")
         
         # Stop execution here after sending the message
-        print("✅ Successfully retrieved userId and plantId. Stopping execution.")
+        print("✅ Successfully sent a test message to Telegram. Stopping execution.")
         
     except Exception as e:
-        print("❌ Error during login or data fetch.")
+        print("❌ Error during login.")
         print(f"Error: {e}")
 
 if __name__ == "__main__":
