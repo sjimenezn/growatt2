@@ -1,6 +1,6 @@
 import requests
 import growattServer
-from datetime import datetime  # Add this import
+from datetime import datetime
 
 # Credentials for Growatt
 username = "vospina"
@@ -33,31 +33,29 @@ def main():
         # Login to Growatt
         login_response = api.login(username, password)
         print("✅ Login successful!")
-
-        # Log the login response to Telegram
+        
+        # Log the login response
         send_telegram_message(f"Login Response: {login_response}")
- 
+        
         # Create a timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Fetch userId and plantId
         user_id = login_response['userId']
         plant_info = api.plant_list(user_id)
+        
+        # Log the plant info response
+        send_telegram_message(f"Plant Info Response: {plant_info}")
+        
         plant_id = plant_info['data'][0]['plantId']
+        print("🌿 Plant ID:", plant_id)
 
-        # Prepare the message with userId, plantId and timestamp
-        message = (
-            f"Growatt Info:\n"
-            f"User ID: {user_id}\n"
-            f"Plant ID: {plant_id}\n"
-            f"Timestamp: {timestamp}"
-        )
-
-        # Send message
-        send_telegram_message(message)
-
-        # Fetch inverter info
+        # Get inverter info
         inverter_list = api.inverter_list(plant_id)
+        
+        # Log the inverter info response
+        send_telegram_message(f"Inverter List Response: {inverter_list}")
+        
         inverter_sn = inverter_list[0]['deviceSn']
         print("🔌 Inverter SN:", inverter_sn)
 
@@ -65,51 +63,24 @@ def main():
         print("\n🔍 Trying `storage_detail` (verbose)...")
         try:
             storage_data = api.storage_detail(inverter_sn)
+            send_telegram_message(f"Storage Detail Response: {storage_data}")
             
-            # Log the raw response for debugging
             print("📦 Raw storage_detail response:")
             print(storage_data)  # Print full raw data for inspection
-
-            # Send raw storage data to Telegram
-            send_telegram_message(f"Storage Detail Response: {storage_data}")
-
-            # Check if the response is empty or invalid
-            if not storage_data:
-                print("❌ Empty response received from storage_detail.")
-                return
 
             print("\n🔎 Parsed keys and values:")
             for key, value in storage_data.get("data", {}).items():
                 print(f"{key}: {value}")
 
-            # Prepare message with storage data values
-            storage_message = (
-                f"\n⚡ Key values:\n"
-                f"AC Input Voltage    : {storage_data.get('vGrid')} V\n"
-                f"AC Input Frequency  : {storage_data.get('freqGrid')} Hz\n"
-                f"AC Output Voltage   : {storage_data.get('outPutVolt')} V\n"
-                f"AC Output Frequency : {storage_data.get('freqOutPut')} Hz\n"
-                f"Battery Voltage     : {storage_data.get('vbat')} V\n"
-                f"Active Power Output : {storage_data.get('activePower')} W\n"
-                f"Battery Capacity    : {storage_data.get('capacity')}%\n"
-                f"Load Percentage     : {storage_data.get('loadPercent')}%\n"
-            )
-
-            # Send storage data to Telegram
-            send_telegram_message(storage_message)
-
         except Exception as e:
             print("❌ Failed to get storage_detail.")
             print("Error:", e)
-            send_telegram_message(f"Error in storage_detail: {str(e)}")
-
-        # Stop execution here after sending the message
-        print("✅ Successfully sent a message to Telegram. Stopping execution.")
+            send_telegram_message(f"Error during storage_detail fetch: {e}")
 
     except Exception as e:
         print("❌ Error during login or data fetch.")
         print(f"Error: {e}")
-        send_telegram_message(f"Error during login or data fetch: {str(e)}")
+        send_telegram_message(f"Error during login or data fetch: {e}")
 
 if __name__ == "__main__":
     main()
