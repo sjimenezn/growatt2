@@ -1,4 +1,4 @@
-#Flask==2.1.1
+Flask
 requests
 growattServer
-#Werkzeug==2.0.3
+Werkzeug
