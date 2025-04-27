@@ -1,6 +1,5 @@
 import requests
 import growattServer
-from datetime import datetime
 import time
 
 # Credentials for Growatt
@@ -55,11 +54,8 @@ def main():
             print(f"🌿 User ID: {user_id}")
             print(f"🌿 Plant ID: {plant_id}")
             
-            # Get current time with seconds
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Create message including current time
-            message = f"Test message from Growatt monitoring script at {current_time}."
+            # Create a simple message with the User ID and Plant ID
+            message = f"Test message: User ID: {user_id}, Plant ID: {plant_id}"
             
             # Send the message to Telegram
             send_telegram_message(message)
@@ -73,5 +69,7 @@ def main():
         print("❌ Error during login or data fetch.")
         print(f"Error: {e}")
 
+if __name__ == "__main__":
+    main()
 if __name__ == "__main__":
     main()
