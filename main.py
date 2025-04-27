@@ -21,20 +21,17 @@ def main():
         # Print the login response to inspect its structure
         print("Login response:", login_response)
         
-        # Check if 'user' field exists in the response
-        if 'user' in login_response:
-            user_id = login_response['user']['id']
-            plant_info = api.plant_list(user_id)
-            plant_id = plant_info['data'][0]['plantId']
-            
-            print(f"🌿 User ID: {user_id}")
-            print(f"🌿 Plant ID: {plant_id}")
-            
-            # Stop execution here after retrieving the data
-            print("✅ Successfully retrieved userId and plantId. Stopping execution.")
-        else:
-            print("❌ 'user' field not found in login response.")
-            
+        # Directly fetch userId and plantId from the login response
+        user_id = login_response['userId']
+        plant_info = api.plant_list(user_id)
+        plant_id = plant_info['data'][0]['plantId']
+        
+        print(f"🌿 User ID: {user_id}")
+        print(f"🌿 Plant ID: {plant_id}")
+        
+        # Stop execution after retrieving the data
+        print("✅ Successfully retrieved userId and plantId. Stopping execution.")
+        
     except Exception as e:
         print("❌ Error during login or data fetch.")
         print(f"Error: {e}")
