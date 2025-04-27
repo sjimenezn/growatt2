@@ -52,6 +52,11 @@ def main():
         print("\n🔍 Trying `storage_detail` (verbose)...")
         try:
             storage_data = api.storage_detail(inverter_sn)
+            
+            # Log the raw storage data response and inspect if it's empty or invalid
+            if not storage_data:
+                raise ValueError("Empty response from `storage_detail`")
+
             print("📦 Raw storage_detail response:")
             print(storage_data)  # Print full raw data for inspection
             send_telegram_message(f"Raw storage_detail response: {storage_data}")
@@ -67,7 +72,7 @@ def main():
 
         except Exception as e:
             print("❌ Failed to get storage_detail.")
-            print("Error:", e)
+            print(f"Error: {e}")
             send_telegram_message(f"Error getting storage_detail: {e}")
 
     except Exception as e:
