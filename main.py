@@ -99,7 +99,7 @@ def home():
     logs = log_stream.getvalue()
     return f"""
     <h1>{monitoring_status}</h1>
-    <h3>Logs:</h3>
+    <h3>Logs from Python Monitoring Script:</h3>
     <pre>{logs}</pre>
     """
 
