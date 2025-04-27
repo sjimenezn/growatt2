@@ -33,59 +33,47 @@ def main():
         # Login to Growatt
         login_response = api.login(username, password)
         print("✅ Login successful!")
-
-        # Log the login response to Telegram
+        # Log the login response for troubleshooting
         send_telegram_message(f"Login Response: {login_response}")
 
-        # Get user ID and plant info
+        # Fetch userId and plantId
         user_id = login_response['userId']
         plant_info = api.plant_list(user_id)
-        plant_id = plant_info['data'][0]['plantId']
-        print(f"🌿 Plant ID: {plant_id}")
-
-        # Log the plant info response to Telegram
+        print("🌿 Plant info:", plant_info)  # Log the full plant info response
         send_telegram_message(f"Plant Info Response: {plant_info}")
 
+        plant_id = plant_info['data'][0]['plantId']
         # Get inverter info
         inverter_list = api.inverter_list(plant_id)
         inverter_sn = inverter_list[0]['deviceSn']
-        print(f"🔌 Inverter SN: {inverter_sn}")
+        print("🔌 Inverter SN:", inverter_sn)
 
         # Try getting storage details
         print("\n🔍 Trying `storage_detail` (verbose)...")
         try:
             storage_data = api.storage_detail(inverter_sn)
-            
-            # Log the raw storage data response to Telegram
-            send_telegram_message(f"Raw Storage Detail Response: {storage_data}")
-            
-            # Check if the storage data is empty or invalid
-            if not storage_data or 'data' not in storage_data:
-                print("❌ Storage detail response is empty or invalid.")
-                send_telegram_message("❌ Storage detail response is empty or invalid.")
-            else:
-                # Parse and send parsed storage details to Telegram
-                print("\n🔎 Parsed keys and values:")
-                parsed_message = "\n🔎 Parsed Storage Detail:"
-                for key, value in storage_data.get("data", {}).items():
-                    print(f"{key}: {value}")
-                    parsed_message += f"\n{key}: {value}"
+            print("📦 Raw storage_detail response:")
+            print(storage_data)  # Print full raw data for inspection
+            send_telegram_message(f"Raw storage_detail response: {storage_data}")
 
-                send_telegram_message(parsed_message)
+            print("\n🔎 Parsed keys and values:")
+            parsed_values = ""
+            for key, value in storage_data.get("data", {}).items():
+                print(f"{key}: {value}")
+                parsed_values += f"{key}: {value}\n"
+
+            # Send parsed values to Telegram
+            send_telegram_message(f"Parsed Storage Data: {parsed_values}")
 
         except Exception as e:
             print("❌ Failed to get storage_detail.")
             print("Error:", e)
-
-            # Log the error to Telegram
-            send_telegram_message(f"Error while fetching storage_detail: {e}")
+            send_telegram_message(f"Error getting storage_detail: {e}")
 
     except Exception as e:
         print("❌ Error during login or data fetch.")
         print(f"Error: {e}")
-
-        # Log the error to Telegram
-        send_telegram_message(f"Error during login or data fetch: {e}")
+        send_telegram_message(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
