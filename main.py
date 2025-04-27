@@ -26,7 +26,7 @@ api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 })
 
-message_log = []  # This will store the logs of sent messages
+message_log = ["✅ Monitoring started, waiting for data..."]  # Initialize with a first message
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -34,17 +34,15 @@ def send_telegram_message(message):
     try:
         response = requests.post(url, data=payload, timeout=10)
         if response.status_code == 200:
-            log_msg = f"✅ Message sent successfully! \nMessage: {message}"
-            message_log.append(log_msg)  # Log successful attempt
+            log_msg = f"✅ Telegram sent successfully!\n{message}"
             log.info(log_msg)
         else:
-            log_msg = f"❌ Failed to send message. Status code: {response.status_code} \nMessage: {message}"
-            message_log.append(log_msg)  # Log failure
+            log_msg = f"❌ Telegram failed with status code {response.status_code}\n{message}"
             log.error(log_msg)
     except Exception as e:
-        log_msg = f"❌ Error sending message: {str(e)} \nMessage: {message}"
-        message_log.append(log_msg)  # Log error
+        log_msg = f"❌ Telegram error: {str(e)}\n{message}"
         log.error(log_msg)
+    message_log.append(log_msg)  # Save ALL message attempts to the log
 
 def login_growatt():
     login_response = api.login(username, password)
@@ -58,6 +56,7 @@ def monitor_growatt():
     try:
         inverter_sn = login_growatt()
         log.info("✅ Growatt login and initialization successful!")
+        message_log.append("✅ Growatt login successful!")
 
         while True:
             try:
@@ -70,19 +69,17 @@ def monitor_growatt():
                 load_w = data.get("activePower", "N/A")
                 battery_pct = data.get("capacity", "N/A")
 
-                message = f"""\
-AC INPUT          : {ac_input_v} V / {ac_input_f} Hz
-AC OUTPUT      : {ac_output_v} V / {ac_output_f} Hz
-Household load : {load_w} W
-Battery %           : {battery_pct}"""
+                status_message = f"""AC INPUT: {ac_input_v} V / {ac_input_f} Hz | AC OUTPUT: {ac_output_v} V / {ac_output_f} Hz | Load: {load_w} W | Battery: {battery_pct}%"""
 
-                log.info(message)
+                log.info(status_message)
+                message_log.append(status_message)
 
                 if ac_input_v != "N/A" and float(ac_input_v) < 140:
-                    send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + message)
+                    send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + status_message)
 
             except Exception as e_inner:
                 log.error(f"⚠️ Error during monitoring: {e_inner}")
+                message_log.append(f"⚠️ Error during monitoring: {e_inner}")
                 log.info("🔄 Re-logging into Growatt...")
                 inverter_sn = login_growatt()
 
@@ -90,11 +87,13 @@ Battery %           : {battery_pct}"""
 
     except Exception as e_outer:
         log.error(f"❌ Fatal error: {e_outer}")
+        message_log.append(f"❌ Fatal error: {e_outer}")
 
 @app.route("/")
 def home():
-    log_display = "<br>".join(message_log)  # Join logs with <br> to show them line by line on the webpage
-    return f"✅ Growatt Monitor is Running!<br><br>Logs from Python Monitoring Script:<br>{log_display}"
+    # Limit log to last 50 lines to not crash browser
+    display_log = "<br>".join(message_log[-50:])
+    return f"✅ Growatt Monitor is Running!<br><br>Logs from Python Monitoring Script:<br>{display_log}"
 
 if __name__ == "__main__":
     threading.Thread(target=monitor_growatt, daemon=True).start()
