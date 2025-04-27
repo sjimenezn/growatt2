@@ -37,14 +37,27 @@ def main():
         # Create a timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Send message with timestamp
-        send_telegram_message(f"Test message from Growatt monitoring script. Timestamp: {timestamp}")
+        # Fetch userId and plantId
+        user_id = login_response['userId']
+        plant_info = api.plant_list(user_id)
+        plant_id = plant_info['data'][0]['plantId']
+
+        # Prepare the message with userId, plantId and timestamp
+        message = (
+            f"Growatt Info:\n"
+            f"User ID: {user_id}\n"
+            f"Plant ID: {plant_id}\n"
+            f"Timestamp: {timestamp}"
+        )
+
+        # Send message
+        send_telegram_message(message)
 
         # Stop execution here after sending the message
-        print("✅ Successfully sent a test message to Telegram. Stopping execution.")
+        print("✅ Successfully sent a message to Telegram. Stopping execution.")
 
     except Exception as e:
-        print("❌ Error during login.")
+        print("❌ Error during login or data fetch.")
         print(f"Error: {e}")
 
 if __name__ == "__main__":
