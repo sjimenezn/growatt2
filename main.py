@@ -1,14 +1,11 @@
 from flask import Flask, jsonify
 import growattServer
 
-# Global variable to store logs
-logs = []
-
 # Step 3: Set your Growatt credentials
 username = "vospina"
 password = "Vospina.2025"
 
-# Step 4: Create an API instance using growattServer
+# Step 4: Create an API instance
 api = growattServer.GrowattApi()
 
 # Step 5: Set a mobile Chrome on iPhone user-agent
@@ -18,38 +15,42 @@ api.session.headers.update({
 
 # Initialize Flask app
 app = Flask(__name__)
+logs = []  # Global logs list
 
 # Route to fetch and display Growatt data
 @app.route('/growatt_data')
 def growatt_data():
+    global logs
+    logs = []  # Clear logs each request
     try:
         logs.append("🔄 Attempting Growatt login...")
-        
-        # Login to Growatt API using the growattServer library
         login_response = api.login(username, password)
-        
-        if login_response['result'] != 0:
-            logs.append(f"❌ Login failed: {login_response['msg']}")
-            return jsonify({'error': 'Login failed', 'message': login_response['msg']}), 400
-        
-        logs.append("✅ Login successful!")
+        logs.append(f"Login raw response: {repr(login_response)}")  # <- Very important!
 
-        # Get user ID and plant info using the growattServer library
+        # Check if login_response is a dictionary
+        if not isinstance(login_response, dict):
+            logs.append("❌ Login response is not a dictionary. Cannot continue.")
+            return jsonify({"error": "Login failed: bad response", "logs": logs})
+
+        if login_response.get('result') != 0:
+            logs.append(f"❌ Login failed with message: {login_response.get('msg')}")
+            return jsonify({"error": "Login failed", "logs": logs})
+        
+        # Get user ID and plant info
         user_id = login_response['user']['id']
         plant_info = api.plant_list(user_id)
         plant_id = plant_info['data'][0]['plantId']
-        logs.append(f"🌿 Plant ID: {plant_id}")
 
-        # Get inverter info using the growattServer library
+        # Get inverter info
         inverter_list = api.inverter_list(plant_id)
         inverter_sn = inverter_list[0]['deviceSn']
-        logs.append(f"🔌 Inverter SN: {inverter_sn}")
 
-        # Fetch storage details using the growattServer library
+        # Fetch storage details
         storage_data = api.storage_detail(inverter_sn)
-        logs.append("🔍 Storage data fetched successfully.")
 
-        # Return data as JSON and also display logs
+        logs.append("✅ Successfully fetched storage data.")
+
+        # Return data as JSON
         return jsonify({
             'plant_id': plant_id,
             'inverter_sn': inverter_sn,
@@ -61,6 +62,12 @@ def growatt_data():
         logs.append(f"❌ Error: {str(e)}")
         return jsonify({'error': str(e), 'logs': logs}), 500
 
-# Start the Flask app
+
+# Root route
+@app.route('/')
+def home():
+    return "✅ Growatt Monitor is Running! Access /growatt_data to see data."
+
 if __name__ == "__main__":
+    # Run Flask app
     app.run(debug=True, host='0.0.0.0', port=8000)
