@@ -25,27 +25,33 @@ def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
     try:
-        requests.post(url, data=payload, timeout=10)
+        response = requests.post(url, data=payload, timeout=10)
+        response.raise_for_status()  # Check if the request was successful
+        print(f"✅ Telegram message sent: {message}")  # Success log
     except Exception as e:
         print(f"❌ Failed to send Telegram message: {e}")
 
 def login_growatt():
+    print("🔄 Logging into Growatt...")
     login_response = api.login(username, password)
     plant_info = api.plant_list(login_response['user']['id'])
     plant_id = plant_info['data'][0]['plantId']
     inverter_info = api.inverter_list(plant_id)
     inverter_sn = inverter_info[0]['deviceSn']
+    print("✅ Logged into Growatt successfully!")
     return inverter_sn
 
 def monitor_growatt():
+    print("🌍 Monitoring started")  # Log when monitoring starts
     try:
         inverter_sn = login_growatt()
-        print("✅ Growatt login and initialization successful!")
 
         while True:
             try:
+                # Fetching data from Growatt API
                 data = api.storage_detail(inverter_sn)
 
+                # Extracting values
                 ac_input_v = data.get("vGrid", "N/A")
                 ac_input_f = data.get("freqGrid", "N/A")
                 ac_output_v = data.get("outPutVolt", "N/A")
@@ -53,15 +59,19 @@ def monitor_growatt():
                 load_w = data.get("activePower", "N/A")
                 battery_pct = data.get("capacity", "N/A")
 
+                # Creating the message to send
                 message = f"""\
 AC INPUT          : {ac_input_v} V / {ac_input_f} Hz
 AC OUTPUT      : {ac_output_v} V / {ac_output_f} Hz
 Household load : {load_w} W
 Battery %           : {battery_pct}"""
 
+                # Log the message for debugging
                 print(message)
 
+                # Sending message if conditions are met
                 if ac_input_v != "N/A" and float(ac_input_v) < 140:
+                    print("⚠️ Low AC Input Voltage detected!")  # Debug log
                     send_telegram_message("⚠️ Low AC Input Voltage detected!\n\n" + message)
 
             except Exception as e_inner:
@@ -80,4 +90,5 @@ def home():
 
 if __name__ == "__main__":
     threading.Thread(target=monitor_growatt, daemon=True).start()
+    print("🔄 Starting Flask app on port 8000...")
     app.run(host="0.0.0.0", port=8000)
