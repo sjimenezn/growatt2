@@ -1,5 +1,7 @@
 import requests
 import growattServer
+from datetime import datetime
+import time
 
 # Credentials for Growatt
 username = "vospina"
@@ -41,19 +43,32 @@ def main():
         login_response = api.login(username, password)
         print("✅ Login successful!")
         
-        user_id = login_response['user']['id']
-        plant_info = api.plant_list(user_id)
-        plant_id = plant_info['data'][0]['plantId']
+        # Print the login response to inspect its structure
+        print("Login response:", login_response)
         
-        print(f"🌿 User ID: {user_id}")
-        print(f"🌿 Plant ID: {plant_id}")
-        
-        # Send a test message to Telegram
-        send_telegram_message("Test message from Growatt monitoring script.")
-        
-        # Stop execution here after sending the message
-        print("✅ Successfully sent a test message to Telegram. Stopping execution.")
-        
+        # Check if 'user' field exists in the response
+        if 'user' in login_response:
+            user_id = login_response['user']['id']
+            plant_info = api.plant_list(user_id)
+            plant_id = plant_info['data'][0]['plantId']
+            
+            print(f"🌿 User ID: {user_id}")
+            print(f"🌿 Plant ID: {plant_id}")
+            
+            # Get current time with seconds
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Create message including current time
+            message = f"Test message from Growatt monitoring script at {current_time}."
+            
+            # Send the message to Telegram
+            send_telegram_message(message)
+            
+            # Stop execution here after sending the message
+            print("✅ Successfully sent a test message to Telegram. Stopping execution.")
+        else:
+            print("❌ 'user' field not found in login response.")
+            
     except Exception as e:
         print("❌ Error during login or data fetch.")
         print(f"Error: {e}")
