@@ -7,8 +7,8 @@ username = "vospina"
 password = "Vospina.2025"
 
 # Telegram Bot Token and Chat ID
-telegram_token = "YOUR_BOT_TOKEN"
-chat_id = "YOUR_CHAT_ID"
+telegram_token = "7070523158:AAFROcnI1N38T8AFOwDCav2cUI0Ney7boFg"
+chat_id = "5527163642"
 
 # Setup Growatt API
 api = growattServer.GrowattApi()
@@ -34,7 +34,7 @@ def main():
         print(f"🌿 User ID: {user_id}")
         print(f"🌿 Plant ID: {plant_id}")
         
-        # --- ADD TELEGRAM MESSAGE HERE ---
+        # --- Send Telegram message ---
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         message = f"User ID: {user_id}\nPlant ID: {plant_id}\nTimestamp: {timestamp}"
         
@@ -49,7 +49,7 @@ def main():
             print("✅ Message sent to Telegram!")
         else:
             print(f"❌ Failed to send message: {response.text}")
-        # --- END TELEGRAM MESSAGE ---
+        # --- End of Telegram part ---
 
         # Stop execution after retrieving the data
         print("✅ Successfully retrieved userId and plantId. Stopping execution.")
