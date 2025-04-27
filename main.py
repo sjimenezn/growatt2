@@ -1,5 +1,4 @@
 import requests
-import time
 from datetime import datetime
 import growattServer
 
@@ -25,19 +24,17 @@ try:
     login_response = api.login(username, password)
     print("✅ Login successful!")
 
-    # Get user ID and plant info
-    user_id = login_response['user']['id']
-    plant_info = api.plant_list(user_id)
+    # Accessing plant info directly
+    plant_info = api.plant_list()  # Directly fetch plant list without user dependency
     plant_id = plant_info['data'][0]['plantId']
     
-    print(f"🌿 User ID: {user_id}")
     print(f"🌿 Plant ID: {plant_id}")
 
     # Get current timestamp with seconds
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    # Step 6: Send a message to Telegram with the information
-    message = f"User ID: {user_id}\nPlant ID: {plant_id}\nTimestamp: {timestamp}"
+    # Step 6: Send a message to Telegram with the plantId and timestamp
+    message = f"Plant ID: {plant_id}\nTimestamp: {timestamp}"
     
     # Send the message to Telegram
     url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
