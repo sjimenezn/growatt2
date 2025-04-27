@@ -62,8 +62,15 @@ def main():
         print("\n🔍 Trying `storage_detail` (verbose)...")
         try:
             storage_data = api.storage_detail(inverter_sn)
+            
+            # Log the raw response for debugging
             print("📦 Raw storage_detail response:")
             print(storage_data)  # Print full raw data for inspection
+
+            # Check if the response is empty or invalid
+            if not storage_data:
+                print("❌ Empty response received from storage_detail.")
+                return
 
             print("\n🔎 Parsed keys and values:")
             for key, value in storage_data.get("data", {}).items():
