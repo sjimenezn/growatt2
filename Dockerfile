@@ -1,18 +1,20 @@
-# Use a Python image
+# Use an official Python runtime as a parent image
 FROM python:3.9-slim
 
-# Set the working directory
+# Install git to clone dependencies
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory in the container
 WORKDIR /app
 
-# Copy the requirements.txt and install dependencies
+# Copy the requirements.txt file into the container at /app
 COPY requirements.txt .
+
+# Install any dependencies from requirements.txt
 RUN pip install -r requirements.txt
 
-# Copy the rest of your application files (script, etc.)
+# Copy the rest of your application files
 COPY . .
 
-# Expose a port (this is optional since we're not running a web server)
-EXPOSE 3000
-
-# Command to run the monitoring script
-CMD ["python", "app.py"]
+# Command to run your application (replace with your actual entry point)
+CMD ["python", "your_script.py"]
