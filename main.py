@@ -2,6 +2,7 @@ from flask import Flask, render_template_string, jsonify
 import threading
 import time
 import requests
+import datetime
 from growattServer import GrowattApi
 
 # Credentials
@@ -10,7 +11,7 @@ password = "Vospina.2025"
 
 # Telegram Config
 TELEGRAM_TOKEN = "7653969082:AAGJ5_P23E6SbkJnTSHOjHhUGlKwcE_hao8"
-CHAT_ID = "5715745951"
+CHAT_IDS = ["5715745951"]  # Now a list for multiple users
 
 # Setup Flask app
 app = Flask(__name__)
@@ -23,17 +24,19 @@ api.session.headers.update({
 
 # Logs storage for data updates
 current_data = {}
+last_update_time = "Never"
 
 # Function to send message to Telegram
 def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
-    try:
-        requests.post(url, data=payload, timeout=10)
-    except Exception as e:
-        print(f"❌ Failed to send Telegram message: {e}")
+    for chat_id in CHAT_IDS:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": chat_id, "text": message}
+        try:
+            requests.post(url, data=payload, timeout=10)
+        except Exception as e:
+            print(f"❌ Failed to send Telegram message: {e}")
 
-# Function to log data and add to logs list
+# Function to log messages
 def log_message(message):
     print(message)
 
@@ -51,6 +54,7 @@ def login_growatt():
 
 # Function to monitor Growatt data
 def monitor_growatt():
+    global last_update_time
     ac_input_threshold = 115  # AC input voltage threshold for messages
     sent_lights_off = False
     sent_lights_on = False
@@ -70,7 +74,7 @@ def monitor_growatt():
                 load_w = data.get("activePower", "N/A")
                 battery_pct = data.get("capacity", "N/A")
 
-                # Store the fetched data
+                # Update data
                 current_data.update({
                     "ac_input_voltage": ac_input_v,
                     "ac_input_frequency": ac_input_f,
@@ -80,7 +84,10 @@ def monitor_growatt():
                     "battery_capacity": battery_pct
                 })
 
-                # Debugging: Print the current data after each update
+                # Update timestamp
+                last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                # Debugging
                 log_message(f"Updated Data: {current_data}")
 
                 message = f"""\
@@ -107,7 +114,7 @@ Consumo Actual: {load_w} W"""
                         sent_lights_off = True
                         sent_lights_on = False
 
-                    elif float(ac_input_v) > ac_input_threshold and not sent_lights_on:
+                    elif float(ac_input_v) >= ac_input_threshold and not sent_lights_on:
                         telegram_message = f"""⚠️ ¡Llegó la luz en Acacías! ⚠️
 
 Nivel de bateria: {battery_pct} %
@@ -126,7 +133,7 @@ Consumo Actual: {load_w} W"""
                 log_message("🔄 Re-logging into Growatt...")
                 inverter_sn = login_growatt()
 
-            time.sleep(10)
+            time.sleep(40)  # <<< Fetch every 40 seconds instead of 10
 
     except Exception as e_outer:
         log_message(f"❌ Fatal error: {e_outer}")
@@ -137,12 +144,11 @@ def home():
 
 @app.route("/logs")
 def get_logs():
-    # Render the current data in an HTML format that refreshes every 10 seconds
     return render_template_string("""
         <html>
         <head>
             <title>Growatt Monitor - Logs</title>
-            <meta http-equiv="refresh" content="10">
+            <meta http-equiv="refresh" content="40">
         </head>
         <body>
             <h1>Current Growatt Data</h1>
@@ -154,9 +160,10 @@ def get_logs():
                 <tr><th>Active Power (Load)</th><td>{{ current_data['load_power'] }}</td></tr>
                 <tr><th>Battery Capacity</th><td>{{ current_data['battery_capacity'] }}</td></tr>
             </table>
+            <p><b>Last Update:</b> {{ last_update_time }}</p>
         </body>
         </html>
-    """, current_data=current_data)
+    """, current_data=current_data, last_update_time=last_update_time)
 
 if __name__ == "__main__":
     threading.Thread(target=monitor_growatt, daemon=True).start()
