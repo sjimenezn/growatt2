@@ -52,8 +52,10 @@ def login_growatt():
 
 # Function to monitor Growatt data
 def monitor_growatt():
-    ac_power_loss = False  # Flag to track power loss status
-    
+    active_power_threshold = 190
+    sent_lights_off = False
+    sent_lights_on = False
+
     try:
         inverter_sn = login_growatt()
         log_message("✅ Growatt login and initialization successful!")
@@ -77,17 +79,20 @@ Battery %           : {battery_pct}"""
 
                 log_message(message)
 
-                if ac_input_v != "N/A" and float(ac_input_v) < 118 and not ac_power_loss:
-                    # AC power loss detected
-                    ac_power_loss = True
-                    send_telegram_message("¡Se fue la luz en Acacías!\n\n" + message)
-                    send_telegram_message("¡Se fue la luz en Acacías!\n\n" + message)
-                
-                if ac_input_v != "N/A" and float(ac_input_v) > 118 and ac_power_loss:
-                    # AC power restored
-                    ac_power_loss = False
-                    send_telegram_message("¡Volvió la luz!\n\n" + message)
-                    send_telegram_message("¡Volvió la luz!\n\n" + message)
+                if load_w != "N/A":
+                    # Check if active power falls below the threshold
+                    if float(load_w) < active_power_threshold and not sent_lights_off:
+                        send_telegram_message("¡Se fue la luz en Acacías!\n\n" + message)
+                        send_telegram_message("¡Se fue la luz en Acacías!\n\n" + message)
+                        sent_lights_off = True
+                        sent_lights_on = False
+
+                    # Check if active power rises above the threshold
+                    elif float(load_w) > active_power_threshold and not sent_lights_on:
+                        send_telegram_message("¡Volvió la luz!\n\n" + message)
+                        send_telegram_message("¡Volvió la luz!\n\n" + message)
+                        sent_lights_on = True
+                        sent_lights_off = False
 
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
