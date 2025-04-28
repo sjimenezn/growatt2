@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, render_template_string, jsonify
 import threading
 import time
 import requests
@@ -21,8 +21,8 @@ api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 })
 
-# Logs storage
-logs = []
+# Logs storage for data updates
+current_data = {}
 
 # Function to send message to Telegram
 def send_telegram_message(message):
@@ -35,7 +35,6 @@ def send_telegram_message(message):
 
 # Function to log data and add to logs list
 def log_message(message):
-    logs.append(message)
     print(message)
 
 # Function to login to Growatt and fetch the inverter SN
@@ -52,7 +51,7 @@ def login_growatt():
 
 # Function to monitor Growatt data
 def monitor_growatt():
-    active_power_threshold = 190
+    ac_input_threshold = 115  # AC input voltage threshold for messages
     sent_lights_off = False
     sent_lights_on = False
 
@@ -71,6 +70,19 @@ def monitor_growatt():
                 load_w = data.get("activePower", "N/A")
                 battery_pct = data.get("capacity", "N/A")
 
+                # Store the fetched data
+                current_data.update({
+                    "ac_input_voltage": ac_input_v,
+                    "ac_input_frequency": ac_input_f,
+                    "ac_output_voltage": ac_output_v,
+                    "ac_output_frequency": ac_output_f,
+                    "load_power": load_w,
+                    "battery_capacity": battery_pct
+                })
+
+                # Debugging: Print the current data after each update
+                log_message(f"Updated Data: {current_data}")
+
                 message = f"""\
 AC INPUT          : {ac_input_v} V / {ac_input_f} Hz
 AC OUTPUT      : {ac_output_v} V / {ac_output_f} Hz
@@ -79,18 +91,33 @@ Battery %           : {battery_pct}"""
 
                 log_message(message)
 
-                if load_w != "N/A":
-                    # Check if active power falls below the threshold
-                    if float(load_w) < active_power_threshold and not sent_lights_off:
-                        send_telegram_message("¡Se fue la luz en Acacías!\n\n" + message)
-                        send_telegram_message("¡Se fue la luz en Acacías!\n\n" + message)
+                # Check AC input voltage and send telegram messages accordingly
+                if ac_input_v != "N/A":
+                    if float(ac_input_v) < ac_input_threshold and not sent_lights_off:
+                        telegram_message = f"""⚠️ ¡Se fue la luz en Acacías! ⚠️
+
+Nivel de bateria: {battery_pct} %
+
+Voltaje de la red: {ac_input_v} V / {ac_input_f} Hz
+Voltaje Inversor : {ac_output_v} V / {ac_output_f} Hz
+
+Consumo Actual: {load_w} W"""
+                        send_telegram_message(telegram_message)
+                        send_telegram_message(telegram_message)
                         sent_lights_off = True
                         sent_lights_on = False
 
-                    # Check if active power rises above the threshold
-                    elif float(load_w) > active_power_threshold and not sent_lights_on:
-                        send_telegram_message("¡Volvió la luz!\n\n" + message)
-                        send_telegram_message("¡Volvió la luz!\n\n" + message)
+                    elif float(ac_input_v) > ac_input_threshold and not sent_lights_on:
+                        telegram_message = f"""⚠️ ¡Llegó la luz en Acacías! ⚠️
+
+Nivel de bateria: {battery_pct} %
+
+Voltaje de la red: {ac_input_v} V / {ac_input_f} Hz
+Voltaje Inversor : {ac_output_v} V / {ac_output_f} Hz
+
+Consumo Actual: {load_w} W"""
+                        send_telegram_message(telegram_message)
+                        send_telegram_message(telegram_message)
                         sent_lights_on = True
                         sent_lights_off = False
 
@@ -110,7 +137,26 @@ def home():
 
 @app.route("/logs")
 def get_logs():
-    return jsonify({'logs': logs})
+    # Render the current data in an HTML format that refreshes every 10 seconds
+    return render_template_string("""
+        <html>
+        <head>
+            <title>Growatt Monitor - Logs</title>
+            <meta http-equiv="refresh" content="10">
+        </head>
+        <body>
+            <h1>Current Growatt Data</h1>
+            <table border="1">
+                <tr><th>AC Input Voltage</th><td>{{ current_data['ac_input_voltage'] }}</td></tr>
+                <tr><th>AC Input Frequency</th><td>{{ current_data['ac_input_frequency'] }}</td></tr>
+                <tr><th>AC Output Voltage</th><td>{{ current_data['ac_output_voltage'] }}</td></tr>
+                <tr><th>AC Output Frequency</th><td>{{ current_data['ac_output_frequency'] }}</td></tr>
+                <tr><th>Active Power (Load)</th><td>{{ current_data['load_power'] }}</td></tr>
+                <tr><th>Battery Capacity</th><td>{{ current_data['battery_capacity'] }}</td></tr>
+            </table>
+        </body>
+        </html>
+    """, current_data=current_data)
 
 if __name__ == "__main__":
     threading.Thread(target=monitor_growatt, daemon=True).start()
