@@ -11,7 +11,7 @@ password = "Vospina.2025"
 
 # Telegram Config
 TELEGRAM_TOKEN = "7653969082:AAGJ5_P23E6SbkJnTSHOjHhUGlKwcE_hao8"
-CHAT_IDS = ["5715745951"]  # Now a list for multiple users
+CHAT_IDS = ["5715745951", "7862573365"]  # Added second user
 
 # Setup Flask app
 app = Flask(__name__)
