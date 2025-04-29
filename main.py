@@ -13,7 +13,7 @@ password = "Vospina.2025"
 
 # Telegram Config
 TELEGRAM_TOKEN = "7653969082:AAH-HYF-jpuA8wplI4rbciv59s2ZD_xW7iE"
-CHAT_IDS = ["5715745951", "7862573365"]
+CHAT_IDS = ["7650630450", "7862573365", "5715745951"]
 chat_log = set()
 
 # Flask App
@@ -146,11 +146,21 @@ def send_chatlog(update: Update, context: CallbackContext):
     ids = "\n".join(str(cid) for cid in chat_log)
     update.message.reply_text(f"IDs registrados:\n{ids}")
 
+def stop_bot(update: Update, context: CallbackContext):
+    """Terminate the Telegram bot."""
+    update.message.reply_text("🛑 Deteniendo el bot...")
+    bot = context.bot
+    bot.stop_polling()
+    bot.leave_chat(update.message.chat_id)
+    # Optionally log this action
+    log_message("🛑 Bot terminated via /stop command.")
+
 updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dp = updater.dispatcher
 dp.add_handler(CommandHandler("start", start))
 dp.add_handler(CommandHandler("status", send_status))
 dp.add_handler(CommandHandler("chatlog", send_chatlog))
+dp.add_handler(CommandHandler("stop", stop_bot))
 updater.start_polling()
 
 # Flask Routes
