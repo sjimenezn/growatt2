@@ -96,10 +96,10 @@ def monitor_growatt():
                     if float(ac_input_v) < threshold and not sent_lights_off:
                         msg = f"""⚠️2 ¡Se fue la luz en Acacías! ⚠️
 
-Nivel de batería    : {battery_pct} %
-Voltaje de la red.  : {ac_input_v} V / {ac_input_f} Hz
+Nivel de batería     : {battery_pct} %
+Voltaje de la red    : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
-Consumo actual.     : {load_w} W"""
+Consumo actual     : {load_w} W"""
                         send_telegram_message(msg)
                         send_telegram_message(msg)
                         sent_lights_off = True
@@ -108,10 +108,10 @@ Consumo actual.     : {load_w} W"""
                     elif float(ac_input_v) >= threshold and not sent_lights_on:
                         msg = f"""⚠️2 ¡Llegó la luz en Acacías! ⚠️
 
-Nivel de batería    : {battery_pct} %
-Voltaje de la red   : {ac_input_v} V / {ac_input_f} Hz
+Nivel de batería     : {battery_pct} %
+Voltaje de la red    : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
-Consumo actual      : {load_w} W"""
+Consumo actual     : {load_w} W"""
                         send_telegram_message(msg)
                         send_telegram_message(msg)
                         sent_lights_on = True
