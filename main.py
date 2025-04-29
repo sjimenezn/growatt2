@@ -28,6 +28,7 @@ api.session.headers.update({
 current_data = {}
 last_update_time = "Never"
 logs = []
+chat_log = []  # Store chat IDs interacting with the bot
 
 # Function to send message to Telegram
 def send_telegram_message(message):
@@ -63,7 +64,7 @@ def login_growatt():
 # Function to monitor Growatt data
 def monitor_growatt():
     global last_update_time
-    ac_input_threshold = 115
+    ac_input_threshold = 90  # Updated AC input voltage threshold
     sent_lights_off = False
     sent_lights_on = False
 
@@ -81,6 +82,8 @@ def monitor_growatt():
                 ac_output_f = data.get("freqOutPut", "N/A")
                 load_w = data.get("activePower", "N/A")
                 battery_pct = data.get("capacity", "N/A")
+                plant_name = data.get("plantName", "N/A")
+                user_id = data.get("userId", "N/A")
 
                 current_data.update({
                     "ac_input_voltage": ac_input_v,
@@ -88,7 +91,9 @@ def monitor_growatt():
                     "ac_output_voltage": ac_output_v,
                     "ac_output_frequency": ac_output_f,
                     "load_power": load_w,
-                    "battery_capacity": battery_pct
+                    "battery_capacity": battery_pct,
+                    "plant_name": plant_name,
+                    "user_id": user_id
                 })
 
                 last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -141,24 +146,47 @@ Consumo Actual: {load_w} W"""
     except Exception as e_outer:
         log_message(f"❌ Fatal error: {e_outer}")
 
-# Function to send inverter status on Telegram
+# Function to send full data to Telegram (/alldata)
+def send_full_data(update: Update, context: CallbackContext):
+    message = f"""\
+Plant Name: {current_data.get('plant_name', 'N/A')}
+User ID: {current_data.get('user_id', 'N/A')}
+AC Input Voltage: {current_data.get('ac_input_voltage', 'N/A')} V
+AC Input Frequency: {current_data.get('ac_input_frequency', 'N/A')} Hz
+AC Output Voltage: {current_data.get('ac_output_voltage', 'N/A')} V
+AC Output Frequency: {current_data.get('ac_output_frequency', 'N/A')} Hz
+Household Load: {current_data.get('load_power', 'N/A')} W
+Battery Capacity: {current_data.get('battery_capacity', 'N/A')}%
+"""
+    update.message.reply_text(message)
+
+# Function to send inverter status on Telegram (/status) in Spanish
 def send_inverter_data(update: Update, context: CallbackContext):
     message = f"""\
-AC INPUT: {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
-AC OUTPUT: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
-Household load: {current_data.get('load_power', 'N/A')} W
-Battery %: {current_data.get('battery_capacity', 'N/A')}%"""
+Voltaje de entrada: {current_data.get('ac_input_voltage', 'N/A')} V / Frecuencia: {current_data.get('ac_input_frequency', 'N/A')} Hz
+Voltaje de salida: {current_data.get('ac_output_voltage', 'N/A')} V / Frecuencia: {current_data.get('ac_output_frequency', 'N/A')} Hz
+Consumo doméstico: {current_data.get('load_power', 'N/A')} W
+Capacidad de la batería: {current_data.get('battery_capacity', 'N/A')}%"""
     update.message.reply_text(message)
 
 # Function to handle /start
 def start(update: Update, context: CallbackContext):
-    update.message.reply_text("✅ Welcome to the Growatt Monitor! Use /status to get inverter data.")
+    update.message.reply_text("✅ ¡Bienvenido al Monitor Growatt! Usa /status para obtener datos del inversor o /alldata para ver todos los datos.")
+
+# Function to log chat IDs that interact with the bot
+def log_chat_id(update: Update):
+    chat_id = update.message.chat_id
+    if chat_id not in chat_log:
+        chat_log.append(chat_id)
+    print(f"Chat IDs interacting with the bot: {chat_log}")
 
 # Setup Telegram Bot
 updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dp = updater.dispatcher
 dp.add_handler(CommandHandler("start", start))
 dp.add_handler(CommandHandler("status", send_inverter_data))
+dp.add_handler(CommandHandler("alldata", send_full_data))
+dp.add_handler(MessageHandler(Filters.text & ~Filters.command, log_chat_id))
 updater.start_polling()
 
 # Web interface
@@ -218,6 +246,3 @@ def get_console():
     """, logs="\n".join(logs))
 
 # Start everything
-if __name__ == "__main__":
-    threading.Thread(target=monitor_growatt, daemon=True).start()
-    app.run(host="0.0.0.0", port=8000)
