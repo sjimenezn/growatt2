@@ -29,12 +29,12 @@ api.session.headers.update({
 current_data = {}
 last_update_time = "Never"
 console_logs = []
+updater = None  # Global reference
 
 def log_message(message):
     timestamped = f"{datetime.datetime.now().strftime('%H:%M:%S')} - {message}"
     print(timestamped)
     console_logs.append((time.time(), timestamped))
-    # Purge logs older than 5 minutes
     now = time.time()
     console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
 
@@ -126,7 +126,7 @@ Consumo actual: {load_w} W"""
     except Exception as e_outer:
         log_message(f"❌ Fatal error: {e_outer}")
 
-# Telegram bot commands
+# Telegram Handlers
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
@@ -135,10 +135,10 @@ def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     msg = f"""⚡ Estado del Inversor ⚡
 
-Voltaje Red     : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
+Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
-Consumo         : {current_data.get('load_power', 'N/A')} W
-Batería         : {current_data.get('battery_capacity', 'N/A')}%"""
+Consumo          : {current_data.get('load_power', 'N/A')} W
+Batería            : {current_data.get('battery_capacity', 'N/A')}%"""
     update.message.reply_text(msg)
 
 def send_chatlog(update: Update, context: CallbackContext):
@@ -147,13 +147,9 @@ def send_chatlog(update: Update, context: CallbackContext):
     update.message.reply_text(f"IDs registrados:\n{ids}")
 
 def stop_bot(update: Update, context: CallbackContext):
-    """Terminate the Telegram bot."""
-    update.message.reply_text("🛑 Deteniendo el bot...")
-    bot = context.bot
-    bot.stop_polling()
-    bot.leave_chat(update.message.chat_id)
-    # Optionally log this action
-    log_message("🛑 Bot terminated via /stop command.")
+    update.message.reply_text("Bot detenido.")
+    log_message("Bot detenido por comando /stop")
+    threading.Thread(target=updater.stop).start()
 
 updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dp = updater.dispatcher
