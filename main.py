@@ -94,7 +94,7 @@ def monitor_growatt():
 
                 if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
-                        msg = f"""⚠️3 ¡Se fue la luz en Acacías! ⚠️
+                        msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
 
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
@@ -106,7 +106,7 @@ Consumo actual     : {load_w} W"""
                         sent_lights_on = False
 
                     elif float(ac_input_v) >= threshold and not sent_lights_on:
-                        msg = f"""⚠️3 ¡Llegó la luz en Acacías! ⚠️
+                        msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
 
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
@@ -133,7 +133,7 @@ def start(update: Update, context: CallbackContext):
 
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
-    msg = f"""⚡ Estado del Inversor3⚡
+    msg = f"""⚡ Estado del Inversor ⚡
 
 Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
