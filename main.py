@@ -4,17 +4,17 @@ import time
 import requests
 import datetime
 from growattServer import GrowattApi
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+# from telegram import Update
+# from telegram.ext import Updater, CommandHandler, CallbackContext
 
 # Credentials
 username = "vospina"
 password = "Vospina.2025"
 
-# Telegram Config
-TELEGRAM_TOKEN = "7653969082:AAH-HYF-jpuA8wplI4rbciv59s2ZD_xW7iE"
-CHAT_IDS = ["7650630450", "7862573365", "5715745951"]
-chat_log = set()
+# Telegram Config (commented out for testing)
+# TELEGRAM_TOKEN = "7653969082:AAH-HYF-jpuA8wplI4rbciv59s2ZD_xW7iE"
+# CHAT_IDS = ["7650630450", "7862573365", "5715745951"]
+# chat_log = set()
 
 # Flask App
 app = Flask(__name__)
@@ -29,7 +29,8 @@ api.session.headers.update({
 current_data = {}
 last_update_time = "Never"
 console_logs = []
-updater = None  # Global reference
+all_storage_data = {}
+# updater = None  # Global reference
 
 def log_message(message):
     timestamped = f"{datetime.datetime.now().strftime('%H:%M:%S')} - {message}"
@@ -38,28 +39,30 @@ def log_message(message):
     now = time.time()
     console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
 
-def send_telegram_message(message):
-    for chat_id in CHAT_IDS:
-        try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            payload = {"chat_id": chat_id, "text": message}
-            requests.post(url, data=payload, timeout=10)
-        except Exception as e:
-            log_message(f"❌ Failed to send message to {chat_id}: {e}")
+# def send_telegram_message(message):
+#     for chat_id in CHAT_IDS:
+#         try:
+#             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+#             payload = {"chat_id": chat_id, "text": message}
+#             requests.post(url, data=payload, timeout=10)
+#         except Exception as e:
+#             log_message(f"❌ Failed to send message to {chat_id}: {e}")
 
 def login_growatt():
     log_message("🔄 Attempting Growatt login...")
     login_response = api.login(username, password)
-    plant_info = api.plant_list(login_response['user']['id'])
+    user_id = login_response['user']['id']
+    plant_info = api.plant_list(user_id)
     plant_id = plant_info['data'][0]['plantId']
     inverter_info = api.inverter_list(plant_id)
     inverter_sn = inverter_info[0]['deviceSn']
-    log_message(f"🌿 User ID: {login_response['user']['id']}")
+    log_message(f"🌿 User ID: {user_id}")
     log_message(f"🌿 Plant ID: {plant_id}")
+    log_message(f"🔌 Inverter SN: {inverter_sn}")
     return inverter_sn
 
 def monitor_growatt():
-    global last_update_time
+    global last_update_time, all_storage_data
     threshold = 80
     sent_lights_off = False
     sent_lights_on = False
@@ -71,13 +74,14 @@ def monitor_growatt():
         while True:
             try:
                 data = api.storage_detail(inverter_sn)
+                all_storage_data = data.get("data", {}) or {}
 
-                ac_input_v = data.get("vGrid", "N/A")
-                ac_input_f = data.get("freqGrid", "N/A")
-                ac_output_v = data.get("outPutVolt", "N/A")
-                ac_output_f = data.get("freqOutPut", "N/A")
-                load_w = data.get("activePower", "N/A")
-                battery_pct = data.get("capacity", "N/A")
+                ac_input_v = all_storage_data.get("vGrid", "N/A")
+                ac_input_f = all_storage_data.get("freqGrid", "N/A")
+                ac_output_v = all_storage_data.get("outPutVolt", "N/A")
+                ac_output_f = all_storage_data.get("freqOutPut", "N/A")
+                load_w = all_storage_data.get("activePower", "N/A")
+                battery_pct = all_storage_data.get("capacity", "N/A")
 
                 current_data.update({
                     "ac_input_voltage": ac_input_v,
@@ -89,33 +93,22 @@ def monitor_growatt():
                 })
 
                 last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
                 log_message(f"Updated Data: {current_data}")
 
-                if ac_input_v != "N/A":
-                    if float(ac_input_v) < threshold and not sent_lights_off:
-                        msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
-
-Nivel de batería      : {battery_pct} %
-Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
-Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
-Consumo actual     : {load_w} W"""
-                        send_telegram_message(msg)
-                        send_telegram_message(msg)
-                        sent_lights_off = True
-                        sent_lights_on = False
-
-                    elif float(ac_input_v) >= threshold and not sent_lights_on:
-                        msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
-
-Nivel de batería      : {battery_pct} %
-Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
-Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
-Consumo actual     : {load_w} W"""
-                        send_telegram_message(msg)
-                        send_telegram_message(msg)
-                        sent_lights_on = True
-                        sent_lights_off = False
+                # Alert logic (commented out for now)
+                # if ac_input_v != "N/A":
+                #     if float(ac_input_v) < threshold and not sent_lights_off:
+                #         msg = f"..."
+                #         send_telegram_message(msg)
+                #         send_telegram_message(msg)
+                #         sent_lights_off = True
+                #         sent_lights_on = False
+                #     elif float(ac_input_v) >= threshold and not sent_lights_on:
+                #         msg = f"..."
+                #         send_telegram_message(msg)
+                #         send_telegram_message(msg)
+                #         sent_lights_on = True
+                #         sent_lights_off = False
 
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
@@ -126,38 +119,33 @@ Consumo actual     : {load_w} W"""
     except Exception as e_outer:
         log_message(f"❌ Fatal error: {e_outer}")
 
-# Telegram Handlers
-def start(update: Update, context: CallbackContext):
-    chat_log.add(update.effective_chat.id)
-    update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
+# Telegram Handlers (commented out for testing)
+# def start(update: Update, context: CallbackContext):
+#     chat_log.add(update.effective_chat.id)
+#     update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
 
-def send_status(update: Update, context: CallbackContext):
-    chat_log.add(update.effective_chat.id)
-    msg = f"""⚡ Estado del Inversor ⚡
+# def send_status(update: Update, context: CallbackContext):
+#     chat_log.add(update.effective_chat.id)
+#     msg = f"..."
+#     update.message.reply_text(msg)
 
-Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
-Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
-Consumo          : {current_data.get('load_power', 'N/A')} W
-Batería              : {current_data.get('battery_capacity', 'N/A')}%"""
-    update.message.reply_text(msg)
+# def send_chatlog(update: Update, context: CallbackContext):
+#     chat_log.add(update.effective_chat.id)
+#     ids = "\n".join(str(cid) for cid in chat_log)
+#     update.message.reply_text(f"IDs registrados:\n{ids}")
 
-def send_chatlog(update: Update, context: CallbackContext):
-    chat_log.add(update.effective_chat.id)
-    ids = "\n".join(str(cid) for cid in chat_log)
-    update.message.reply_text(f"IDs registrados:\n{ids}")
+# def stop_bot(update: Update, context: CallbackContext):
+#     update.message.reply_text("Bot detenido.")
+#     log_message("Bot detenido por comando /stop")
+#     threading.Thread(target=updater.stop).start()
 
-def stop_bot(update: Update, context: CallbackContext):
-    update.message.reply_text("Bot detenido.")
-    log_message("Bot detenido por comando /stop")
-    threading.Thread(target=updater.stop).start()
-
-updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
-dp = updater.dispatcher
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(CommandHandler("status", send_status))
-dp.add_handler(CommandHandler("chatlog", send_chatlog))
-dp.add_handler(CommandHandler("stop", stop_bot))
-updater.start_polling()
+# updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+# dp = updater.dispatcher
+# dp.add_handler(CommandHandler("start", start))
+# dp.add_handler(CommandHandler("status", send_status))
+# dp.add_handler(CommandHandler("chatlog", send_chatlog))
+# dp.add_handler(CommandHandler("stop", stop_bot))
+# updater.start_polling()
 
 # Flask Routes
 @app.route("/")
@@ -182,9 +170,26 @@ def get_logs():
         </body></html>
     """, d=current_data, last=last_update_time)
 
-@app.route("/chatlog")
-def chatlog_view():
-    return jsonify(sorted(list(chat_log)))
+@app.route("/details")
+def all_details():
+    return render_template_string("""
+        <html><head><title>All Storage Data</title><meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body { font-family: sans-serif; font-size: 18px; padding: 20px; }
+            table { width: 100%; border-collapse: collapse; }
+            td, th { border: 1px solid #ccc; padding: 8px; }
+        </style>
+        </head>
+        <body>
+            <h2>Growatt Full Storage Details</h2>
+            <table>
+                {% for key, val in data.items() %}
+                <tr><th>{{ key }}</th><td>{{ val }}</td></tr>
+                {% endfor %}
+            </table>
+            <p><b>Última actualización:</b> {{ last }}</p>
+        </body></html>
+    """, data=all_storage_data, last=last_update_time)
 
 @app.route("/console")
 def console_view():
