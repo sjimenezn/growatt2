@@ -1,3 +1,4 @@
+
 from flask import Flask, render_template_string, jsonify
 import threading
 import time
@@ -54,11 +55,7 @@ def send_telegram_message(message):
     for chat_id in CHAT_IDS:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            payload = {
-                "chat_id": chat_id,
-                "text": f"```\n{message}\n```",
-                "parse_mode": "Markdown"
-            }
+            payload = {"chat_id": chat_id, "text": message}
             requests.post(url, data=payload, timeout=10)
         except Exception as e:
             log_message(f"❌ Failed to send message to {chat_id}: {e}")
@@ -74,6 +71,7 @@ def login_and_fetch_data():
     inverter_sn = inverter_info[0]["deviceSn"]
     storage_info = api.storage_detail(inverter_sn)
 
+    # Fetch and store all relevant data
     all_data.clear()
     all_data.update({
         "login": login_response["user"],
@@ -119,6 +117,7 @@ def monitor_growatt():
                 last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 log_message(f"Updated Data: {current_data}")
 
+                # Check voltage and send messages when threshold is exceeded
                 if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
                         msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
@@ -213,12 +212,12 @@ Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_d
 Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo          : {current_data.get('load_power', 'N/A')} W
 Batería              : {current_data.get('battery_capacity', 'N/A')}%"""
-    update.message.reply_text(f"```\n{msg}\n```", parse_mode="Markdown")
+    update.message.reply_text(msg)
 
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     ids = "\n".join(str(cid) for cid in chat_log)
-    update.message.reply_text(f"```\nIDs registrados:\n{ids}\n```", parse_mode="Markdown")
+    update.message.reply_text(f"IDs registrados:\n{ids}")
 
 def stop_bot(update: Update, context: CallbackContext):
     update.message.reply_text("Bot detenido.")
