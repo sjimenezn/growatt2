@@ -12,7 +12,7 @@ username = "vospina"
 password = "Vospina.2025"
 
 # Telegram Config
-TELEGRAM_TOKEN = "7653969082:AAEEQzzoQ_3h-mw1IUyamNiTqmynOVOIYRs"
+TELEGRAM_TOKEN = "7653969082:AAGKR_jYdw--Yvzwl4By4OuBpq19CWVQ5Oo"
 CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
 
