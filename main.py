@@ -205,21 +205,6 @@ def get_logs():
         <html>
         <head><title>Growatt Logs</title></head>
         <body>
-            <a href="/">Back to Home</a>
-        </body>
-        </html>
-    """)
-
----
-Continuing with the additional links for the Flask routes:
-
-```python name=main.py
-@app.route("/logs")
-def get_logs():
-    return render_template_string("""
-        <html>
-        <head><title>Growatt Logs</title><meta http-equiv="refresh" content="40"></head>
-        <body>
             <h1>Datos del Inversor</h1>
             <table border="1">
                 <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
@@ -252,7 +237,7 @@ def chatlog_view():
 def console_view():
     return render_template_string("""
         <html>
-        <head><title>Growatt Console Logs</title><meta http-equiv="refresh" content="10"></head>
+        <head><title>Growatt Console Logs</title></head>
         <body>
             <h1>Console Logs (Last 5 Minutes)</h1>
             <pre>{{ logs }}</pre>
@@ -265,7 +250,7 @@ def console_view():
 def details_view():
     return render_template_string("""
         <html>
-        <head><title>Growatt Details</title><meta http-equiv="refresh" content="40"></head>
+        <head><title>Growatt Details</title></head>
         <body>
             <h1>Detalles del Inversor</h1>
             <h2>Información constante</h2>
