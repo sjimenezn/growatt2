@@ -193,7 +193,14 @@ updater.start_polling()
 # Flask Routes
 @app.route("/")
 def home():
-    return "✅ Growatt Monitor is Running!"
+    return render_template_string("""
+        <html><head><title>Home</title></head>
+        <body>
+            <h1>Growatt Monitor</h1>
+            <p><a href="/logs">Logs</a> | <a href="/details">Details</a> | <a href="/chatlog">Chatlog</a> | <a href="/console">Console</a></p>
+            <h2>✅ Growatt Monitor is Running!</h2>
+        </body></html>
+    """)
 
 @app.route("/logs")
 def get_logs():
@@ -201,6 +208,7 @@ def get_logs():
         <html><head><title>Growatt Monitor - Logs</title><meta http-equiv="refresh" content="40"></head>
         <body>
             <h1>Datos del Inversor</h1>
+            <p><a href="/">Home</a> | <a href="/details">Details</a> | <a href="/chatlog">Chatlog</a> | <a href="/console">Console</a></p>
             <table border="1">
                 <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
                 <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
@@ -215,46 +223,48 @@ def get_logs():
 
 @app.route("/chatlog")
 def chatlog_view():
-    return jsonify(sorted(list(chat_log)))
+    return render_template_string("""
+        <html><head><title>Chatlog</title></head>
+        <body>
+            <h1>Chat Log</h1>
+            <p><a href="/">Home</a> | <a href="/logs">Logs</a> | <a href="/details">Details</a> | <a href="/console">Console</a></p>
+            <pre>{{ logs }}</pre>
+        </body></html>
+    """, logs="\n".join(console_logs))
+
+@app.route("/details")
+def details():
+    return render_template_string("""
+        <html><head><title>Growatt Monitor - Details</title><meta http-equiv="refresh" content="40"></head>
+        <body>
+            <h1>Detalles del Sistema</h1>
+            <p><a href="/">Home</a> | <a href="/logs">Logs</a> | <a href="/chatlog">Chatlog</a> | <a href="/console">Console</a></p>
+            <table border="1">
+                <tr><th>User ID</th><td>{{ d['user_id'] }}</td></tr>
+                <tr><th>Plant ID</th><td>{{ d['plant_id'] }}</td></tr>
+                <tr><th>Inverter SN</th><td>{{ d['inverter_sn'] }}</td></tr>
+                <tr><th>Datalogger SN</th><td>{{ d['datalogger_sn'] }}</td></tr>
+                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
+                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
+                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
+            </table>
+        </body></html>
+    """, d=current_data)
 
 @app.route("/console")
 def console_view():
     return render_template_string("""
-        <html><head><title>Console Logs</title><meta http-equiv="refresh" content="10"></head>
+        <html><head><title>Console Logs</title></head>
         <body>
-            <h2>Console Output (últimos 5 minutos)</h2>
+            <h1>Console Logs</h1>
+            <p><a href="/">Home</a> | <a href="/logs">Logs</a> | <a href="/details">Details</a> | <a href="/chatlog">Chatlog</a></p>
             <pre>{{ logs }}</pre>
         </body></html>
-    """, logs="\n".join(m for _, m in console_logs))
+    """, logs="\n".join(console_logs))
 
-@app.route("/details")
-def details_view():
-    return render_template_string("""
-        <html><head><title>Growatt Details</title><meta http-equiv="refresh" content="40"></head>
-        <body>
-            <h1>Detalles del Inversor</h1>
-            <h2>Información constante</h2>
-            <p>Plant ID: {{ plant_id }}</p>
-            <p>User ID: {{ user_id }}</p>
-            <p>Inverter SN: {{ inverter_sn }}</p>
-            <p>Datalogger SN: {{ datalogger_sn }}</p>
-            <h2>Datos en tiempo real</h2>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-            </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
-        </body></html>
-    """, d=current_data, last=last_update_time,
-       plant_id=current_data.get("plant_id", "N/A"),
-       user_id=current_data.get("user_id", "N/A"),
-       inverter_sn=current_data.get("inverter_sn", "N/A"),
-       datalogger_sn=current_data.get("datalogger_sn", "N/A"))
+# Run Flask in the background
+if __name__ == "__main__":
+    threading.Thread(target=lambda: app.run(debug=False, host="0.0.0.0", port=8080)).start()
 
-if __name__ == '__main__':
-    threading.Thread(target=monitor_growatt).start()
-    app.run(host='0.0.0.0', port=8000)
+# Start Growatt monitoring
+monitor_growatt()
