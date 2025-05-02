@@ -3,7 +3,6 @@ import threading
 import time
 import requests
 import datetime
-from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
@@ -19,17 +18,10 @@ chat_log = set()
 # Flask App
 app = Flask(__name__)
 
-# Growatt API
-api = GrowattApi()
-api.session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
-})
-
 # Shared Data
 current_data = {}
 last_update_time = "Never"
 console_logs = []
-updater = None  # Global reference
 
 def log_message(message):
     timestamped = f"{datetime.datetime.now().strftime('%H:%M:%S')} - {message}"
@@ -37,6 +29,38 @@ def log_message(message):
     console_logs.append((time.time(), timestamped))
     now = time.time()
     console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
+
+# Monitor Growatt (simulated for now)
+def monitor_growatt():
+    global last_update_time
+    try:
+        while True:
+            # Mock data for testing
+            current_data.update({
+                "ac_input_voltage": "230",
+                "ac_input_frequency": "50",
+                "ac_output_voltage": "220",
+                "ac_output_frequency": "49.5",
+                "load_power": "500",
+                "battery_capacity": "85"
+            })
+            last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            time.sleep(10)
+    except Exception as e:
+        log_message(f"Error in monitor_growatt: {e}")
+
+# Telegram Handlers
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text("Bot is working!")
+
+def status(update: Update, context: CallbackContext):
+    update.message.reply_text(f"Current Data: {current_data}")
+
+updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+dp = updater.dispatcher
+dp.add_handler(CommandHandler("start", start))
+dp.add_handler(CommandHandler("status", status))
+updater.start_polling()
 
 # Navigation links
 NAVIGATION_LINKS = """
@@ -141,5 +165,5 @@ def details_view():
        navigation_links=NAVIGATION_LINKS)
 
 if __name__ == '__main__':
-    threading.Thread(target=log_message, args=("Monitoring started",)).start()
+    threading.Thread(target=monitor_growatt).start()
     app.run(host="0.0.0.0", port=8000)
