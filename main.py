@@ -63,12 +63,12 @@ def home():
 
 @app.route("/logs")
 def get_logs():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
         <head><title>Growatt Monitor - Logs</title><meta http-equiv="refresh" content="40"></head>
         <body>
             <h1>Logs</h1>
-            {NAVIGATION_LINKS}
+            {{ navigation_links|safe }}
             <table border="1">
                 <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
                 <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
@@ -80,42 +80,42 @@ def get_logs():
             <p><b>Last Update:</b> {{ last }}</p>
         </body>
         </html>
-    """, d=current_data, last=last_update_time)
+    """, d=current_data, last=last_update_time, navigation_links=NAVIGATION_LINKS)
 
 @app.route("/chatlog")
 def chatlog_view():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
         <head><title>Growatt Monitor - Chat Logs</title></head>
         <body>
             <h1>Chat Logs</h1>
-            {NAVIGATION_LINKS}
+            {{ navigation_links|safe }}
             <pre>{{ logs }}</pre>
         </body>
         </html>
-    """, logs="\n".join(map(str, chat_log)))
+    """, logs="\n".join(map(str, chat_log)), navigation_links=NAVIGATION_LINKS)
 
 @app.route("/console")
 def console_view():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
         <head><title>Growatt Monitor - Console Logs</title><meta http-equiv="refresh" content="10"></head>
         <body>
             <h1>Console Logs</h1>
-            {NAVIGATION_LINKS}
+            {{ navigation_links|safe }}
             <pre>{{ logs }}</pre>
         </body>
         </html>
-    """, logs="\n".join(m for _, m in console_logs))
+    """, logs="\n".join(m for _, m in console_logs), navigation_links=NAVIGATION_LINKS)
 
 @app.route("/details")
 def details_view():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
         <head><title>Growatt Monitor - Details</title><meta http-equiv="refresh" content="40"></head>
         <body>
             <h1>Details</h1>
-            {NAVIGATION_LINKS}
+            {{ navigation_links|safe }}
             <h2>Constant Details</h2>
             <p>Plant ID: {{ plant_id }}</p>
             <p>User ID: {{ user_id }}</p>
@@ -137,7 +137,8 @@ def details_view():
        plant_id=current_data.get("plant_id", "N/A"),
        user_id=current_data.get("user_id", "N/A"),
        inverter_sn=current_data.get("inverter_sn", "N/A"),
-       datalogger_sn=current_data.get("datalogger_sn", "N/A"))
+       datalogger_sn=current_data.get("datalogger_sn", "N/A"),
+       navigation_links=NAVIGATION_LINKS)
 
 if __name__ == '__main__':
     threading.Thread(target=log_message, args=("Monitoring started",)).start()
