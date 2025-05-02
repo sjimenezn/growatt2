@@ -104,7 +104,9 @@ Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
-                            send_telegram_message(msg)
+                           send_telegram_message(msg)
+        time.sleep(1)
+        send_telegram_message(msg)
                             sent_lights_off = True
                             sent_lights_on = False
 
@@ -120,6 +122,8 @@ Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
                             send_telegram_message(msg)
+        time.sleep(1)
+        send_telegram_message(msg)
                             sent_lights_on = True
                             sent_lights_off = False
 
