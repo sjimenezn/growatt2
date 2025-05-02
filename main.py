@@ -206,6 +206,32 @@ def console_view():
         </body></html>
     """, logs="\n".join(m for _, m in console_logs))
 
+@app.route("/details")
+def details_view():
+    return render_template_string("""
+        <html><head><title>Growatt Details</title><meta http-equiv="refresh" content="40"></head>
+        <body>
+            <h1>Detalles del Inversor</h1>
+            <h2>Información constante</h2>
+            <p>Plant ID: {{ plant_id }}</p>
+            <p>User ID: {{ user_id }}</p>
+            <p>Inverter SN: {{ inverter_sn }}</p>
+            <p>Datalogger SN: {{ datalogger_sn }}</p>
+            <h2>Datos en tiempo real</h2>
+            <table border="1">
+                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
+                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
+                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
+                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
+                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
+                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
+            </table>
+            <p><b>Última actualización:</b> {{ last }}</p>
+        </body></html>
+    """, d=current_data, last=last_update_time, plant_id=current_data.get('plant_id', 'N/A'),
+       user_id=current_data.get('user_id', 'N/A'), inverter_sn=current_data.get('inverter_sn', 'N/A'),
+       datalogger_sn=current_data.get('datalogger_sn', 'N/A'))
+
 if __name__ == "__main__":
     threading.Thread(target=monitor_growatt, daemon=True).start()
     app.run(host="0.0.0.0", port=8000)
