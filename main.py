@@ -1,4 +1,3 @@
-
 from flask import Flask, render_template_string, jsonify
 import threading
 import time
@@ -185,26 +184,12 @@ updater.start_polling()
 # Flask Routes
 @app.route("/")
 def home():
-    return render_template_string("""
-        <html>
-        <head><title>Growatt Home</title></head>
-        <body>
-            <h1>Welcome to the Growatt Monitor</h1>
-            <ul>
-                <li><a href="/logs">View Logs</a></li>
-                <li><a href="/chatlog">Chat Logs</a></li>
-                <li><a href="/console">Console Logs</a></li>
-                <li><a href="/details">Growatt Details</a></li>
-            </ul>
-        </body>
-        </html>
-    """)
+    return "✅ Growatt Monitor is Running!"
 
 @app.route("/logs")
 def get_logs():
     return render_template_string("""
-        <html>
-        <head><title>Growatt Logs</title></head>
+        <html><head><title>Growatt Monitor - Logs</title><meta http-equiv="refresh" content="40"></head>
         <body>
             <h1>Datos del Inversor</h1>
             <table border="1">
@@ -216,42 +201,27 @@ def get_logs():
                 <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
             </table>
             <p><b>Última actualización:</b> {{ last }}</p>
-            <p><a href="/">Back to Home</a></p>
-        </body>
-        </html>
+        </body></html>
     """, d=current_data, last=last_update_time)
 
 @app.route("/chatlog")
 def chatlog_view():
-    return render_template_string("""
-        <html>
-        <head><title>Growatt Chat Logs</title></head>
-        <body>
-            <h1>Chat Logs</h1>
-            <pre>{{ logs }}</pre>
-            <p><a href="/">Back to Home</a></p>
-        </body>
-        </html>
-    """, logs=jsonify(sorted(list(chat_log))))
+    return jsonify(sorted(list(chat_log)))
 
 @app.route("/console")
 def console_view():
     return render_template_string("""
-        <html>
-        <head><title>Growatt Console Logs</title></head>
+        <html><head><title>Console Logs</title><meta http-equiv="refresh" content="10"></head>
         <body>
-            <h1>Console Logs (Last 5 Minutes)</h1>
+            <h2>Console Output (últimos 5 minutos)</h2>
             <pre>{{ logs }}</pre>
-            <p><a href="/">Back to Home</a></p>
-        </body>
-        </html>
+        </body></html>
     """, logs="\n".join(m for _, m in console_logs))
 
 @app.route("/details")
 def details_view():
     return render_template_string("""
-        <html>
-        <head><title>Growatt Details</title></head>
+        <html><head><title>Growatt Details</title><meta http-equiv="refresh" content="40"></head>
         <body>
             <h1>Detalles del Inversor</h1>
             <h2>Información constante</h2>
@@ -269,9 +239,7 @@ def details_view():
                 <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
             </table>
             <p><b>Última actualización:</b> {{ last }}</p>
-            <p><a href="/">Back to Home</a></p>
-        </body>
-        </html>
+        </body></html>
     """, d=current_data, last=last_update_time,
        plant_id=current_data.get("plant_id", "N/A"),
        user_id=current_data.get("user_id", "N/A"),
