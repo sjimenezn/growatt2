@@ -175,6 +175,10 @@ dp.add_handler(CommandHandler("start", start))
 dp.add_handler(CommandHandler("status", send_status))
 dp.add_handler(CommandHandler("chatlog", send_chatlog))
 dp.add_handler(CommandHandler("stop", stop_bot))
+
+# Stop the existing Telegram bot instance before starting
+if updater.running:
+    updater.stop()
 updater.start_polling()
 
 # Flask Routes
