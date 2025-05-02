@@ -54,9 +54,15 @@ def login_growatt():
     plant_id = plant_info['data'][0]['plantId']
     inverter_info = api.inverter_list(plant_id)
     inverter_sn = inverter_info[0]['deviceSn']
+    datalogger_info = api.storage_detail(inverter_sn)
+    datalogger_sn = datalogger_info.get("dataloggerSn", "N/A")
+    
     log_message(f"🌿 User ID: {login_response['user']['id']}")
     log_message(f"🌿 Plant ID: {plant_id}")
-    return inverter_sn
+    log_message(f"🌿 Inverter SN: {inverter_sn}")
+    log_message(f"🌿 Datalogger SN: {datalogger_sn}")
+    
+    return login_response['user']['id'], plant_id, inverter_sn, datalogger_sn
 
 def monitor_growatt():
     global last_update_time
@@ -65,7 +71,7 @@ def monitor_growatt():
     sent_lights_on = False
 
     try:
-        inverter_sn = login_growatt()
+        user_id, plant_id, inverter_sn, datalogger_sn = login_growatt()
         log_message("✅ Growatt login and initialization successful!")
 
         while True:
@@ -85,7 +91,11 @@ def monitor_growatt():
                     "ac_output_voltage": ac_output_v,
                     "ac_output_frequency": ac_output_f,
                     "load_power": load_w,
-                    "battery_capacity": battery_pct
+                    "battery_capacity": battery_pct,
+                    "user_id": user_id,
+                    "plant_id": plant_id,
+                    "inverter_sn": inverter_sn,
+                    "datalogger_sn": datalogger_sn
                 })
 
                 last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -105,6 +115,7 @@ Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
                             send_telegram_message(msg)
+                            send_telegram_message(msg)  # Send again
                             sent_lights_off = True
                             sent_lights_on = False
 
@@ -120,12 +131,13 @@ Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
                             send_telegram_message(msg)
+                            send_telegram_message(msg)  # Send again
                             sent_lights_on = True
                             sent_lights_off = False
 
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
-                inverter_sn = login_growatt()
+                user_id, plant_id, inverter_sn, datalogger_sn = login_growatt()
 
             time.sleep(40)
 
@@ -224,10 +236,12 @@ def details_view():
             </table>
             <p><b>Última actualización:</b> {{ last }}</p>
         </body></html>
-    """, d=current_data, last=last_update_time, plant_id=current_data.get('plant_id', 'N/A'),
-       user_id=current_data.get('user_id', 'N/A'), inverter_sn=current_data.get('inverter_sn', 'N/A'),
-       datalogger_sn=current_data.get('datalogger_sn', 'N/A'))
+    """, d=current_data, last=last_update_time,
+       plant_id=current_data.get("plant_id", "N/A"),
+       user_id=current_data.get("user_id", "N/A"),
+       inverter_sn=current_data.get("inverter_sn", "N/A"),
+       datalogger_sn=current_data.get("datalogger_sn", "N/A"))
 
-if __name__ == "__main__":
-    threading.Thread(target=monitor_growatt, daemon=True).start()
-    app.run(host="0.0.0.0", port=8000)
+if __name__ == '__main__':
+    threading.Thread(target=monitor_growatt).start()
+    app.run(host='0.0.0.0', port=8000)
