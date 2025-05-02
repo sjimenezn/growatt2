@@ -40,12 +40,19 @@ def log_message(message):
 
 def send_telegram_message(message):
     for chat_id in CHAT_IDS:
-        try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            payload = {"chat_id": chat_id, "text": message}
-            requests.post(url, data=payload, timeout=10)
-        except Exception as e:
-            log_message(f"❌ Failed to send message to {chat_id}: {e}")
+        for attempt in range(3):  # Retry up to 3 times
+            try:
+                url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+                payload = {"chat_id": chat_id, "text": message}
+                response = requests.post(url, data=payload, timeout=10)
+                response.raise_for_status()  # Raise exception for HTTP errors
+                log_message(f"✅ Message sent to {chat_id}")
+                break  # Exit retry loop if successful
+            except requests.exceptions.RequestException as e:
+                log_message(f"❌ Attempt {attempt + 1} failed to send message to {chat_id}: {e}")
+                time.sleep(5)  # Wait before retrying
+                if attempt == 2:  # Final attempt failed
+                    log_message(f"❌ Failed to send message to {chat_id} after 3 attempts")
 
 def login_growatt():
     log_message("🔄 Attempting Growatt login...")
@@ -77,6 +84,7 @@ def monitor_growatt():
         while True:
             try:
                 data = api.storage_detail(inverter_sn)
+                log_message(f"Growatt API data: {data}")
 
                 ac_input_v = data.get("vGrid", "N/A")
                 ac_input_f = data.get("freqGrid", "N/A")
@@ -99,8 +107,7 @@ def monitor_growatt():
                 })
 
                 last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                log_message(f"Updated Data: {current_data}")
+                log_message(f"Updated current_data: {current_data}")
 
                 if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
@@ -115,7 +122,6 @@ Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
                             send_telegram_message(msg)
-                            send_telegram_message(msg)  # Send again
                             sent_lights_off = True
                             sent_lights_on = False
 
@@ -131,7 +137,6 @@ Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
                             send_telegram_message(msg)
-                            send_telegram_message(msg)  # Send again
                             sent_lights_on = True
                             sent_lights_off = False
 
@@ -142,7 +147,7 @@ Consumo actual     : {load_w} W"""
             time.sleep(40)
 
     except Exception as e_outer:
-        log_message(f"❌ Fatal error: {e_outer}")
+        log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
 
 # Telegram Handlers
 def start(update: Update, context: CallbackContext):
@@ -157,7 +162,11 @@ Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_d
 Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo          : {current_data.get('load_power', 'N/A')} W
 Batería              : {current_data.get('battery_capacity', 'N/A')}%"""
-    update.message.reply_text(msg)
+    try:
+        update.message.reply_text(msg)
+        log_message(f"✅ Status sent to {update.effective_chat.id}")
+    except Exception as e:
+        log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
 
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
