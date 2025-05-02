@@ -63,14 +63,14 @@ def login_growatt():
     inverter_info = api.inverter_list(plant_id)
     inverter_sn = inverter_info[0]['deviceSn']
     datalogger_info = api.storage_detail(inverter_sn)
-    datalogger_sn = datalogger_info.get("dataloggerSn", "N/A")
+    datalog_sn = datalogger_info.get("dataloggerSn", "N/A")
     
     log_message(f"🌿 User ID: {login_response['user']['id']}")
     log_message(f"🌿 Plant ID: {plant_id}")
     log_message(f"🌿 Inverter SN: {inverter_sn}")
-    log_message(f"🌿 Datalogger SN: {datalogger_sn}")
+    log_message(f"🌿 Datalogger SN: {datalog_sn}")
     
-    return login_response['user']['id'], plant_id, inverter_sn, datalogger_sn
+    return login_response['user']['id'], plant_id, inverter_sn, datalog_sn
 
 def monitor_growatt():
     global last_update_time
@@ -79,7 +79,7 @@ def monitor_growatt():
     sent_lights_on = False
 
     try:
-        user_id, plant_id, inverter_sn, datalogger_sn = login_growatt()
+        user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
         log_message("✅ Growatt login and initialization successful!")
 
         while True:
@@ -104,7 +104,7 @@ def monitor_growatt():
                     "user_id": user_id,
                     "plant_id": plant_id,
                     "inverter_sn": inverter_sn,
-                    "datalogger_sn": datalogger_sn
+                    "datalog_sn": datalog_sn
                 })
 
                 last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -143,7 +143,7 @@ Consumo actual     : {load_w} W"""
 
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
-                user_id, plant_id, inverter_sn, datalogger_sn = login_growatt()
+                user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
 
             time.sleep(40)
 
@@ -285,7 +285,7 @@ def details_view():
             <p>Plant ID: {{ plant_id }}</p>
             <p>User ID: {{ user_id }}</p>
             <p>Inverter SN: {{ inverter_sn }}</p>
-            <p>Datalogger SN: {{ datalogger_sn }}</p>
+            <p>Datalogger SN: {{ datalog_sn }}</p>
             <h2>Datos en tiempo real</h2>
             <table border="1">
                 <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
@@ -310,7 +310,7 @@ def details_view():
        plant_id=current_data.get("plant_id", "N/A"),
        user_id=current_data.get("user_id", "N/A"),
        inverter_sn=current_data.get("inverter_sn", "N/A"),
-       datalogger_sn=current_data.get("datalogger_sn", "N/A"))
+       datalog_sn=current_data.get("datalog_sn", "N/A"))
 
 
 if __name__ == '__main__':
