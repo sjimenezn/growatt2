@@ -1,3 +1,4 @@
+
 from flask import Flask, render_template_string, jsonify
 import threading
 import time
@@ -47,38 +48,165 @@ def send_telegram_message(message):
         except Exception as e:
             log_message(f"❌ Failed to send message to {chat_id}: {e}")
 
-# Navigation bar for all pages
-NAVIGATION_LINKS = """
-<ul>
-    <li><a href="/">Home</a></li>
-    <li><a href="/logs">Logs</a></li>
-    <li><a href="/chatlog">Chat Log</a></li>
-    <li><a href="/console">Console Logs</a></li>
-    <li><a href="/details">Details</a></li>
-</ul>
-"""
+def login_growatt():
+    log_message("🔄 Attempting Growatt login...")
+    login_response = api.login(username, password)
+    plant_info = api.plant_list(login_response['user']['id'])
+    plant_id = plant_info['data'][0]['plantId']
+    inverter_info = api.inverter_list(plant_id)
+    inverter_sn = inverter_info[0]['deviceSn']
+    datalogger_info = api.storage_detail(inverter_sn)
+    datalogger_sn = datalogger_info.get("dataloggerSn", "N/A")
+    
+    log_message(f"🌿 User ID: {login_response['user']['id']}")
+    log_message(f"🌿 Plant ID: {plant_id}")
+    log_message(f"🌿 Inverter SN: {inverter_sn}")
+    log_message(f"🌿 Datalogger SN: {datalogger_sn}")
+    
+    return login_response['user']['id'], plant_id, inverter_sn, datalogger_sn
 
+def monitor_growatt():
+    global last_update_time
+    threshold = 80
+    sent_lights_off = False
+    sent_lights_on = False
+
+    try:
+        user_id, plant_id, inverter_sn, datalogger_sn = login_growatt()
+        log_message("✅ Growatt login and initialization successful!")
+
+        while True:
+            try:
+                data = api.storage_detail(inverter_sn)
+
+                ac_input_v = data.get("vGrid", "N/A")
+                ac_input_f = data.get("freqGrid", "N/A")
+                ac_output_v = data.get("outPutVolt", "N/A")
+                ac_output_f = data.get("freqOutPut", "N/A")
+                load_w = data.get("activePower", "N/A")
+                battery_pct = data.get("capacity", "N/A")
+
+                current_data.update({
+                    "ac_input_voltage": ac_input_v,
+                    "ac_input_frequency": ac_input_f,
+                    "ac_output_voltage": ac_output_v,
+                    "ac_output_frequency": ac_output_f,
+                    "load_power": load_w,
+                    "battery_capacity": battery_pct,
+                    "user_id": user_id,
+                    "plant_id": plant_id,
+                    "inverter_sn": inverter_sn,
+                    "datalogger_sn": datalogger_sn
+                })
+
+                last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                log_message(f"Updated Data: {current_data}")
+
+                if ac_input_v != "N/A":
+                    if float(ac_input_v) < threshold and not sent_lights_off:
+                        time.sleep(110)
+                        data = api.storage_detail(inverter_sn)
+                        ac_input_v = data.get("vGrid", "N/A")
+                        if float(ac_input_v) < threshold:
+                            msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
+
+Nivel de batería      : {battery_pct} %
+Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
+Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
+Consumo actual     : {load_w} W"""
+                            send_telegram_message(msg)
+                            send_telegram_message(msg)  # Send again
+                            sent_lights_off = True
+                            sent_lights_on = False
+
+                    elif float(ac_input_v) >= threshold and not sent_lights_on:
+                        time.sleep(110)
+                        data = api.storage_detail(inverter_sn)
+                        ac_input_v = data.get("vGrid", "N/A")
+                        if float(ac_input_v) >= threshold:
+                            msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
+
+Nivel de batería      : {battery_pct} %
+Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
+Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
+Consumo actual     : {load_w} W"""
+                            send_telegram_message(msg)
+                            send_telegram_message(msg)  # Send again
+                            sent_lights_on = True
+                            sent_lights_off = False
+
+            except Exception as e_inner:
+                log_message(f"⚠️ Error during monitoring: {e_inner}")
+                user_id, plant_id, inverter_sn, datalogger_sn = login_growatt()
+
+            time.sleep(40)
+
+    except Exception as e_outer:
+        log_message(f"❌ Fatal error: {e_outer}")
+
+# Telegram Handlers
+def start(update: Update, context: CallbackContext):
+    chat_log.add(update.effective_chat.id)
+    update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
+
+def send_status(update: Update, context: CallbackContext):
+    chat_log.add(update.effective_chat.id)
+    msg = f"""⚡ Estado del Inversor ⚡
+
+Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
+Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
+Consumo          : {current_data.get('load_power', 'N/A')} W
+Batería              : {current_data.get('battery_capacity', 'N/A')}%"""
+    update.message.reply_text(msg)
+
+def send_chatlog(update: Update, context: CallbackContext):
+    chat_log.add(update.effective_chat.id)
+    ids = "\n".join(str(cid) for cid in chat_log)
+    update.message.reply_text(f"IDs registrados:\n{ids}")
+
+def stop_bot(update: Update, context: CallbackContext):
+    update.message.reply_text("Bot detenido.")
+    log_message("Bot detenido por comando /stop")
+    threading.Thread(target=updater.stop).start()
+
+updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+dp = updater.dispatcher
+dp.add_handler(CommandHandler("start", start))
+dp.add_handler(CommandHandler("status", send_status))
+dp.add_handler(CommandHandler("chatlog", send_chatlog))
+dp.add_handler(CommandHandler("stop", stop_bot))
+
+# Stop the existing Telegram bot instance before starting
+if updater.running:
+    updater.stop()
+updater.start_polling()
+
+# Flask Routes
 @app.route("/")
 def home():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
-        <head><title>Growatt Monitor - Home</title></head>
+        <head><title>Growatt Home</title></head>
         <body>
-            <h1>Growatt Monitor</h1>
-            {NAVIGATION_LINKS}
-            <p>Welcome to the Growatt Monitor!</p>
+            <h1>Welcome to the Growatt Monitor</h1>
+            <ul>
+                <li><a href="/logs">View Logs</a></li>
+                <li><a href="/chatlog">Chat Logs</a></li>
+                <li><a href="/console">Console Logs</a></li>
+                <li><a href="/details">Growatt Details</a></li>
+            </ul>
         </body>
         </html>
     """)
 
 @app.route("/logs")
 def get_logs():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
-        <head><title>Growatt Monitor - Logs</title><meta http-equiv="refresh" content="40"></head>
+        <head><title>Growatt Logs</title></head>
         <body>
-            <h1>Logs</h1>
-            {NAVIGATION_LINKS}
+            <h1>Datos del Inversor</h1>
             <table border="1">
                 <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
                 <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
@@ -87,51 +215,51 @@ def get_logs():
                 <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
                 <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
             </table>
-            <p><b>Last Update:</b> {{ last }}</p>
+            <p><b>Última actualización:</b> {{ last }}</p>
+            <p><a href="/">Back to Home</a></p>
         </body>
         </html>
     """, d=current_data, last=last_update_time)
 
 @app.route("/chatlog")
 def chatlog_view():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
-        <head><title>Growatt Monitor - Chat Log</title></head>
+        <head><title>Growatt Chat Logs</title></head>
         <body>
             <h1>Chat Logs</h1>
-            {NAVIGATION_LINKS}
             <pre>{{ logs }}</pre>
+            <p><a href="/">Back to Home</a></p>
         </body>
         </html>
-    """, logs="\n".join(map(str, chat_log)))
+    """, logs=jsonify(sorted(list(chat_log))))
 
 @app.route("/console")
 def console_view():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
-        <head><title>Growatt Monitor - Console Logs</title><meta http-equiv="refresh" content="10"></head>
+        <head><title>Growatt Console Logs</title></head>
         <body>
-            <h1>Console Logs</h1>
-            {NAVIGATION_LINKS}
+            <h1>Console Logs (Last 5 Minutes)</h1>
             <pre>{{ logs }}</pre>
+            <p><a href="/">Back to Home</a></p>
         </body>
         </html>
     """, logs="\n".join(m for _, m in console_logs))
 
 @app.route("/details")
 def details_view():
-    return render_template_string(f"""
+    return render_template_string("""
         <html>
-        <head><title>Growatt Monitor - Details</title><meta http-equiv="refresh" content="40"></head>
+        <head><title>Growatt Details</title></head>
         <body>
-            <h1>Details</h1>
-            {NAVIGATION_LINKS}
-            <h2>Constant Information</h2>
+            <h1>Detalles del Inversor</h1>
+            <h2>Información constante</h2>
             <p>Plant ID: {{ plant_id }}</p>
             <p>User ID: {{ user_id }}</p>
             <p>Inverter SN: {{ inverter_sn }}</p>
             <p>Datalogger SN: {{ datalogger_sn }}</p>
-            <h2>Real-Time Data</h2>
+            <h2>Datos en tiempo real</h2>
             <table border="1">
                 <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
                 <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
@@ -140,7 +268,8 @@ def details_view():
                 <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
                 <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
             </table>
-            <p><b>Last Update:</b> {{ last }}</p>
+            <p><b>Última actualización:</b> {{ last }}</p>
+            <p><a href="/">Back to Home</a></p>
         </body>
         </html>
     """, d=current_data, last=last_update_time,
@@ -150,5 +279,5 @@ def details_view():
        datalogger_sn=current_data.get("datalogger_sn", "N/A"))
 
 if __name__ == '__main__':
-    threading.Thread(target=log_message, args=("Monitoring started",)).start()
-    app.run(host="0.0.0.0", port=8000)
+    threading.Thread(target=monitor_growatt).start()
+    app.run(host='0.0.0.0', port=8000)
