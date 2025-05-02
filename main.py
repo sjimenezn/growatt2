@@ -49,19 +49,14 @@ def send_telegram_message(message):
 
 def login_growatt():
     log_message("🔄 Attempting Growatt login...")
-    try:
-        login_response = api.login(username, password)
-        plant_info = api.plant_list(login_response['user']['id'])
-        plant_id = plant_info['data'][0]['plantId']
-        inverter_info = api.inverter_list(plant_id)
-        inverter_sn = inverter_info[0]['deviceSn']
-        log_message(f"🌿 User ID: {login_response['user']['id']}")
-        log_message(f"🌿 Plant ID: {plant_id}")
-        return inverter_sn
-    except Exception as e:
-        log_message(f"❌ Error during login: {e}")
-        time.sleep(120)  # Wait 2 minutes before retrying
-        return login_growatt()
+    login_response = api.login(username, password)
+    plant_info = api.plant_list(login_response['user']['id'])
+    plant_id = plant_info['data'][0]['plantId']
+    inverter_info = api.inverter_list(plant_id)
+    inverter_sn = inverter_info[0]['deviceSn']
+    log_message(f"🌿 User ID: {login_response['user']['id']}")
+    log_message(f"🌿 Plant ID: {plant_id}")
+    return inverter_sn
 
 def monitor_growatt():
     global last_update_time
@@ -99,7 +94,7 @@ def monitor_growatt():
 
                 if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
-                        time.sleep(110)  # Wait for 110 seconds
+                        time.sleep(110)
                         data = api.storage_detail(inverter_sn)
                         ac_input_v = data.get("vGrid", "N/A")
                         if float(ac_input_v) < threshold:
@@ -114,7 +109,7 @@ Consumo actual     : {load_w} W"""
                             sent_lights_on = False
 
                     elif float(ac_input_v) >= threshold and not sent_lights_on:
-                        time.sleep(110)  # Wait for 110 seconds
+                        time.sleep(110)
                         data = api.storage_detail(inverter_sn)
                         ac_input_v = data.get("vGrid", "N/A")
                         if float(ac_input_v) >= threshold:
@@ -205,4 +200,8 @@ def console_view():
             <h2>Console Output (últimos 5 minutos)</h2>
             <pre>{{ logs }}</pre>
         </body></html>
-    """, logs
+    """, logs="\n".join(m for _, m in console_logs))
+
+if __name__ == "__main__":
+    threading.Thread(target=monitor_growatt, daemon=True).start()
+    app.run(host="0.0.0.0", port=8080)
