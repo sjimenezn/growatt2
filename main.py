@@ -316,70 +316,14 @@ def chatlog_view():
 
 @app.route("/console")
 def console_view():
-    def classify_log(message):
-        """Returns a CSS class based on the log level in the message."""
-        if "ERROR" in message:
-            return "error"
-        elif "WARNING" in message:
-            return "warning"
-        elif "DEBUG" in message:
-            return "debug"
-        elif "INFO" in message:
-            return "info"
-        else:
-            return "default"
-
     return render_template_string("""
-        <html>
-        <head>
-            <title>Console Logs</title>
-            <meta http-equiv="refresh" content="10">
-            <style>
-                body {
-                    font-family: sans-serif;
-                    background: #f9f9f9;
-                    margin: 20px;
-                }
-                pre {
-                    white-space: pre;
-                    overflow-x: auto;
-                    font-family: monospace;
-                    background: #eee;
-                    padding: 10px;
-                    border-radius: 5px;
-                }
-                .timestamp {
-                    color: #888;
-                }
-                .log-message {
-                    font-weight: bold;
-                }
-                .info { color: #0074D9; }      /* Blue */
-                .warning { color: #FF851B; }   /* Orange */
-                .error { color: #FF4136; }     /* Red */
-                .debug { color: #2ECC40; }     /* Green */
-                .default { color: #111; }
-                nav ul {
-                    list-style: none;
-                    padding: 0;
-                }
-                nav li {
-                    display: inline;
-                    margin-right: 15px;
-                }
-            </style>
-        </head>
+        <html><head><title>Console Logs</title><meta http-equiv="refresh" content="10"></head>
         <body>
             <h2>Console Output (últimos 5 minutos)</h2>
-            <pre>
-{% for timestamp, message in console_logs %}
-<span class="timestamp">[{{ timestamp.strftime('%H:%M:%S') }}]</span>
-<span class="log-message {{ classify_log(message) }}">{{ message }}</span>
-{% endfor %}
-            </pre>
+            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
 
             <h2>📦 Fetched Growatt Data</h2>
-            <pre>{{ data }}</pre>
+            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ data }}</pre>
 
             <nav>
                 <ul>
@@ -390,12 +334,10 @@ def console_view():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-        </body>
-        </html>
-    """,
-    console_logs=console_logs,
-    data=pprint.pformat(fetched_data, indent=2),
-    classify_log=classify_log)
+        </body></html>
+    """, 
+    logs="\n\n".join(m for _, m in console_logs),
+    data=pprint.pformat(fetched_data, indent=2))
 
 @app.route("/details")
 def details_view():
