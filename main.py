@@ -317,14 +317,45 @@ def chatlog_view():
 @app.route("/console")
 def console_view():
     return render_template_string("""
-        <html><head><title>Console Logs</title><meta http-equiv="refresh" content="10"></head>
+        <html>
+        <head>
+            <title>Console Logs</title>
+            <meta http-equiv="refresh" content="10">
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                }
+                nav {
+                    background-color: #333;
+                    overflow: hidden;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                }
+                nav ul {
+                    list-style-type: none;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                }
+                nav ul li {
+                    padding: 14px 20px;
+                }
+                nav ul li a {
+                    color: white;
+                    text-decoration: none;
+                    font-size: 18px;
+                }
+                nav ul li a:hover {
+                    background-color: #ddd;
+                    color: black;
+                }
+            </style>
+        </head>
         <body>
-            <h2>Console Output (últimos 5 minutos)</h2>
-            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
-
-            <h2>📦 Fetched Growatt Data</h2>
-            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ data }}</pre>
-
             <nav>
                 <ul>
                     <li><a href="/">Home</a></li>
@@ -334,10 +365,18 @@ def console_view():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-        </body></html>
+
+            <h2>Console Output (últimos 5 minutos)</h2>
+            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
+
+            <h2>📦 Fetched Growatt Data</h2>
+            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ data }}</pre>
+        </body>
+        </html>
     """, 
     logs="\n\n".join(m for _, m in console_logs),
     data=pprint.pformat(fetched_data, indent=2))
+
 
 @app.route("/details")
 def details_view():
