@@ -55,22 +55,60 @@ def send_telegram_message(message):
                 if attempt == 2:  # Final attempt failed
                     log_message(f"❌ Failed to send message to {chat_id} after 3 attempts")
 
+# Global variable to hold the fetched data
+fetched_data = {}
+
 def login_growatt():
     log_message("🔄 Attempting Growatt login...")
-    login_response = api.login(username, password)
-    plant_info = api.plant_list(login_response['user']['id'])
-    plant_id = plant_info['data'][0]['plantId']
-    inverter_info = api.inverter_list(plant_id)
-    inverter_sn = inverter_info[0]['deviceSn']
-    datalogger_info = api.storage_detail(inverter_sn)
-    datalog_sn = datalogger_info.get("dataloggerSn", "N/A")
     
+    try:
+        # Attempting to login and fetching the login response
+        login_response = api.login(username, password)
+        fetched_data['login_response'] = login_response  # Save login response
+    except Exception as e:
+        log_message(f"❌ Login failed: {e}")
+        return None
+
+    try:
+        # Fetching plant information
+        plant_info = api.plant_list(login_response['user']['id'])
+        fetched_data['plant_info'] = plant_info  # Save plant info
+        plant_id = plant_info['data'][0]['plantId']
+        fetched_data['plant_id'] = plant_id  # Save plant ID
+    except Exception as e:
+        log_message(f"❌ Failed to retrieve plant info: {e}")
+        return None
+
+    try:
+        # Fetching inverter information
+        inverter_info = api.inverter_list(plant_id)
+        fetched_data['inverter_info'] = inverter_info  # Save inverter info
+        inverter_sn = inverter_info[0]['deviceSn']
+        fetched_data['inverter_sn'] = inverter_sn  # Save inverter SN
+    except Exception as e:
+        log_message(f"❌ Failed to retrieve inverter info: {e}")
+        return None
+
+    try:
+        # Fetching datalogger information
+        datalogger_info = api.storage_detail(inverter_sn)
+        fetched_data['datalogger_info'] = datalogger_info  # Save datalogger info
+        datalog_sn = datalogger_info.get("dataloggerSn", "N/A")
+        fetched_data['datalog_sn'] = datalog_sn  # Save datalogger SN
+    except Exception as e:
+        log_message(f"❌ Failed to retrieve datalogger info: {e}")
+        datalog_sn = "N/A"  # Fallback value for datalogger SN
+        fetched_data['datalog_sn'] = datalog_sn  # Save fallback value
+
+    # Log the fetched data
     log_message(f"🌿 User ID: {login_response['user']['id']}")
     log_message(f"🌿 Plant ID: {plant_id}")
     log_message(f"🌿 Inverter SN: {inverter_sn}")
     log_message(f"🌿 Datalogger SN: {datalog_sn}")
-    
+
+    # Return the gathered data
     return login_response['user']['id'], plant_id, inverter_sn, datalog_sn
+
 
 def monitor_growatt():
     global last_update_time
