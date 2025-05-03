@@ -317,7 +317,7 @@ def details_view():
     return render_template_string("""
         <html><head><title>Growatt Details</title><meta http-equiv="refresh" content="40"></head>
         <body>
-            <h1>Detalles del Inversor65464</h1>
+            <h1>Detalles del Inversor22</h1>
             <h2>Información constante</h2>
             <p>Plant ID: {{ plant_id }}</p>
             <p>User ID: {{ user_id }}</p>
@@ -347,7 +347,8 @@ def details_view():
        plant_id=current_data.get("plant_id", "N/A"),
        user_id=current_data.get("user_id", "N/A"),
        inverter_sn=current_data.get("inverter_sn", "N/A"),
-       datalog_sn=current_data.get("datalog_sn", "nop"))
+       datalog_sn=current_data.get("datalog_sn", "N/A"))
+
 
 
 if __name__ == '__main__':
