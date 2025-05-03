@@ -253,9 +253,44 @@ updater.start_polling()
 @app.route("/")
 def home():
     return render_template_string("""
-        <html><head><title>Home - Growatt Monitor</title></head>
+        <html>
+        <head>
+            <title>Home - Growatt Monitor</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                }
+                nav {
+                    background-color: #333;
+                    overflow: hidden;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                }
+                nav ul {
+                    list-style-type: none;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                }
+                nav ul li {
+                    padding: 14px 20px;
+                }
+                nav ul li a {
+                    color: white;
+                    text-decoration: none;
+                    font-size: 18px;
+                }
+                nav ul li a:hover {
+                    background-color: #ddd;
+                    color: black;
+                }
+            </style>
+        </head>
         <body>
-            <h1>✅ Growatt Monitor is Running!</h1>
             <nav>
                 <ul>
                     <li><a href="/">Home</a></li>
@@ -265,14 +300,62 @@ def home():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-        </body></html>
+            <h1>✅ Growatt Monitor is Running!</h1>
+        </body>
+        </html>
     """)
 
 @app.route("/logs")
 def get_logs():
     return render_template_string("""
-        <html><head><title>Growatt Monitor - Logs</title><meta http-equiv="refresh" content="40"></head>
+        <html>
+        <head>
+            <title>Growatt Monitor - Logs</title>
+            <meta http-equiv="refresh" content="40">
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                }
+                nav {
+                    background-color: #333;
+                    overflow: hidden;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                }
+                nav ul {
+                    list-style-type: none;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                }
+                nav ul li {
+                    padding: 14px 20px;
+                }
+                nav ul li a {
+                    color: white;
+                    text-decoration: none;
+                    font-size: 18px;
+                }
+                nav ul li a:hover {
+                    background-color: #ddd;
+                    color: black;
+                }
+            </style>
+        </head>
         <body>
+            <nav>
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/logs">Logs</a></li>
+                    <li><a href="/chatlog">Chatlog</a></li>
+                    <li><a href="/console">Console</a></li>
+                    <li><a href="/details">Details</a></li>
+                </ul>
+            </nav>
             <h1>Datos del Inversor</h1>
             <table border="1">
                 <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
@@ -283,25 +366,51 @@ def get_logs():
                 <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
             </table>
             <p><b>Última actualización:</b> {{ last }}</p>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-        </body></html>
+        </body>
+        </html>
     """, d=current_data, last=last_update_time)
 
 @app.route("/chatlog")
 def chatlog_view():
     return render_template_string("""
-        <html><head><title>Growatt Monitor - Chatlog</title></head>
+        <html>
+        <head>
+            <title>Growatt Monitor - Chatlog</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                }
+                nav {
+                    background-color: #333;
+                    overflow: hidden;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                }
+                nav ul {
+                    list-style-type: none;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                }
+                nav ul li {
+                    padding: 14px 20px;
+                }
+                nav ul li a {
+                    color: white;
+                    text-decoration: none;
+                    font-size: 18px;
+                }
+                nav ul li a:hover {
+                    background-color: #ddd;
+                    color: black;
+                }
+            </style>
+        </head>
         <body>
-            <h1>Chatlog</h1>
-            <pre>{{ chat_log }}</pre>
             <nav>
                 <ul>
                     <li><a href="/">Home</a></li>
@@ -311,7 +420,10 @@ def chatlog_view():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-        </body></html>
+            <h1>Chatlog</h1>
+            <pre>{{ chat_log }}</pre>
+        </body>
+        </html>
     """, chat_log="\n".join(str(cid) for cid in sorted(list(chat_log))))
 
 @app.route("/console")
@@ -365,7 +477,6 @@ def console_view():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-
             <h2>Console Output (últimos 5 minutos)</h2>
             <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
 
@@ -377,12 +488,57 @@ def console_view():
     logs="\n\n".join(m for _, m in console_logs),
     data=pprint.pformat(fetched_data, indent=2))
 
-
 @app.route("/details")
 def details_view():
     return render_template_string("""
-        <html><head><title>Growatt Details</title><meta http-equiv="refresh" content="40"></head>
+        <html>
+        <head>
+            <title>Growatt Details</title>
+            <meta http-equiv="refresh" content="40">
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                }
+                nav {
+                    background-color: #333;
+                    overflow: hidden;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                }
+                nav ul {
+                    list-style-type: none;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                }
+                nav ul li {
+                    padding: 14px 20px;
+                }
+                nav ul li a {
+                    color: white;
+                    text-decoration: none;
+                    font-size: 18px;
+                }
+                nav ul li a:hover {
+                    background-color: #ddd;
+                    color: black;
+                }
+            </style>
+        </head>
         <body>
+            <nav>
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/logs">Logs</a></li>
+                    <li><a href="/chatlog">Chatlog</a></li>
+                    <li><a href="/console">Console</a></li>
+                    <li><a href="/details">Details</a></li>
+                </ul>
+            </nav>
             <h1>Detalles del Inversor22</h1>
             <h2>Información constante</h2>
             <p>Plant ID: {{ plant_id }}</p>
@@ -399,21 +555,14 @@ def details_view():
                 <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
             </table>
             <p><b>Última actualización:</b> {{ last }}</p>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-        </body></html>
+        </body>
+        </html>
     """, d=current_data, last=last_update_time,
        plant_id=current_data.get("plant_id", "N/A"),
        user_id=current_data.get("user_id", "N/A"),
        inverter_sn=current_data.get("inverter_sn", "N/A"),
        datalog_sn=current_data.get("datalog_sn", "N/A"))
+
 
 
 
