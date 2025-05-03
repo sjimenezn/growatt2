@@ -315,11 +315,16 @@ def chatlog_view():
 
 @app.route("/console")
 def console_view():
+   
     return render_template_string("""
         <html><head><title>Console Logs</title><meta http-equiv="refresh" content="10"></head>
         <body>
             <h2>Console Output (últimos 5 minutos)</h2>
-            <pre>{{ logs }}</pre>
+            <pre style="white-space: pre-wrap; font-family: monospace;">{{ logs }}</pre>
+
+            <h2>📦 Fetched Growatt Data</h2>
+            <pre style="white-space: pre-wrap; font-family: monospace;">{{ data }}</pre>
+
             <nav>
                 <ul>
                     <li><a href="/">Home</a></li>
@@ -330,7 +335,9 @@ def console_view():
                 </ul>
             </nav>
         </body></html>
-    """, logs="\n".join(m for _, m in console_logs))
+    """, 
+    logs="\n\n".join(m for _, m in console_logs),
+    data=pprint.pformat(fetched_data, indent=2))
 
 @app.route("/details")
 def details_view():
