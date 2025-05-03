@@ -317,7 +317,7 @@ def details_view():
     return render_template_string("""
         <html><head><title>Growatt Details</title><meta http-equiv="refresh" content="40"></head>
         <body>
-            <h1>Detalles del Inversor</h1>
+            <h1>Detalles del Inversor65464</h1>
             <h2>Información constante</h2>
             <p>Plant ID: {{ plant_id }}</p>
             <p>User ID: {{ user_id }}</p>
