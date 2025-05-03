@@ -314,7 +314,7 @@ def chatlog_view():
         </body></html>
     """, chat_log="\n".join(str(cid) for cid in sorted(list(chat_log))))
 
-@@app.route("/console")
+@app.route("/console")
 def console_view():
     def classify_log(message):
         """Returns a CSS class based on the log level in the message."""
