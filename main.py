@@ -65,16 +65,29 @@ def login_growatt():
         # Attempting to login and fetching the login response
         login_response = api.login(username, password)
         fetched_data['login_response'] = login_response  # Save login response
+        user = login_response.get('user', {})
+        user_id = user.get('id')
+        fetched_data['user_id'] = user_id
+        fetched_data['cpower_token'] = user.get('cpowerToken')
+        fetched_data['cpower_auth'] = user.get('cpowerAuth')
+        fetched_data['account_name'] = user.get('accountName')
+        fetched_data['email'] = user.get('email')
+        fetched_data['last_login_time'] = user.get('lastLoginTime')
+        fetched_data['user_area'] = user.get('area')
+        log_message("✅ Login successful!")
     except Exception as e:
         log_message(f"❌ Login failed: {e}")
         return None
 
     try:
         # Fetching plant information
-        plant_info = api.plant_list(login_response['user']['id'])
+        plant_info = api.plant_list(user_id)
         fetched_data['plant_info'] = plant_info  # Save plant info
-        plant_id = plant_info['data'][0]['plantId']
+        plant_data = plant_info['data'][0]
+        plant_id = plant_data['plantId']
         fetched_data['plant_id'] = plant_id  # Save plant ID
+        fetched_data['plant_name'] = plant_data['plantName']
+        fetched_data['plant_total_data'] = plant_info.get('totalData', {})
     except Exception as e:
         log_message(f"❌ Failed to retrieve plant info: {e}")
         return None
@@ -83,31 +96,38 @@ def login_growatt():
         # Fetching inverter information
         inverter_info = api.inverter_list(plant_id)
         fetched_data['inverter_info'] = inverter_info  # Save inverter info
-        inverter_sn = inverter_info[0]['deviceSn']
+        inverter_data = inverter_info[0]
+        inverter_sn = inverter_data['deviceSn']
+        datalog_sn = inverter_data.get('datalogSn', 'N/A')
         fetched_data['inverter_sn'] = inverter_sn  # Save inverter SN
+        fetched_data['datalog_sn'] = datalog_sn  # Save datalogger SN
+        fetched_data['inverter_alias'] = inverter_data.get('deviceAilas')
+        fetched_data['inverter_capacity'] = inverter_data.get('capacity')
+        fetched_data['inverter_energy'] = inverter_data.get('energy')
+        fetched_data['inverter_active_power'] = inverter_data.get('activePower')
+        fetched_data['inverter_apparent_power'] = inverter_data.get('apparentPower')
+        fetched_data['inverter_status'] = inverter_data.get('deviceStatus')
     except Exception as e:
         log_message(f"❌ Failed to retrieve inverter info: {e}")
         return None
 
     try:
-        # Fetching datalogger information
-        datalogger_info = api.storage_detail(inverter_sn)
-        fetched_data['datalogger_info'] = datalogger_info  # Save datalogger info
-        datalog_sn = datalogger_info.get("dataloggerSn", "N/A")
-        fetched_data['datalog_sn'] = datalog_sn  # Save datalogger SN
+        # Fetching storage details
+        storage_detail = api.storage_detail(inverter_sn)
+        fetched_data['storage_detail'] = storage_detail  # Save full storage detail
     except Exception as e:
-        log_message(f"❌ Failed to retrieve datalogger info: {e}")
-        datalog_sn = "N/A"  # Fallback value for datalogger SN
-        fetched_data['datalog_sn'] = datalog_sn  # Save fallback value
+        log_message(f"❌ Failed to retrieve storage detail: {e}")
+        fetched_data['storage_detail'] = {}
 
     # Log the fetched data
-    log_message(f"🌿 User ID: {login_response['user']['id']}")
+    log_message(f"🌿 User ID: {user_id}")
     log_message(f"🌿 Plant ID: {plant_id}")
     log_message(f"🌿 Inverter SN: {inverter_sn}")
     log_message(f"🌿 Datalogger SN: {datalog_sn}")
 
     # Return the gathered data
-    return login_response['user']['id'], plant_id, inverter_sn, datalog_sn
+    return user_id, plant_id, inverter_sn, datalog_sn
+
 
 
 def monitor_growatt():
