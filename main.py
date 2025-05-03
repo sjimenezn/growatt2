@@ -324,16 +324,6 @@ def console_view():
             return "warning"
         elif "DEBUG" in message:
             return "debug"
-        elif@app.route("/console")
-def console_view():
-    def classify_log(message):
-        """Returns a CSS class based on the log level in the message."""
-        if "ERROR" in message:
-            return "error"
-        elif "WARNING" in message:
-            return "warning"
-        elif "DEBUG" in message:
-            return "debug"
         elif "INFO" in message:
             return "info"
         else:
@@ -406,7 +396,7 @@ def console_view():
     console_logs=console_logs,
     data=pprint.pformat(fetched_data, indent=2),
     classify_log=classify_log)
-    
+
 @app.route("/details")
 def details_view():
     return render_template_string("""
