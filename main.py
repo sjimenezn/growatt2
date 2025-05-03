@@ -324,6 +324,16 @@ def console_view():
             return "warning"
         elif "DEBUG" in message:
             return "debug"
+        elif@app.route("/console")
+def console_view():
+    def classify_log(message):
+        """Returns a CSS class based on the log level in the message."""
+        if "ERROR" in message:
+            return "error"
+        elif "WARNING" in message:
+            return "warning"
+        elif "DEBUG" in message:
+            return "debug"
         elif "INFO" in message:
             return "info"
         else:
