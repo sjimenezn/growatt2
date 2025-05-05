@@ -174,15 +174,14 @@ def monitor_growatt():
                 last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 log_message(f"Updated current_data: {current_data}")
 
-                if ac_input_v != "N/A":
-    if float(ac_input_v) < threshold and not sent_lights_off:
-        time.sleep(110)
-        data = api.storage_detail(inverter_sn)
-        ac_input_v = data.get("vGrid", "N/A")
-        if float(ac_input_v) < threshold:
-            timestamp = get_utc_minus_5_time()
-
-            msg = f"""🕒 Hora: {timestamp}
+                if ac_input_v != "N/A":  
+                    if float(ac_input_v) < threshold and not sent_lights_off:
+                        time.sleep(110)
+                        data = api.storage_detail(inverter_sn)
+                        ac_input_v = data.get("vGrid", "N/A")
+                        if float(ac_input_v) < threshold:
+                            timestamp = get_utc_minus_5_time()
+                            msg = f"""🕒 Hora: {timestamp}
 
 🔴🔴¡Se fue la luz en Acacías!🔴🔴
 
@@ -190,18 +189,18 @@ Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
-            send_telegram_message(msg)
-            sent_lights_off = True
-            sent_lights_on = False
+                            send_telegram_message(msg)
+                            sent_lights_off = True
+                            sent_lights_on = False
 
-    elif float(ac_input_v) >= threshold and not sent_lights_on:
-        time.sleep(110)
-        data = api.storage_detail(inverter_sn)
-        ac_input_v = data.get("vGrid", "N/A")
-        if float(ac_input_v) >= threshold:
-            timestamp = get_utc_minus_5_time()
+                    elif float(ac_input_v) >= threshold and not sent_lights_on:
+                        time.sleep(110)
+                        data = api.storage_detail(inverter_sn)
+                        ac_input_v = data.get("vGrid", "N/A")
+                        if float(ac_input_v) >= threshold:
+                            timestamp = get_utc_minus_5_time()
 
-            msg = f"""🕒 Hora: {timestamp}
+                            msg = f"""🕒 Hora: {timestamp}
 
 ✅✅¡Llegó la luz en Acacías!✅✅
 
@@ -209,18 +208,18 @@ Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
-            send_telegram_message(msg)
-            sent_lights_on = True
-            sent_lights_off = False
+                            send_telegram_message(msg)
+                            sent_lights_on = True
+                            sent_lights_off = False
 
-except Exception as e_inner:
-    log_message(f"⚠️ Error during monitoring: {e_inner}")
-    user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
+                time.sleep(40)
 
-time.sleep(40)
+            except Exception as e_inner:
+                log_message(f"⚠️ Error during monitoring: {e_inner}")
+                user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
 
-except Exception as e_outer:
-    log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
+    except Exception as e_outer:
+        log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
 
 # Telegram Handlers
 def start(update: Update, context: CallbackContext):
@@ -247,8 +246,6 @@ Batería              : {current_data.get('battery_capacity', 'N/A')}%"""
         log_message(f"✅ Status sent to {update.effective_chat.id} at {timestamp}")
     except Exception as e:
         log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
-
-
 
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
