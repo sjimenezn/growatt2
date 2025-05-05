@@ -1,10 +1,9 @@
-
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify
 import threading
 import pprint
 import time
 import requests
-import datetime
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
@@ -218,17 +217,25 @@ def start(update: Update, context: CallbackContext):
 
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
-    msg = f"""⚡ Estado del Inversor /stop⚡
+    
+    # Get the current timestamp
+    timestamp = get_utc_minus_5_time()
+    
+    msg = f"""🕒 Hora: {timestamp}
+
+/status ⚡ Estado del Inversor /stop⚡
 
 Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo          : {current_data.get('load_power', 'N/A')} W
 Batería              : {current_data.get('battery_capacity', 'N/A')}%"""
+    
     try:
         update.message.reply_text(msg)
-        log_message(f"✅ Status sent to {update.effective_chat.id}")
+        log_message(f"✅ Status sent to {update.effective_chat.id} at {timestamp}")
     except Exception as e:
         log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
+
 
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
