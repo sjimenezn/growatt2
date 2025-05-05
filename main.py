@@ -300,7 +300,23 @@ def home():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-            <h1>✅ Growatt Monitor is Running!</h1>
+             <h1>✅ Growatt Monitor is Running!</h1>
+             <h2>Detalles del Inversor</h2>
+            <h3>Información constante</h3>
+            <p>Plant ID: {{ plant_id }}</p>
+            <p>User ID: {{ user_id }}</p>
+            <p>Inverter SN: {{ inverter_sn }}</p>
+            <p>Datalogger SN: {{ datalog_sn }}</p>
+            <h2>Datos en tiempo real</h2>
+            <table border="1">
+                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
+                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
+                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
+                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
+                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
+                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
+            </table>
+            <p><b>Última actualización:</b> {{ last }}</p>
         </body>
         </html>
     """)
