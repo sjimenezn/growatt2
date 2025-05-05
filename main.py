@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta, timezone
+
 from flask import Flask, render_template_string, jsonify
 import threading
 import pprint
 import time
 import requests
+import datetime
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
@@ -13,7 +14,7 @@ username = "vospina"
 password = "Vospina.2025"
 
 # Telegram Config
-TELEGRAM_TOKEN = "7653969082:AAExMmdyKRo4WOHIhm8NPNWbDyCy6Cl8dD8"
+TELEGRAM_TOKEN = "7653969082:AAGrvPu_NtBqcaEy3KL7RwUt_8vHcR1hT3A"
 CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
 
@@ -31,12 +32,6 @@ current_data = {}
 last_update_time = "Never"
 console_logs = []
 updater = None  # Global reference
-
-def get_utc_minus_5_time():
-    # Get the current time in UTC and adjust to UTC-5
-    utc_time = datetime.datetime.utcnow()
-    utc_minus_5_time = utc_time - datetime.timedelta(hours=5)
-    return utc_minus_5_time.strftime('%Y-%m-%d %H:%M:%S')
 
 def log_message(message):
     timestamped = f"{datetime.datetime.now().strftime('%H:%M:%S')} - {message}"
@@ -174,16 +169,13 @@ def monitor_growatt():
                 last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 log_message(f"Updated current_data: {current_data}")
 
-                if ac_input_v != "N/A":  
+                if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
                         time.sleep(110)
                         data = api.storage_detail(inverter_sn)
                         ac_input_v = data.get("vGrid", "N/A")
                         if float(ac_input_v) < threshold:
-                            timestamp = get_utc_minus_5_time()
-                            msg = f"""🕒 Hora: {timestamp}
-
-🔴🔴¡Se fue la luz en Acacías!🔴🔴
+                            msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
 
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
@@ -198,11 +190,7 @@ Consumo actual     : {load_w} W"""
                         data = api.storage_detail(inverter_sn)
                         ac_input_v = data.get("vGrid", "N/A")
                         if float(ac_input_v) >= threshold:
-                            timestamp = get_utc_minus_5_time()
-
-                            msg = f"""🕒 Hora: {timestamp}
-
-✅✅¡Llegó la luz en Acacías!✅✅
+                            msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
 
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
@@ -212,14 +200,16 @@ Consumo actual     : {load_w} W"""
                             sent_lights_on = True
                             sent_lights_off = False
 
-                time.sleep(40)
-
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
                 user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
 
+            time.sleep(40)
+
     except Exception as e_outer:
         log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
+
+# The rest of your code (Telegram handlers, Flask routes, etc.) remains unchanged
 
 # Telegram Handlers
 def start(update: Update, context: CallbackContext):
@@ -228,22 +218,15 @@ def start(update: Update, context: CallbackContext):
 
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
-    
-    # Get the current timestamp
-    timestamp = get_utc_minus_5_time()
-    
-    msg = f"""🕒 Hora: {timestamp}
-
-/status ⚡ Estado del Inversor /stop⚡
+    msg = f"""⚡ Estado del Inversor /stop⚡
 
 Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo          : {current_data.get('load_power', 'N/A')} W
 Batería              : {current_data.get('battery_capacity', 'N/A')}%"""
-    
     try:
         update.message.reply_text(msg)
-        log_message(f"✅ Status sent to {update.effective_chat.id} at {timestamp}")
+        log_message(f"✅ Status sent to {update.effective_chat.id}")
     except Exception as e:
         log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
 
