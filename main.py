@@ -32,6 +32,12 @@ last_update_time = "Never"
 console_logs = []
 updater = None  # Global reference
 
+def get_utc_minus_5_time():
+    # Get the current time in UTC and adjust to UTC-5
+    utc_time = datetime.datetime.utcnow()
+    utc_minus_5_time = utc_time - datetime.timedelta(hours=5)
+    return utc_minus_5_time.strftime('%Y-%m-%d %H:%M:%S')
+
 def log_message(message):
     timestamped = f"{datetime.datetime.now().strftime('%H:%M:%S')} - {message}"
     print(timestamped)
@@ -174,7 +180,11 @@ def monitor_growatt():
                         data = api.storage_detail(inverter_sn)
                         ac_input_v = data.get("vGrid", "N/A")
                         if float(ac_input_v) < threshold:
-                            msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
+                            timestamp = get_utc_minus_5_time()
+    
+    msg = f"""🕒 Hora: {timestamp}
+    
+ 🔴🔴¡Se fue la luz en Acacías!🔴🔴
 
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
@@ -189,7 +199,11 @@ Consumo actual     : {load_w} W"""
                         data = api.storage_detail(inverter_sn)
                         ac_input_v = data.get("vGrid", "N/A")
                         if float(ac_input_v) >= threshold:
-                            msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
+                             timestamp = get_utc_minus_5_time()
+    
+    msg = f"""🕒 Hora: {timestamp}
+ 
+ ✅✅¡Llegó la luz en Acacías!✅✅
 
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
