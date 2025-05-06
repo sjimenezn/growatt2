@@ -1,4 +1,4 @@
-
+#Is the threading change well done? Any indentation errors? Just point out errors, not suggestions 
 from flask import Flask, render_template_string, jsonify
 import threading
 import pprint
@@ -243,6 +243,7 @@ def send_chatlog(update: Update, context: CallbackContext):
 def stop_bot(update: Update, context: CallbackContext):
     update.message.reply_text("Bot detenido.")
     log_message("Bot detenido por comando /stop")
+    threading.Thread(target=updater.stop).start()
 
 updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dp = updater.dispatcher
