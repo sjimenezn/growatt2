@@ -1,4 +1,3 @@
-
 from flask import Flask, render_template_string, jsonify
 import threading
 import pprint
@@ -34,13 +33,11 @@ console_logs = []
 updater = None  # Global reference
 
 def log_message(message):
-    # Apply a 5-hour reduction to the timestamp
     timestamped = f"{(datetime.now() - timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
     print(timestamped)
     console_logs.append((time.time(), timestamped))
     now = time.time()
     console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
-
 
 def send_telegram_message(message):
     for chat_id in CHAT_IDS:
@@ -49,25 +46,22 @@ def send_telegram_message(message):
                 url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
                 payload = {"chat_id": chat_id, "text": message}
                 response = requests.post(url, data=payload, timeout=10)
-                response.raise_for_status()  # Raise exception for HTTP errors
+                response.raise_for_status()
                 log_message(f"✅ Message sent to {chat_id}")
-                break  # Exit retry loop if successful
+                break
             except requests.exceptions.RequestException as e:
                 log_message(f"❌ Attempt {attempt + 1} failed to send message to {chat_id}: {e}")
-                time.sleep(5)  # Wait before retrying
-                if attempt == 2:  # Final attempt failed
+                time.sleep(5)
+                if attempt == 2:
                     log_message(f"❌ Failed to send message to {chat_id} after 3 attempts")
 
-# Global variable to hold the fetched data
 fetched_data = {}
 
 def login_growatt():
     log_message("🔄 Attempting Growatt login...")
-    
     try:
-        # Attempting to login and fetching the login response
         login_response = api.login(username, password)
-        fetched_data['login_response'] = login_response  # Save login response
+        fetched_data['login_response'] = login_response
         user = login_response.get('user', {})
         user_id = user.get('id')
         fetched_data['user_id'] = user_id
@@ -83,12 +77,11 @@ def login_growatt():
         return None
 
     try:
-        # Fetching plant information
         plant_info = api.plant_list(user_id)
-        fetched_data['plant_info'] = plant_info  # Save plant info
+        fetched_data['plant_info'] = plant_info
         plant_data = plant_info['data'][0]
         plant_id = plant_data['plantId']
-        fetched_data['plant_id'] = plant_id  # Save plant ID
+        fetched_data['plant_id'] = plant_id
         fetched_data['plant_name'] = plant_data['plantName']
         fetched_data['plant_total_data'] = plant_info.get('totalData', {})
     except Exception as e:
@@ -96,14 +89,13 @@ def login_growatt():
         return None
 
     try:
-        # Fetching inverter information
         inverter_info = api.inverter_list(plant_id)
-        fetched_data['inverter_info'] = inverter_info  # Save inverter info
+        fetched_data['inverter_info'] = inverter_info
         inverter_data = inverter_info[0]
         inverter_sn = inverter_data['deviceSn']
         datalog_sn = inverter_data.get('datalogSn', 'N/A')
-        fetched_data['inverter_sn'] = inverter_sn  # Save inverter SN
-        fetched_data['datalog_sn'] = datalog_sn  # Save datalogger SN
+        fetched_data['inverter_sn'] = inverter_sn
+        fetched_data['datalog_sn'] = datalog_sn
         fetched_data['inverter_alias'] = inverter_data.get('deviceAilas')
         fetched_data['inverter_capacity'] = inverter_data.get('capacity')
         fetched_data['inverter_energy'] = inverter_data.get('energy')
@@ -115,23 +107,18 @@ def login_growatt():
         return None
 
     try:
-        # Fetching storage details
         storage_detail = api.storage_detail(inverter_sn)
-        fetched_data['storage_detail'] = storage_detail  # Save full storage detail
+        fetched_data['storage_detail'] = storage_detail
     except Exception as e:
         log_message(f"❌ Failed to retrieve storage detail: {e}")
         fetched_data['storage_detail'] = {}
 
-    # Log the fetched data
     log_message(f"🌿 User ID: {user_id}")
     log_message(f"🌿 Plant ID: {plant_id}")
     log_message(f"🌿 Inverter SN: {inverter_sn}")
     log_message(f"🌿 Datalogger SN: {datalog_sn}")
 
-    # Return the gathered data
     return user_id, plant_id, inverter_sn, datalog_sn
-
-
 
 def monitor_growatt():
     global last_update_time
@@ -213,18 +200,13 @@ Consumo actual     : {load_w} W"""
     except Exception as e_outer:
         log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
 
-# The rest of your code (Telegram handlers, Flask routes, etc.) remains unchanged
-
-# Telegram Handlers
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
 
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
-
     timestamp = (datetime.now() - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
-
     msg = f"""🕒 Hora {timestamp} (UTC−5)
 ⚡ /status Estado del Inversor /stop⚡
 
@@ -238,6 +220,7 @@ Batería              : {current_data.get('battery_capacity', 'N/A')}%
         log_message(f"✅ Status sent to {update.effective_chat.id}")
     except Exception as e:
         log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
+
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     ids = "\n".join(str(cid) for cid in chat_log)
@@ -254,346 +237,11 @@ dp.add_handler(CommandHandler("start", start))
 dp.add_handler(CommandHandler("status", send_status))
 dp.add_handler(CommandHandler("chatlog", send_chatlog))
 dp.add_handler(CommandHandler("stop", stop_bot))
-
 updater.start_polling()
 
-# Flask Routes
-@app.route("/")
-def home():
-    return render_template_string("""
-        <html>
-        <head>
-            <title>Home - Growatt Monitor</title>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                }
-                nav {
-                    background-color: #333;
-                    overflow: hidden;
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                }
-                nav ul {
-                    list-style-type: none;
-                    margin: 0;
-                    padding: 0;
-                    display: flex;
-                    justify-content: center;
-                }
-                nav ul li {
-                    padding: 14px 20px;
-                }
-                nav ul li a {
-                    color: white;
-                    text-decoration: none;
-                    font-size: 18px;
-                }
-                nav ul li a:hover {
-                    background-color: #ddd;
-                    color: black;
-                }
-            </style>
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-             <h1>✅ Growatt Monitor is Running!</h1>
-             <h2>Detalles del Inversor</h2>
-            <h3>Información constante</h3>
-            <p>Plant ID: {{ plant_id }}</p>
-            <p>User ID: {{ user_id }}</p>
-            <p>Inverter SN: {{ inverter_sn }}</p>
-            <p>Datalogger SN: {{ datalog_sn }}</p>
-            <h2>Datos en tiempo real</h2>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-            </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
-        </body>
-        </html>
-    """, d=current_data, last=last_update_time,
-       plant_id=current_data.get("plant_id", "N/A"),
-       user_id=current_data.get("user_id", "N/A"),
-       inverter_sn=current_data.get("inverter_sn", "N/A"),
-       datalog_sn=current_data.get("datalog_sn", "N/A"))
+# 🟢 START MONITORING IN BACKGROUND THREAD
+threading.Thread(target=monitor_growatt, daemon=True).start()
 
-@app.route("/logs")
-def get_logs():
-    return render_template_string("""
-        <html>
-        <head>
-            <title>Growatt Monitor - Logs</title>
-            <meta http-equiv="refresh" content="40">
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                }
-                nav {
-                    background-color: #333;
-                    overflow: hidden;
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                }
-                nav ul {
-                    list-style-type: none;
-                    margin: 0;
-                    padding: 0;
-                    display: flex;
-                    justify-content: center;
-                }
-                nav ul li {
-                    padding: 14px 20px;
-                }
-                nav ul li a {
-                    color: white;
-                    text-decoration: none;
-                    font-size: 18px;
-                }
-                nav ul li a:hover {
-                    background-color: #ddd;
-                    color: black;
-                }
-            </style>
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-            <h1>Datos del Inversor</h1>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-            </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
-        </body>
-        </html>
-    """, d=current_data, last=last_update_time)
-
-@app.route("/chatlog")
-def chatlog_view():
-    return render_template_string("""
-        <html>
-        <head>
-            <title>Growatt Monitor - Chatlog</title>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                }
-                nav {
-                    background-color: #333;
-                    overflow: hidden;
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                }
-                nav ul {
-                    list-style-type: none;
-                    margin: 0;
-                    padding: 0;
-                    display: flex;
-                    justify-content: center;
-                }
-                nav ul li {
-                    padding: 14px 20px;
-                }
-                nav ul li a {
-                    color: white;
-                    text-decoration: none;
-                    font-size: 18px;
-                }
-                nav ul li a:hover {
-                    background-color: #ddd;
-                    color: black;
-                }
-            </style>
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-            <h1>Chatlog</h1>
-            <pre>{{ chat_log }}</pre>
-        </body>
-        </html>
-    """, chat_log="\n".join(str(cid) for cid in sorted(list(chat_log))))
-
-@app.route("/console")
-def console_view():
-    return render_template_string("""
-        <html>
-        <head>
-            <title>Console Logs</title>
-            <meta http-equiv="refresh" content="10">
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                }
-                nav {
-                    background-color: #333;
-                    overflow: hidden;
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                }
-                nav ul {
-                    list-style-type: none;
-                    margin: 0;
-                    padding: 0;
-                    display: flex;
-                    justify-content: center;
-                }
-                nav ul li {
-                    padding: 14px 20px;
-                }
-                nav ul li a {
-                    color: white;
-                    text-decoration: none;
-                    font-size: 18px;
-                }
-                nav ul li a:hover {
-                    background-color: #ddd;
-                    color: black;
-                }
-            </style>
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-            <h2>Console Output (últimos 5 minutos)</h2>
-            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
-
-            <h2>📦 Fetched Growatt Data</h2>
-            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ data }}</pre>
-        </body>
-        </html>
-    """, 
-    logs="\n\n".join(m for _, m in console_logs),
-    data=pprint.pformat(fetched_data, indent=2))
-
-@app.route("/details")
-def details_view():
-    return render_template_string("""
-        <html>
-        <head>
-            <title>Growatt Details</title>
-            <meta http-equiv="refresh" content="40">
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                }
-                nav {
-                    background-color: #333;
-                    overflow: hidden;
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                }
-                nav ul {
-                    list-style-type: none;
-                    margin: 0;
-                    padding: 0;
-                    display: flex;
-                    justify-content: center;
-                }
-                nav ul li {
-                    padding: 14px 20px;
-                }
-                nav ul li a {
-                    color: white;
-                    text-decoration: none;
-                    font-size: 18px;
-                }
-                nav ul li a:hover {
-                    background-color: #ddd;
-                    color: black;
-                }
-            </style>
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-            <h1>Detalles del Inversor22</h1>
-            <h2>Información constante</h2>
-            <p>Plant ID: {{ plant_id }}</p>
-            <p>User ID: {{ user_id }}</p>
-            <p>Inverter SN: {{ inverter_sn }}</p>
-            <p>Datalogger SN: {{ datalog_sn }}</p>
-            <h2>Datos en tiempo real</h2>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-            </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
-        </body>
-        </html>
-    """, d=current_data, last=last_update_time,
-       plant_id=current_data.get("plant_id", "N/A"),
-       user_id=current_data.get("user_id", "N/A"),
-       inverter_sn=current_data.get("inverter_sn", "N/A"),
-       datalog_sn=current_data.get("datalog_sn", "N/A"))
-
-
-
-
-if __name__ == '__main__':
-    threading.Thread(target=monitor_growatt).start()
-    app.run(host='0.0.0.0', port=8000)
+# 🟢 RUN FLASK APP ON PORT 8000
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000)
