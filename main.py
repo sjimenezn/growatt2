@@ -34,11 +34,13 @@ console_logs = []
 updater = None  # Global reference
 
 def log_message(message):
-    timestamped = f"{datetime.datetime.now().strftime('%H:%M:%S')} - {message}"
+    # Apply a 5-hour reduction to the timestamp
+    timestamped = f"{(datetime.datetime.now() - datetime.timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
     print(timestamped)
     console_logs.append((time.time(), timestamped))
     now = time.time()
     console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
+
 
 def send_telegram_message(message):
     for chat_id in CHAT_IDS:
