@@ -243,7 +243,7 @@ def send_chatlog(update: Update, context: CallbackContext):
 def stop_bot(update: Update, context: CallbackContext):
     update.message.reply_text("Bot detenido.")
     log_message("Bot detenido por comando /stop")
-    threading.Thread(target=updater.stop).start()
+
 
 updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dp = updater.dispatcher
@@ -253,8 +253,8 @@ dp.add_handler(CommandHandler("chatlog", send_chatlog))
 dp.add_handler(CommandHandler("stop", stop_bot))
 
 # Start background monitoring thread
-monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
-monitor_thread.start()
+#monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
+#monitor_thread.start()
 
 # Start Telegram bot polling
 updater.start_polling()
