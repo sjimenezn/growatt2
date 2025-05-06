@@ -14,7 +14,7 @@ username = "vospina"
 password = "Vospina.2025"
 
 # Telegram Config
-TELEGRAM_TOKEN = "7653969082:AAGrvPu_NtBqcaEy3KL7RwUt_8vHcR1hT3A"
+TELEGRAM_TOKEN = "7653969082:AAGJ_8TL2-MA0uCLgtx8UAyfEBRwCmFWyzY"
 CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
 
@@ -243,7 +243,7 @@ def send_chatlog(update: Update, context: CallbackContext):
 def stop_bot(update: Update, context: CallbackContext):
     update.message.reply_text("Bot detenido.")
     log_message("Bot detenido por comando /stop")
-
+    updater.stop()
 
 updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dp = updater.dispatcher
