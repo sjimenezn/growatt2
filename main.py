@@ -178,8 +178,7 @@ def monitor_growatt():
                         ac_input_v = data.get("vGrid", "N/A")
                         if float(ac_input_v) < threshold:
                             msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
-
-🕒 Hora: {last_update_time}
+        🕒 Hora--> {last_update_time}
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
@@ -194,8 +193,7 @@ Consumo actual     : {load_w} W"""
                         ac_input_v = data.get("vGrid", "N/A")
                         if float(ac_input_v) >= threshold:
                             msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
-
-🕒 Hora: {last_update_time}
+        🕒 Hora--> {last_update_time}
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
@@ -226,7 +224,7 @@ def send_status(update: Update, context: CallbackContext):
     timestamp = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
 
     msg = f"""⚡ /status Estado del Inversor /stop⚡
-   🕒 Hora {timestamp} 
+        🕒 Hora--> {timestamp} 
 Voltaje Red          : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor   : {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo             : {current_data.get('load_power', 'N/A')} W
@@ -245,7 +243,6 @@ def send_chatlog(update: Update, context: CallbackContext):
 def stop_bot(update: Update, context: CallbackContext):
     update.message.reply_text("Bot detenido.")
     log_message("Bot detenido por comando /stop")
-    threading.Thread(target=updater.stop).start()
 
 updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
 dp = updater.dispatcher
@@ -254,6 +251,11 @@ dp.add_handler(CommandHandler("status", send_status))
 dp.add_handler(CommandHandler("chatlog", send_chatlog))
 dp.add_handler(CommandHandler("stop", stop_bot))
 
+# Start background monitoring thread
+monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
+monitor_thread.start()
+
+# Start Telegram bot polling
 updater.start_polling()
 
 # Flask Routes
