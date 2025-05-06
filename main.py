@@ -4,7 +4,7 @@ import threading
 import pprint
 import time
 import requests
-import datetime
+from datetime import datetime, timedelta
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
@@ -35,7 +35,7 @@ updater = None  # Global reference
 
 def log_message(message):
     # Apply a 5-hour reduction to the timestamp
-    timestamped = f"{(datetime.datetime.now() - datetime.timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
+    timestamped = f"{(datetime.now() - timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
     print(timestamped)
     console_logs.append((time.time(), timestamped))
     now = time.time()
@@ -168,10 +168,11 @@ def monitor_growatt():
                     "datalog_sn": datalog_sn
                 })
 
-                last_update_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                	                last_update_time = (datetime.now() - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
                 log_message(f"Updated current_data: {current_data}")
 
-                if ac_input_v != "N/A":
+
+                                if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
                         time.sleep(110)
                         data = api.storage_detail(inverter_sn)
@@ -179,6 +180,7 @@ def monitor_growatt():
                         if float(ac_input_v) < threshold:
                             msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
 
+🕒 Hora: {last_update_time}
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
@@ -194,6 +196,7 @@ Consumo actual     : {load_w} W"""
                         if float(ac_input_v) >= threshold:
                             msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
 
+🕒 Hora: {last_update_time}
 Nivel de batería      : {battery_pct} %
 Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
@@ -202,13 +205,14 @@ Consumo actual     : {load_w} W"""
                             sent_lights_on = True
                             sent_lights_off = False
 
+
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
                 user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
 
             time.sleep(40)
 
-    except Exception as e_outer:
+   	    except Exception as e_outer:
         log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
 
 # The rest of your code (Telegram handlers, Flask routes, etc.) remains unchanged
@@ -220,18 +224,22 @@ def start(update: Update, context: CallbackContext):
 
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
-    msg = f"""⚡ Estado del Inversor /stop⚡
+
+    timestamp = (datetime.now() - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
+
+    msg = f"""🕒 Hora {timestamp} (UTC−5)
+⚡ /status Estado del Inversor /stop⚡
 
 Voltaje Red       : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo          : {current_data.get('load_power', 'N/A')} W
-Batería              : {current_data.get('battery_capacity', 'N/A')}%"""
+Batería              : {current_data.get('battery_capacity', 'N/A')}%
+"""
     try:
         update.message.reply_text(msg)
         log_message(f"✅ Status sent to {update.effective_chat.id}")
     except Exception as e:
         log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
-
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     ids = "\n".join(str(cid) for cid in chat_log)
