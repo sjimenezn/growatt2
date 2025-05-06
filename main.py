@@ -567,7 +567,7 @@ def details_view():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-            <h1>Detalles del Inversor22</h1>
+            <h1>Detalles del Inversor</h1>
             <h2>Información constante</h2>
             <p>Plant ID: {{ plant_id }}</p>
             <p>User ID: {{ user_id }}</p>
