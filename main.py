@@ -319,7 +319,11 @@ def home():
             <p><b>Última actualización:</b> {{ last }}</p>
         </body>
         </html>
-    """)
+    """, d=current_data, last=last_update_time,
+       plant_id=current_data.get("plant_id", "N/A"),
+       user_id=current_data.get("user_id", "N/A"),
+       inverter_sn=current_data.get("inverter_sn", "N/A"),
+       datalog_sn=current_data.get("datalog_sn", "N/A"))
 
 @app.route("/logs")
 def get_logs():
