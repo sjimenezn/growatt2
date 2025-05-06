@@ -168,11 +168,10 @@ def monitor_growatt():
                     "datalog_sn": datalog_sn
                 })
 
-                	                last_update_time = (datetime.now() - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
+                last_update_time = (datetime.now() - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
                 log_message(f"Updated current_data: {current_data}")
 
-
-                                if ac_input_v != "N/A":
+                if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
                         time.sleep(110)
                         data = api.storage_detail(inverter_sn)
@@ -205,14 +204,13 @@ Consumo actual     : {load_w} W"""
                             sent_lights_on = True
                             sent_lights_off = False
 
-
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
                 user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
 
             time.sleep(40)
 
-   	    except Exception as e_outer:
+    except Exception as e_outer:
         log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
 
 # The rest of your code (Telegram handlers, Flask routes, etc.) remains unchanged
