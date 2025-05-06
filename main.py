@@ -168,7 +168,7 @@ def monitor_growatt():
                     "datalog_sn": datalog_sn
                 })
 
-                last_update_time = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S)
+                last_update_time = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
                 log_message(f"Updated current_data: {current_data}")
 
                 if ac_input_v != "N/A":
@@ -223,7 +223,7 @@ def start(update: Update, context: CallbackContext):
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
 
-    timestamp = (datetime.now() - timedelta(hours=5)).strftime("%H %M %S")
+    timestamp = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
 
     msg = f"""⚡ /status Estado del Inversor /stop⚡
    🕒 Hora {timestamp} 
