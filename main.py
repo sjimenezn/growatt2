@@ -339,7 +339,7 @@ def home():
 def api_storage_detail():
     return jsonify({
         "data": current_data.get("storage_detail", {}),
-        "last": last_storage_detail_time or "Desconocido"
+        "last": last_update_time or "Desconocido"
     })
     
 @app.route("/logs")
@@ -441,7 +441,7 @@ def get_logs():
         </body>
         </html>
     """, data=current_data.get("storage_detail", {}), last=last_update_time or "Desconocido")
-
+    
 @app.route("/chatlog")
 def chatlog_view():
     return render_template_string("""
