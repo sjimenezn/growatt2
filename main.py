@@ -341,7 +341,7 @@ def api_storage_detail():
         "data": current_data.get("storage_detail", {}),
         "last": last_update_time or "Desconocido"
     })
-    
+
 @app.route("/logs")
 def get_logs():
     return render_template_string("""
