@@ -337,11 +337,17 @@ def home():
 
 @app.route("/logs")
 def get_logs():
+    inverter_sn = fetched_data.get("inverter_sn")
+    
+    if not inverter_sn:
+        log_message("⚠️ No inverter SN found in fetched_data.")
+        return "Inverter SN not available. Please ensure login_growatt() has run successfully.", 500
+
     try:
         data = api.storage_detail(inverter_sn)
-        log_message("Growatt API data fetched successfully in /logs.")
+        log_message("✅ Growatt API data fetched successfully in /logs.")
     except Exception as e:
-        log_message(f"Error fetching Growatt API data in /logs: {e}")
+        log_message(f"❌ Error fetching Growatt API data in /logs: {e}")
         data = {"error": str(e)}
 
     return render_template_string("""
@@ -393,6 +399,10 @@ def get_logs():
                 th {
                     background-color: #f2f2f2;
                 }
+                h1 {
+                    text-align: center;
+                    margin-top: 20px;
+                }
             </style>
         </head>
         <body>
@@ -405,7 +415,7 @@ def get_logs():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-            <h1 style="text-align:center;">Live Storage Detail</h1>
+            <h1>Live Storage Detail</h1>
             <table>
                 <thead>
                     <tr><th>Campo</th><th>Valor</th></tr>
