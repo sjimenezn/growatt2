@@ -341,7 +341,6 @@ def get_logs():
         <html>
         <head>
             <title>Growatt Monitor - Logs</title>
-            <meta http-equiv="refresh" content="40">
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -374,7 +373,41 @@ def get_logs():
                     background-color: #ddd;
                     color: black;
                 }
+                table {
+                    border-collapse: collapse;
+                    width: 80%;
+                    margin: 20px auto;
+                }
+                th, td {
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }
+                th {
+                    background-color: #f2f2f2;
+                }
             </style>
+            <script>
+                async function fetchData() {
+                    const response = await fetch('/api/storage_detail');
+                    const json = await response.json();
+                    const tbody = document.getElementById('storage-body');
+                    tbody.innerHTML = '';
+                    for (const key in json.data) {
+                        const row = document.createElement('tr');
+                        const k = document.createElement('td');
+                        const v = document.createElement('td');
+                        k.textContent = key;
+                        v.textContent = json.data[key];
+                        row.appendChild(k);
+                        row.appendChild(v);
+                        tbody.appendChild(row);
+                    }
+                    document.getElementById('last-time').textContent = json.last;
+                }
+                setInterval(fetchData, 30000); // every 30 seconds
+                window.onload = fetchData;
+            </script>
         </head>
         <body>
             <nav>
@@ -386,20 +419,22 @@ def get_logs():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-            <h1>Datos del Inversor</h1>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
+            <h1 style="text-align:center;">Datos de Storage Detail</h1>
+            <p style="text-align:center;"><b>Última actualización:</b> <span id="last-time">{{ last }}</span></p>
+            <table>
+                <thead>
+                    <tr><th>Campo</th><th>Valor</th></tr>
+                </thead>
+                <tbody id="storage-body">
+                    {% for k, v in data.items() %}
+                    <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+                    {% endfor %}
+                </tbody>
             </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
         </body>
         </html>
-    """, d=current_data, last=last_update_time)
-
+    """, data=current_data.get("storage_detail", {}), last=last_update_time or "Desconocido")
+    
 @app.route("/chatlog")
 def chatlog_view():
     return render_template_string("""
