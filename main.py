@@ -335,6 +335,13 @@ def home():
        inverter_sn=current_data.get("inverter_sn", "N/A"),
        datalog_sn=current_data.get("datalog_sn", "N/A"))
 
+@app.route("/api/storage_detail")
+def api_storage_detail():
+    return jsonify({
+        "data": current_data.get("storage_detail", {}),
+        "last": last_storage_detail_time or "Desconocido"
+    })
+    
 @app.route("/logs")
 def get_logs():
     return render_template_string("""
@@ -434,7 +441,7 @@ def get_logs():
         </body>
         </html>
     """, data=current_data.get("storage_detail", {}), last=last_update_time or "Desconocido")
-    
+
 @app.route("/chatlog")
 def chatlog_view():
     return render_template_string("""
