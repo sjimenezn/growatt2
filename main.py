@@ -335,113 +335,63 @@ def home():
        inverter_sn=current_data.get("inverter_sn", "N/A"),
        datalog_sn=current_data.get("datalog_sn", "N/A"))
 
-@app.route("/api/storage_detail")
-def api_storage_detail():
-    return jsonify({
-        "data": current_data.get("storage_detail", {}),
-        "last": last_update_time or "Desconocido"
-    })
-
 @app.route("/logs")
 def get_logs():
     return render_template_string("""
-        <html>
-        <head>
-            <title>Growatt Monitor - Logs</title>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
+    <html>
+    <head>
+        <title>Logs</title>
+        <script>
+            async function fetchData() {
+                const res = await fetch('/api/storage_detail');
+                const json = await res.json();
+                const tbody = document.getElementById('storage-body');
+                tbody.innerHTML = '';
+                for (const key in json.data) {
+                    const row = document.createElement('tr');
+                    const k = document.createElement('td');
+                    const v = document.createElement('td');
+                    k.textContent = key;
+                    v.textContent = json.data[key];
+                    row.appendChild(k);
+                    row.appendChild(v);
+                    tbody.appendChild(row);
                 }
-                nav {
-                    background-color: #333;
-                    overflow: hidden;
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                }
-                nav ul {
-                    list-style-type: none;
-                    margin: 0;
-                    padding: 0;
-                    display: flex;
-                    justify-content: center;
-                }
-                nav ul li {
-                    padding: 14px 20px;
-                }
-                nav ul li a {
-                    color: white;
-                    text-decoration: none;
-                    font-size: 18px;
-                }
-                nav ul li a:hover {
-                    background-color: #ddd;
-                    color: black;
-                }
-                table {
-                    border-collapse: collapse;
-                    width: 80%;
-                    margin: 20px auto;
-                }
-                th, td {
-                    border: 1px solid #ddd;
-                    padding: 8px;
-                    text-align: left;
-                }
-                th {
-                    background-color: #f2f2f2;
-                }
-            </style>
-            <script>
-                async function fetchData() {
-                    const response = await fetch('/api/storage_detail');
-                    const json = await response.json();
-                    const tbody = document.getElementById('storage-body');
-                    tbody.innerHTML = '';
-                    for (const key in json.data) {
-                        const row = document.createElement('tr');
-                        const k = document.createElement('td');
-                        const v = document.createElement('td');
-                        k.textContent = key;
-                        v.textContent = json.data[key];
-                        row.appendChild(k);
-                        row.appendChild(v);
-                        tbody.appendChild(row);
-                    }
-                    document.getElementById('last-time').textContent = json.last;
-                }
-                setInterval(fetchData, 30000); // every 30 seconds
-                window.onload = fetchData;
-            </script>
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-            <h1 style="text-align:center;">Datos de Storage Detail</h1>
-            <p style="text-align:center;"><b>Última actualización:</b> <span id="last-time">{{ last }}</span></p>
-            <table>
-                <thead>
-                    <tr><th>Campo</th><th>Valor</th></tr>
-                </thead>
-                <tbody id="storage-body">
-                    {% for k, v in data.items() %}
-                    <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </body>
-        </html>
-    """, data=current_data.get("storage_detail", {}), last=last_update_time or "Desconocido")
-    
+                document.getElementById('last-time').textContent = json.last;
+            }
+            setInterval(fetchData, 30000);
+            window.onload = fetchData;
+        </script>
+    </head>
+    <body>
+        <h1>Storage Detail Logs</h1>
+        <p>Última actualización: <span id="last-time">{{ last }}</span></p>
+        <table border="1">
+            <thead>
+                <tr><th>Campo</th><th>Valor</th></tr>
+            </thead>
+            <tbody id="storage-body"></tbody>
+        </table>
+    </body>
+    </html>
+    """, last=last_update_time)
+
+@app.route("/api/storage_detail")
+def api_storage_detail():
+    fields = [
+        'activePower', 'apparentPower', 'batSn', 'capacity',
+        'eBatChargeToday', 'eBatChargeTotal', 'eBatDisChargeToday', 'eBatDisChargeTotal',
+        'epvToday', 'epvTotal', 'freqGrid', 'freqOutPut',
+        'iChargePV1', 'iChargePV2', 'loadPercent',
+        'outPutPower', 'outPutVolt', 'pCharge1', 'pCharge2',
+        'vGrid', 'vbat', 'vpv1', 'vpv2'
+    ]
+    data = {}
+    if console_logs:
+        latest = console_logs[-1][1]
+        data = {k: latest.get(k, 'N/A') for k in fields}
+    return jsonify({"data": data, "last": last_update_time})
+
 @app.route("/chatlog")
 def chatlog_view():
     return render_template_string("""
