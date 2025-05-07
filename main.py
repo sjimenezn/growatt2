@@ -135,7 +135,7 @@ def login_growatt():
 
 def monitor_growatt():
     global last_update_time
-    threshold = 120
+    threshold = 116
     sent_lights_off = False
     sent_lights_on = False
 
