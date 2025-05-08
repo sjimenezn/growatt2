@@ -138,8 +138,10 @@ def save_data_to_file(data):
     try:
         with open(data_file, "a") as file:
             file.write(json.dumps(data) + "\n")
+        log_message(f"✔️ Data saved successfully: {data}")  # Log message for successful data save
     except Exception as e:
         log_message(f"⚠️ Error saving data to file: {e}")
+
 
 def monitor_growatt():
     global last_update_time
@@ -570,25 +572,33 @@ def console_view():
     data=pprint.pformat(fetched_data, indent=2))
 
 @app.route("/details")
-def details_view():
+def details():
     try:
-        with open("saved_data.jsonl", "r") as f:
-            lines = f.readlines()
-    except FileNotFoundError:
-        lines = ["No data found."]
-
-    lines = [line.strip() for line in reversed(lines[-50:])]  # Show last 50 entries max
+        # Read the most recent saved data
+        with open(data_file, "r") as file:
+            saved_data = file.readlines()
+            if saved_data:
+                last_saved_entry = json.loads(saved_data[-1])  # Get the last entry
+                last_update_time = last_saved_entry.get("timestamp", "N/A")
+                ac_input_v = last_saved_entry.get("vGrid", "N/A")
+                ac_output_v = last_saved_entry.get("outPutVolt", "N/A")
+                load_w = last_saved_entry.get("activePower", "N/A")
+                battery_pct = last_saved_entry.get("capacity", "N/A")
+            else:
+                last_saved_entry = {}
+                last_update_time = "N/A"
+    except Exception as e:
+        log_message(f"❌ Error reading saved data: {e}")
+        last_saved_entry = {}
+        last_update_time = "N/A"
 
     return render_template_string("""
         <html>
         <head>
-            <title>Saved Data</title>
-            <meta http-equiv="refresh" content="30">
+            <title>Details - Growatt Monitor</title>
             <style>
                 body {
                     font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
                 }
                 nav {
                     background-color: #333;
@@ -616,10 +626,22 @@ def details_view():
                     background-color: #ddd;
                     color: black;
                 }
-                pre {
-                    white-space: pre-wrap;
-                    padding: 10px;
-                    border-bottom: 1px solid #ccc;
+                table {
+                    border-collapse: collapse;
+                    width: 80%;
+                    margin: 20px auto;
+                }
+                th, td {
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }
+                th {
+                    background-color: #f2f2f2;
+                }
+                h1 {
+                    text-align: center;
+                    margin-top: 20px;
                 }
             </style>
         </head>
@@ -633,13 +655,23 @@ def details_view():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-            <h2 style="text-align:center;">Últimos datos guardados</h2>
-            {% for line in lines %}
-                <pre>{{ line }}</pre>
-            {% endfor %}
+            <h1>Details - Growatt Monitor</h1>
+            <table>
+                <thead>
+                    <tr><th>Field</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Last Update Time</td><td>{{ last_update_time }}</td></tr>
+                    <tr><td>AC Input Voltage</td><td>{{ ac_input_v }}</td></tr>
+                    <tr><td>AC Output Voltage</td><td>{{ ac_output_v }}</td></tr>
+                    <tr><td>Load Power</td><td>{{ load_w }}</td></tr>
+                    <tr><td>Battery Capacity</td><td>{{ battery_pct }}</td></tr>
+                </tbody>
+            </table>
         </body>
         </html>
-    """, lines=lines)
+    """, last_update_time=last_update_time, ac_input_v=ac_input_v, ac_output_v=ac_output_v, load_w=load_w, battery_pct=battery_pct)
+
 
 
 
