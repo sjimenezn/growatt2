@@ -1,7 +1,8 @@
-#Is the threading change well done? Any indentation errors? Just point out errors, not suggestions 
+
 from flask import Flask, render_template_string, jsonify
 import threading
 import pprint
+import json
 import time
 import requests
 from datetime import datetime, timedelta
@@ -139,6 +140,8 @@ def monitor_growatt():
     sent_lights_off = False
     sent_lights_on = False
 
+    loop_counter = 0
+
     try:
         user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
         log_message("✅ Growatt login and initialization successful!")
@@ -168,8 +171,20 @@ def monitor_growatt():
                     "datalog_sn": datalog_sn
                 })
 
-                last_update_time = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
+                last_update_time = (datetime.now() - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
                 log_message(f"Updated current_data: {current_data}")
+
+                loop_counter += 1
+                if loop_counter >= 1:
+                    data_to_save = {
+                        "timestamp": last_update_time,
+                        "vGrid": ac_input_v,
+                        "outPutVolt": ac_output_v,
+                        "activePower": load_w,
+                        "capacity": battery_pct
+                    }
+                    save_data_to_file(data_to_save)
+                    loop_counter = 0
 
                 if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
@@ -210,7 +225,6 @@ Consumo actual     : {load_w} W"""
 
     except Exception as e_outer:
         log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
-
 # The rest of your code (Telegram handlers, Flask routes, etc.) remains unchanged
 
 # Telegram Handlers
