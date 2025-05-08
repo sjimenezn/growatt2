@@ -132,7 +132,14 @@ def login_growatt():
     # Return the gathered data
     return user_id, plant_id, inverter_sn, datalog_sn
 
+data_file = "saved_data.json"
 
+def save_data_to_file(data):
+    try:
+        with open(data_file, "a") as file:
+            file.write(json.dumps(data) + "\n")
+    except Exception as e:
+        log_message(f"⚠️ Error saving data to file: {e}")
 
 def monitor_growatt():
     global last_update_time
@@ -564,11 +571,19 @@ def console_view():
 
 @app.route("/details")
 def details_view():
+    try:
+        with open("saved_data.jsonl", "r") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        lines = ["No data found."]
+
+    lines = [line.strip() for line in reversed(lines[-50:])]  # Show last 50 entries max
+
     return render_template_string("""
         <html>
         <head>
-            <title>Growatt Details</title>
-            <meta http-equiv="refresh" content="40">
+            <title>Saved Data</title>
+            <meta http-equiv="refresh" content="30">
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -601,6 +616,11 @@ def details_view():
                     background-color: #ddd;
                     color: black;
                 }
+                pre {
+                    white-space: pre-wrap;
+                    padding: 10px;
+                    border-bottom: 1px solid #ccc;
+                }
             </style>
         </head>
         <body>
@@ -613,29 +633,14 @@ def details_view():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-            <h1>Detalles del Inversor</h1>
-            <h2>Información constante</h2>
-            <p>Plant ID: {{ plant_id }}</p>
-            <p>User ID: {{ user_id }}</p>
-            <p>Inverter SN: {{ inverter_sn }}</p>
-            <p>Datalogger SN: {{ datalog_sn }}</p>
-            <h2>Datos en tiempo real</h2>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-            </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
+            <h2 style="text-align:center;">Últimos datos guardados</h2>
+            {% for line in lines %}
+                <pre>{{ line }}</pre>
+            {% endfor %}
         </body>
         </html>
-    """, d=current_data, last=last_update_time,
-       plant_id=current_data.get("plant_id", "N/A"),
-       user_id=current_data.get("user_id", "N/A"),
-       inverter_sn=current_data.get("inverter_sn", "N/A"),
-       datalog_sn=current_data.get("datalog_sn", "N/A"))
+    """, lines=lines)
+
 
 
 
