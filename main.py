@@ -572,33 +572,28 @@ def console_view():
     data=pprint.pformat(fetched_data, indent=2))
 
 @app.route("/details")
-def details():
+def details_view():
     try:
-        # Read the most recent saved data
+        # Read the saved data from the file
         with open(data_file, "r") as file:
             saved_data = file.readlines()
-            if saved_data:
-                last_saved_entry = json.loads(saved_data[-1])  # Get the last entry
-                last_update_time = last_saved_entry.get("timestamp", "N/A")
-                ac_input_v = last_saved_entry.get("vGrid", "N/A")
-                ac_output_v = last_saved_entry.get("outPutVolt", "N/A")
-                load_w = last_saved_entry.get("activePower", "N/A")
-                battery_pct = last_saved_entry.get("capacity", "N/A")
-            else:
-                last_saved_entry = {}
-                last_update_time = "N/A"
+
+        # Parse each line as a JSON object and prepare it for display
+        parsed_data = [json.loads(line.strip()) for line in saved_data]
+
     except Exception as e:
         log_message(f"❌ Error reading saved data: {e}")
-        last_saved_entry = {}
-        last_update_time = "N/A"
+        return "Error loading saved data.", 500
 
     return render_template_string("""
         <html>
         <head>
-            <title>Details - Growatt Monitor</title>
+            <title>Growatt Monitor - Details</title>
             <style>
                 body {
                     font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
                 }
                 nav {
                     background-color: #333;
@@ -655,24 +650,32 @@ def details():
                     <li><a href="/details">Details</a></li>
                 </ul>
             </nav>
-            <h1>Details - Growatt Monitor</h1>
+            <h1>Saved Data Details</h1>
             <table>
                 <thead>
-                    <tr><th>Field</th><th>Value</th></tr>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>AC Input Voltage</th>
+                        <th>AC Output Voltage</th>
+                        <th>Active Power</th>
+                        <th>Battery Capacity</th>
+                    </tr>
                 </thead>
                 <tbody>
-                    <tr><td>Last Update Time</td><td>{{ last_update_time }}</td></tr>
-                    <tr><td>AC Input Voltage</td><td>{{ ac_input_v }}</td></tr>
-                    <tr><td>AC Output Voltage</td><td>{{ ac_output_v }}</td></tr>
-                    <tr><td>Load Power</td><td>{{ load_w }}</td></tr>
-                    <tr><td>Battery Capacity</td><td>{{ battery_pct }}</td></tr>
+                    {% for data in saved_data %}
+                        <tr>
+                            <td>{{ data.timestamp }}</td>
+                            <td>{{ data.vGrid }}</td>
+                            <td>{{ data.outPutVolt }}</td>
+                            <td>{{ data.activePower }}</td>
+                            <td>{{ data.capacity }}</td>
+                        </tr>
+                    {% endfor %}
                 </tbody>
             </table>
         </body>
         </html>
-    """, last_update_time=last_update_time, ac_input_v=ac_input_v, ac_output_v=ac_output_v, load_w=load_w, battery_pct=battery_pct)
-
-
+    """, saved_data=parsed_data)
 
 
 
