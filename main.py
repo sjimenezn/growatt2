@@ -681,5 +681,4 @@ def details_view():
 
 
 if __name__ == '__main__':
-    threading.Thread(target=monitor_growatt).start()
     app.run(host='0.0.0.0', port=8000)
