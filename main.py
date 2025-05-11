@@ -12,38 +12,32 @@ app = Flask(__name__)
 def home():
     return 'App is running.'
 
-@app.route('/login-status')
-def login_status():
+@app.route('/test-browser')
+def test_browser():
     try:
+        # Ensure correct chromedriver is installed
         chromedriver_autoinstaller.install()
 
+        # Set up headless Chrome
         chrome_options = Options()
-        chrome_options.add_argument('--headless=new')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
 
+        # Launch browser
         driver = webdriver.Chrome(options=chrome_options)
-        driver.get("https://server.growatt.com/login")
-        time.sleep(3)
+        driver.get("https://example.com")
+        time.sleep(2)  # Let the page load
 
-        driver.find_element("id", "userName").send_keys("vospina")
-        driver.find_element("id", "password").send_keys("Vospina.2025")
-        driver.find_element("id", "loginBtn").click()
-        time.sleep(5)
-
-        result = {
-            "login_success": "login" not in driver.current_url,
-            "url": driver.current_url
-        }
+        title = driver.title
         driver.quit()
-        return jsonify(result)
 
+        return jsonify({"success": True, "page_title": title})
+    
     except Exception as e:
-        traceback_str = traceback.format_exc()
-        print(traceback_str)
-        return jsonify({"error": str(e), "trace": traceback_str}), 500
+        tb = traceback.format_exc()
+        return jsonify({"success": False, "error": str(e), "trace": tb}), 500
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000)
