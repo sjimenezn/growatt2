@@ -334,6 +334,7 @@ def home():
         <html>
         <head>
             <title>Home - Growatt Monitor</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -427,6 +428,7 @@ def charts_view():
     <html>
     <head>
         <title>Growatt Charts</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
             body {
@@ -541,6 +543,7 @@ def chatlog_view():
         <html>
         <head>
             <title>Growatt Monitor - Chatlog</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -598,7 +601,7 @@ def console_view():
         <html>
         <head>
             <title>Console Logs</title>
-            <meta http-equiv="refresh" content="10">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -675,6 +678,7 @@ def details_view():
         <html>
         <head>
             <title>Growatt Details</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
         </head>
         <body>
             <nav>
