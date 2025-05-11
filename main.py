@@ -3,6 +3,7 @@ from flask import Flask, render_template_string, jsonify
 import threading
 import pprint
 import json
+import os
 import time
 import requests
 from datetime import datetime, timedelta
@@ -10,6 +11,13 @@ from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
+# File for saving data
+data_file = "saved_data.json"
+
+# Ensure the file exists before any read/write operations
+if not os.path.exists(data_file):
+    with open(data_file, "w") as f:
+        pass  # Creates an empty file if it doesn't exist
 # Credentials
 username = "vospina"
 password = "Vospina.2025"
