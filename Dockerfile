@@ -1,10 +1,19 @@
-FROM python:3.9
+# Use an official lightweight Python image
+FROM python:3.9-slim
 
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROME_FLAGS="--headless --no-sandbox --disable-dev-shm-usage --user-data-dir=/tmp/chrome-profile"
+
+# Set working directory
 WORKDIR /app
 
+# Install system dependencies and Chromium
 RUN apt-get update && apt-get install -y \
     chromium \
     fonts-liberation \
+    libappindicator3-1 \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -21,14 +30,17 @@ RUN apt-get update && apt-get install -y \
     wget \
     curl \
     --no-install-recommends && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-ENV CHROME_BIN=/usr/bin/chromium
-ENV PATH="${CHROME_BIN}:${PATH}"
-
-COPY . /app
+# Install Python dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy app files
+COPY . .
+
+# Expose the port
 EXPOSE 8000
+
+# Start the app
 CMD ["python", "main.py"]
