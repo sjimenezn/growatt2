@@ -4,6 +4,7 @@ from selenium.webdriver.chrome.options import Options
 import os
 import time
 import traceback
+import tempfile
 
 app = Flask(__name__)
 
@@ -15,17 +16,14 @@ def home():
 def login_status():
     try:
         chrome_options = Options()
-        chrome_flags = os.environ.get(
-            'CHROME_FLAGS',
-            '--headless --no-sandbox --disable-dev-shm-usage --user-data-dir=/tmp/chrome-profile'
-        ).split()
-        for flag in chrome_flags:
-            chrome_options.add_argument(flag)
-
+        user_data_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
 
         driver = webdriver.Chrome(options=chrome_options)
-
         driver.get("https://server.growatt.com/login")
         time.sleep(3)
 
@@ -45,6 +43,7 @@ def login_status():
         driver.quit()
 
         return jsonify({"login_success": login_success, "url": current_url})
+
     except Exception as e:
         traceback_str = traceback.format_exc()
         print(traceback_str)
@@ -54,24 +53,25 @@ def login_status():
 def test_browser():
     try:
         chrome_options = Options()
-        chrome_flags = os.environ.get(
-            'CHROME_FLAGS',
-            '--headless --no-sandbox --disable-dev-shm-usage --user-data-dir=/tmp/chrome-profile'
-        ).split()
-        for flag in chrome_flags:
-            chrome_options.add_argument(flag)
-
+        user_data_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
 
         driver = webdriver.Chrome(options=chrome_options)
         driver.get("https://example.com")
+        time.sleep(3)
         title = driver.title
         driver.quit()
+
         return jsonify({"success": True, "title": title})
+
     except Exception as e:
         traceback_str = traceback.format_exc()
         print(traceback_str)
-        return jsonify({"error": str(e), "trace": traceback_str, "success": False}), 500
+        return jsonify({"success": False, "error": str(e), "trace": traceback_str}), 500
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000)
