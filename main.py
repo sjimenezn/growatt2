@@ -366,16 +366,12 @@ def home():
                     background-color: #ddd;
                     color: black;
                 }
-                nav ul li a.active {
-                    background-color: #04AA6D;
-                    color: white;
-                }
             </style>
         </head>
         <body>
             <nav>
                 <ul>
-                    <li><a href="/" class="active">Home</a></li>
+                    <li><a href="/">Home</a></li>
                     <li><a href="/logs">Logs</a></li>
                     <li><a href="/chatlog">Chatlog</a></li>
                     <li><a href="/console">Console</a></li>
@@ -383,8 +379,8 @@ def home():
                     <li><a href="/battery-chart">Battery Chart</a></li>
                 </ul>
             </nav>
-            <h1>✅ Growatt Monitor is Running!</h1>
-            <h2>Detalles del Inversor</h2>
+             <h1>✅ Growatt Monitor is Running!</h1>
+             <h2>Detalles del Inversor</h2>
             <h3>Información constante</h3>
             <p>Plant ID: {{ plant_id }}</p>
             <p>User ID: {{ user_id }}</p>
@@ -408,7 +404,296 @@ def home():
        inverter_sn=current_data.get("inverter_sn", "N/A"),
        datalog_sn=current_data.get("datalog_sn", "N/A"))
 
-# ... (repeat similar nav updates to /logs, /chatlog, /console, /details)
+@app.route("/logs")
+def charts_view():
+    try:
+        # Read the saved data from the file
+        with open(data_file, "r") as file:
+            saved_data = file.readlines()
+        parsed_data = [json.loads(line.strip()) for line in saved_data]
+    except Exception as e:
+        log_message(f"❌ Error reading saved data for charts: {e}")
+        return "Error loading chart data.", 500
+
+    # Extract chart data
+    timestamps = [entry['timestamp'] for entry in parsed_data]
+    ac_input = [float(entry['vGrid']) for entry in parsed_data]
+    ac_output = [float(entry['outPutVolt']) for entry in parsed_data]
+    active_power = [int(entry['activePower']) for entry in parsed_data]
+    battery_capacity = [int(entry['capacity']) for entry in parsed_data]
+
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Growatt Charts</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+                background-color: #f9f9f9;
+            }
+            nav {
+                background-color: #333;
+                overflow: hidden;
+                position: sticky;
+                top: 0;
+                z-index: 100;
+            }
+            nav ul {
+                list-style-type: none;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+            }
+            nav ul li {
+                padding: 14px 20px;
+            }
+            nav ul li a {
+                color: white;
+                text-decoration: none;
+                font-size: 18px;
+            }
+            nav ul li a:hover {
+                background-color: #ddd;
+                color: black;
+            }
+            h2 {
+                text-align: center;
+                margin: 20px;
+            }
+            canvas {
+                margin: 20px auto;
+                display: block;
+                max-width: 1000px;
+                background: #fff;
+                border: 1px solid #ccc;
+                padding: 10px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }
+        </style>
+    </head>
+    <body>
+        <nav>
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/logs">Logs</a></li>
+                <li><a href="/chatlog">Chatlog</a></li>
+                <li><a href="/console">Console</a></li>
+                <li><a href="/details">Details</a></li>
+                <li><a href="/battery-chart">Battery Chart</a></li>
+            </ul>
+        </nav>
+
+        <h2>Growatt Monitoring Charts</h2>
+        <canvas id="acInputChart"></canvas>
+        <canvas id="acOutputChart"></canvas>
+        <canvas id="activePowerChart"></canvas>
+        <canvas id="batteryChart"></canvas>
+
+        <script>
+            const labels = {{ timestamps | tojson }};
+            const acInput = {{ ac_input | tojson }};
+            const acOutput = {{ ac_output | tojson }};
+            const activePower = {{ active_power | tojson }};
+            const batteryCapacity = {{ battery_capacity | tojson }};
+
+            function drawChart(id, label, data, color) {
+                new Chart(document.getElementById(id), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: label,
+                            data: data,
+                            borderColor: color,
+                            backgroundColor: color + '33',
+                            fill: true,
+                            tension: 0.2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: { ticks: { autoSkip: true, maxTicksLimit: 25 } },
+                            y: { beginAtZero: false }
+                        }
+                    }
+                });
+            }
+
+            drawChart("acInputChart", "AC Input Voltage", acInput, "blue");
+            drawChart("acOutputChart", "AC Output Voltage", acOutput, "green");
+            drawChart("activePowerChart", "Active Power", activePower, "red");
+            drawChart("batteryChart", "Battery Capacity", batteryCapacity, "orange");
+        </script>
+    </body>
+    </html>
+    """, timestamps=timestamps, ac_input=ac_input, ac_output=ac_output,
+         active_power=active_power, battery_capacity=battery_capacity)
+
+@app.route("/chatlog")
+def chatlog_view():
+    return render_template_string("""
+        <html>
+        <head>
+            <title>Growatt Monitor - Chatlog</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                }
+                nav {
+                    background-color: #333;
+                    overflow: hidden;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                }
+                nav ul {
+                    list-style-type: none;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                }
+                nav ul li {
+                    padding: 14px 20px;
+                }
+                nav ul li a {
+                    color: white;
+                    text-decoration: none;
+                    font-size: 18px;
+                }
+                nav ul li a:hover {
+                    background-color: #ddd;
+                    color: black;
+                }
+            </style>
+        </head>
+        <body>
+            <nav>
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/logs">Logs</a></li>
+                    <li><a href="/chatlog">Chatlog</a></li>
+                    <li><a href="/console">Console</a></li>
+                    <li><a href="/details">Details</a></li>
+                    <li><a href="/battery-chart">Battery Chart</a></li>
+                </ul>
+            </nav>
+            <h1>Chatlog</h1>
+            <pre>{{ chat_log }}</pre>
+        </body>
+        </html>
+    """, chat_log="\n".join(str(cid) for cid in sorted(list(chat_log))))
+
+@app.route("/console")
+def console_view():
+    return render_template_string("""
+        <html>
+        <head>
+            <title>Console Logs</title>
+            <meta http-equiv="refresh" content="10">
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                }
+                nav {
+                    background-color: #333;
+                    overflow: hidden;
+                    position: sticky;
+                    top: 0;
+                    z-index: 100;
+                }
+                nav ul {
+                    list-style-type: none;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                }
+                nav ul li {
+                    padding: 14px 20px;
+                }
+                nav ul li a {
+                    color: white;
+                    text-decoration: none;
+                    font-size: 18px;
+                }
+                nav ul li a:hover {
+                    background-color: #ddd;
+                    color: black;
+                }
+            </style>
+        </head>
+        <body>
+            <nav>
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/logs">Logs</a></li>
+                    <li><a href="/chatlog">Chatlog</a></li>
+                    <li><a href="/console">Console</a></li>
+                    <li><a href="/details">Details</a></li>
+                    <li><a href="/battery-chart">Battery Chart</a></li>
+                </ul>
+            </nav>
+            <h2>Console Output (últimos 5 minutos)</h2>
+            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
+
+            <h2>📦 Fetched Growatt Data</h2>
+            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ data }}</pre>
+        </body>
+        </html>
+    """, 
+    logs="\n\n".join(m for _, m in console_logs),
+    data=pprint.pformat(fetched_data, indent=2))
+
+@app.route("/details")
+def details_view():
+    try:
+        # Read the saved data from the file
+        with open(data_file, "r") as file:
+            saved_data = file.readlines()
+
+        # Parse each line as a JSON object and prepare it for display
+        parsed_data = [json.loads(line.strip()) for line in saved_data]
+
+    except Exception as e:
+        log_message(f"❌ Error reading saved data for details: {e}")
+        return "Error loading details data.", 500
+
+    # Display the details of the most recent entry
+    latest_entry = parsed_data[-1] if parsed_data else {}
+    return render_template_string("""
+        <html>
+        <head>
+            <title>Growatt Details</title>
+        </head>
+        <body>
+            <nav>
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/logs">Logs</a></li>
+                    <li><a href="/chatlog">Chatlog</a></li>
+                    <li><a href="/console">Console</a></li>
+                    <li><a href="/details">Details</a></li>
+                    <li><a href="/battery-chart">Battery Chart</a></li>
+                </ul>
+            </nav>
+            <h1>Details</h1>
+            <h2>Latest Data</h2>
+            <pre>{{ latest_entry }}</pre>
+        </body>
+        </html>
+    """, latest_entry=latest_entry)
+
 
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
@@ -477,7 +762,7 @@ def battery_chart():
             }
             #chart-container {
                 width: 100%;
-                height: 35vh;
+                height: 50vh;
                 margin-top: 10px;
             }
         </style>
