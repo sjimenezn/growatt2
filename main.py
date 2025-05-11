@@ -80,7 +80,7 @@ def battery_chart():
             }
             #chart-container {
                 width: 100%;
-                height: 50vh;
+                height: 35vh;
                 margin-top: 10px;
             }
             pre {
