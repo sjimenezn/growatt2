@@ -158,8 +158,6 @@ def battery_chart():
             });
         </script>
 
-        <h4>Raw Response</h4>
-        <pre>{{ raw_json | tojson(indent=2) }}</pre>
     </body>
     </html>
     ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
