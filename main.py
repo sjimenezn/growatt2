@@ -63,8 +63,9 @@ def get_battery_data(date):
     return response.json()
 
 def get_today_date_utc_minus_5():
-    now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
+    now = datetime.utcnow() - timedelta(hours=5)
     return now.strftime('%Y-%m-%d')
+
 
 # Growatt API
 api = GrowattApi()
