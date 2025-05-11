@@ -4,7 +4,7 @@ FROM python:3.9-slim
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROME_FLAGS="--headless --no-sandbox --disable-dev-shm-usage --user-data-dir=/tmp/chrome-profile"
+ENV CHROME_FLAGS="--headless=new --no-sandbox --disable-dev-shm-usage"
 
 # Set working directory
 WORKDIR /app
@@ -12,6 +12,7 @@ WORKDIR /app
 # Install system dependencies and Chromium
 RUN apt-get update && apt-get install -y \
     chromium \
+    chromium-driver \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
