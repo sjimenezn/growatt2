@@ -145,7 +145,7 @@ def save_data_to_file(data):
 
 def monitor_growatt():
     global last_update_time
-    threshold = 116
+    threshold = 80
     sent_lights_off = False
     sent_lights_on = False
 
@@ -184,7 +184,7 @@ def monitor_growatt():
                 log_message(f"Updated current_data: {current_data}")
 
                 loop_counter += 1
-                if loop_counter >= 1:
+                if loop_counter >= 7:
                     data_to_save = {
                         "timestamp": last_update_time,
                         "vGrid": ac_input_v,
@@ -359,99 +359,136 @@ def home():
        datalog_sn=current_data.get("datalog_sn", "N/A"))
 
 @app.route("/logs")
-def get_logs():
-    inverter_sn = fetched_data.get("inverter_sn")
-    
-    if not inverter_sn:
-        log_message("⚠️ No inverter SN found in fetched_data.")
-        return "Inverter SN not available. Please ensure login_growatt() has run successfully.", 500
-
+def charts_view():
     try:
-        data = api.storage_detail(inverter_sn)
-        log_message("✅ Growatt API data fetched successfully in /logs.")
+        # Read the saved data from the file
+        with open(data_file, "r") as file:
+            saved_data = file.readlines()
+        parsed_data = [json.loads(line.strip()) for line in saved_data]
     except Exception as e:
-        log_message(f"❌ Error fetching Growatt API data in /logs: {e}")
-        data = {"error": str(e)}
+        log_message(f"❌ Error reading saved data for charts: {e}")
+        return "Error loading chart data.", 500
+
+    # Extract chart data
+    timestamps = [entry['timestamp'] for entry in parsed_data]
+    ac_input = [float(entry['vGrid']) for entry in parsed_data]
+    ac_output = [float(entry['outPutVolt']) for entry in parsed_data]
+    active_power = [int(entry['activePower']) for entry in parsed_data]
+    battery_capacity = [int(entry['capacity']) for entry in parsed_data]
 
     return render_template_string("""
-        <html>
-        <head>
-            <title>Growatt Monitor - Logs</title>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                }
-                nav {
-                    background-color: #333;
-                    overflow: hidden;
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                }
-                nav ul {
-                    list-style-type: none;
-                    margin: 0;
-                    padding: 0;
-                    display: flex;
-                    justify-content: center;
-                }
-                nav ul li {
-                    padding: 14px 20px;
-                }
-                nav ul li a {
-                    color: white;
-                    text-decoration: none;
-                    font-size: 18px;
-                }
-                nav ul li a:hover {
-                    background-color: #ddd;
-                    color: black;
-                }
-                table {
-                    border-collapse: collapse;
-                    width: 80%;
-                    margin: 20px auto;
-                }
-                th, td {
-                    border: 1px solid #ddd;
-                    padding: 8px;
-                    text-align: left;
-                }
-                th {
-                    background-color: #f2f2f2;
-                }
-                h1 {
-                    text-align: center;
-                    margin-top: 20px;
-                }
-            </style>
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                </ul>
-            </nav>
-            <h1>Live Storage Detail</h1>
-            <table>
-                <thead>
-                    <tr><th>Campo</th><th>Valor</th></tr>
-                </thead>
-                <tbody>
-                    {% for key, value in data.items() %}
-                        <tr><td>{{ key }}</td><td>{{ value }}</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </body>
-        </html>
-    """, data=data)
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Growatt Charts</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+                background-color: #f9f9f9;
+            }
+            nav {
+                background-color: #333;
+                overflow: hidden;
+                position: sticky;
+                top: 0;
+                z-index: 100;
+            }
+            nav ul {
+                list-style-type: none;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+            }
+            nav ul li {
+                padding: 14px 20px;
+            }
+            nav ul li a {
+                color: white;
+                text-decoration: none;
+                font-size: 18px;
+            }
+            nav ul li a:hover {
+                background-color: #ddd;
+                color: black;
+            }
+            h2 {
+                text-align: center;
+                margin: 20px;
+            }
+            canvas {
+                margin: 20px auto;
+                display: block;
+                max-width: 1000px;
+                background: #fff;
+                border: 1px solid #ccc;
+                padding: 10px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }
+        </style>
+    </head>
+    <body>
+        <nav>
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="/logs">Logs</a></li>
+                <li><a href="/chatlog">Chatlog</a></li>
+                <li><a href="/console">Console</a></li>
+                <li><a href="/details">Details</a></li>
+                <li><a href="/charts">Charts</a></li>
+            </ul>
+        </nav>
+
+        <h2>Growatt Monitoring Charts</h2>
+        <canvas id="acInputChart"></canvas>
+        <canvas id="acOutputChart"></canvas>
+        <canvas id="activePowerChart"></canvas>
+        <canvas id="batteryChart"></canvas>
+
+        <script>
+            const labels = {{ timestamps | tojson }};
+            const acInput = {{ ac_input | tojson }};
+            const acOutput = {{ ac_output | tojson }};
+            const activePower = {{ active_power | tojson }};
+            const batteryCapacity = {{ battery_capacity | tojson }};
+
+            function drawChart(id, label, data, color) {
+                new Chart(document.getElementById(id), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: label,
+                            data: data,
+                            borderColor: color,
+                            backgroundColor: color + '33',
+                            fill: true,
+                            tension: 0.2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: { ticks: { autoSkip: true, maxTicksLimit: 25 } },
+                            y: { beginAtZero: false }
+                        }
+                    }
+                });
+            }
+
+            drawChart("acInputChart", "AC Input Voltage", acInput, "blue");
+            drawChart("acOutputChart", "AC Output Voltage", acOutput, "green");
+            drawChart("activePowerChart", "Active Power", activePower, "red");
+            drawChart("batteryChart", "Battery Capacity", batteryCapacity, "orange");
+        </script>
+    </body>
+    </html>
+    """, timestamps=timestamps, ac_input=ac_input, ac_output=ac_output,
+         active_power=active_power, battery_capacity=battery_capacity)
+
     
 @app.route("/chatlog")
 def chatlog_view():
