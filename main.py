@@ -1,59 +1,33 @@
-from flask import Flask, jsonify
+from flask import Flask
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-import time
 
 app = Flask(__name__)
 
-@app.route("/")
-def index():
-    return "Growatt Login Status Checker"
+@app.route('/')
+def home():
+    return "Service is running."
 
-@app.route("/login-status")
+@app.route('/login-status')
 def login_status():
-    # Set up Chrome options for headless mode in Docker
     options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920x1080")
     options.binary_location = "/usr/bin/chromium"
-
-    # Start Chrome WebDriver
-    driver = webdriver.Chrome(options=options)
+    options.add_argument("--headless=new")  # Use new headless mode
+    options.add_argument("--no-sandbox")  # Required in container environments
+    options.add_argument("--disable-dev-shm-usage")  # Prevents shared memory issues
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--window-size=1920x1080")
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
 
     try:
+        driver = webdriver.Chrome(options=options)
         driver.get("https://server.growatt.com/login")
-        time.sleep(2)  # wait for the page to load
-
-        # Fill in login fields (replace with your actual credentials)
-        username_input = driver.find_element(By.ID, "account")
-        password_input = driver.find_element(By.ID, "password")
-
-        username_input.send_keys("your_username_here")
-        password_input.send_keys("your_password_here")
-
-        # Click the login button
-        login_button = driver.find_element(By.CLASS_NAME, "login-btn")
-        login_button.click()
-
-        time.sleep(5)  # wait for redirect
-
-        # Check login success
-        if "dashboard" in driver.current_url:
-            status = "Login successful"
-        else:
-            status = "Login failed or redirected to unexpected page"
-
-        return jsonify({"status": status})
-
+        return "Login page loaded."
     except Exception as e:
-        return jsonify({"status": "Error", "error": str(e)}), 500
-
+        return f"Error: {str(e)}"
     finally:
-        driver.quit()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+        try:
+            driver.quit()
+        except:
+            pass
