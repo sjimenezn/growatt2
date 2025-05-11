@@ -1,61 +1,92 @@
-from flask import Flask
+from flask import Flask, render_template_string, request
 import requests
 
 app = Flask(__name__)
 
-# Global session to maintain cookies
-session = requests.Session()
+GROWATT_USERNAME = "vospina"
+PASSWORD_CRC = "0c4107c238d57d475d4660b07b2f043e"
+STORAGE_SN = "BNG7CH806N"
+PLANT_ID = "2817170"
 
-# Common headers
-headers = {
+HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Origin': 'https://server.growatt.com',
-    'Referer': 'https://server.growatt.com/login',
-    'Accept': 'application/json, text/javascript, */*; q=0.01'
+    'X-Requested-With': 'XMLHttpRequest'
 }
 
-login_data = {
-    'account': 'vospina',
-    'password': '',
-    'validateCode': '',
-    'isReadPact': '0',
-    'passwordCrc': '0c4107c238d57d475d4660b07b2f043e'
-}
+# Session to persist login
+session = requests.Session()
+
+def growatt_login():
+    data = {
+        'account': GROWATT_USERNAME,
+        'password': '',
+        'validateCode': '',
+        'isReadPact': '0',
+        'passwordCrc': PASSWORD_CRC
+    }
+    response = session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
+    return response.json()
+
+def get_battery_data(date):
+    payload = {
+        'plantId': PLANT_ID,
+        'storageSn': STORAGE_SN,
+        'date': date
+    }
+    response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
+    return response.json()
 
 @app.route('/')
-def login_status():
-    login_url = 'https://server.growatt.com/login'
-    response = session.post(login_url, data=login_data, headers=headers)
+def index():
+    return '<h2>Growatt Monitor</h2><p>Go to <a href="/battery-chart">Battery Chart</a></p>'
 
-    if response.ok and response.json().get('result') == 1:
-        return "Login successful!"
-    else:
-        return f"Login failed. Response: {response.text}"
+@app.route('/battery-chart', methods=['GET', 'POST'])
+def battery_chart():
+    chart_data = []
+    selected_date = ''
+    if request.method == 'POST':
+        selected_date = request.form['date']
+        growatt_login()
+        battery_json = get_battery_data(selected_date)
+        chart_data = battery_json['obj']['socChart']['capacity']
+    return render_template_string('''
+        <html>
+        <head>
+            <title>Battery SoC Chart</title>
+            <script src="https://code.highcharts.com/highcharts.js"></script>
+        </head>
+        <body>
+            <h2>Select Date</h2>
+            <form method="post">
+                <input type="date" name="date" value="{{ selected_date }}" required>
+                <button type="submit">Show Chart</button>
+            </form>
 
-@app.route('/battery-data')
-def battery_data():
-    # Ensure we're logged in
-    login_url = 'https://server.growatt.com/login'
-    login_response = session.post(login_url, data=login_data, headers=headers)
+            {% if chart_data %}
+            <div id="chart-container" style="height: 400px; width: 100%; margin-top: 20px;"></div>
+            <script>
+                Highcharts.chart('chart-container', {
+                    chart: { type: 'line' },
+                    title: { text: 'Battery SoC on {{ selected_date }}' },
+                    xAxis: {
+                        title: { text: 'Time (Index)' }
+                    },
+                    yAxis: {
+                        title: { text: 'State of Charge (%)' },
+                        max: 100
+                    },
+                    series: [{
+                        name: 'SoC',
+                        data: {{ chart_data }}
+                    }]
+                });
+            </script>
+            {% endif %}
+        </body>
+        </html>
+    ''', chart_data=chart_data, selected_date=selected_date)
 
-    if not (login_response.ok and login_response.json().get('result') == 1):
-        return "Login failed. Cannot fetch battery data."
-
-    post_url = "https://server.growatt.com/panel/storage/getStorageBatChart"
-    payload = {
-        'plantId': '2817170',
-        'storageSn': 'BNG7CH806N',
-        'date': '2025-05-10'
-    }
-
-    data_response = session.post(post_url, data=payload, headers=headers)
-
-    if data_response.ok:
-        return f"<pre>{data_response.text}</pre>"
-    else:
-        return f"Data request failed. Status: {data_response.status_code}"
-
+# Needed for local or Docker runs
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host='0.0.0.0', port=8000)
