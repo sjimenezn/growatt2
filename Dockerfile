@@ -5,7 +5,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
-    chromium-driver \
     chromium \
     fonts-liberation \
     libappindicator3-1 \
