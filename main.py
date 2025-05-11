@@ -1,6 +1,7 @@
 from flask import Flask, jsonify
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+import chromedriver_autoinstaller
 import os
 import time
 import traceback
@@ -14,46 +15,34 @@ def home():
 @app.route('/login-status')
 def login_status():
     try:
+        chromedriver_autoinstaller.install()
+
         chrome_options = Options()
-
-        # Read flags from environment and split them
-        chrome_flags = os.environ.get('CHROME_FLAGS', '--headless --no-sandbox --disable-dev-shm-usage').split()
-        for flag in chrome_flags:
-            chrome_options.add_argument(flag)
-
+        chrome_options.add_argument('--headless=new')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.binary_location = os.environ.get("CHROME_BIN", "/usr/bin/chromium")
 
-        # Create driver
         driver = webdriver.Chrome(options=chrome_options)
-
-        # Navigate to Growatt login page
         driver.get("https://server.growatt.com/login")
-
-        # Wait a bit for page to load
         time.sleep(3)
 
-        # Fill in login form
-        username_field = driver.find_element("id", "userName")
-        password_field = driver.find_element("id", "password")
-        login_button = driver.find_element("id", "loginBtn")
+        driver.find_element("id", "userName").send_keys("vospina")
+        driver.find_element("id", "password").send_keys("Vospina.2025")
+        driver.find_element("id", "loginBtn").click()
+        time.sleep(5)
 
-        username_field.send_keys("vospina")
-        password_field.send_keys("Vospina.2025")
-        login_button.click()
-
-        time.sleep(5)  # Wait for login result
-
-        # Check login success
-        current_url = driver.current_url
-        login_success = "login" not in current_url
-
+        result = {
+            "login_success": "login" not in driver.current_url,
+            "url": driver.current_url
+        }
         driver.quit()
-
-        return jsonify({"login_success": login_success, "url": current_url})
+        return jsonify(result)
 
     except Exception as e:
         traceback_str = traceback.format_exc()
-        print(traceback_str)  # This will show up in your Koyeb logs
+        print(traceback_str)
         return jsonify({"error": str(e), "trace": traceback_str}), 500
 
 if __name__ == '__main__':
