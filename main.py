@@ -3,6 +3,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import os
 import time
+import traceback
 
 app = Flask(__name__)
 
@@ -51,7 +52,9 @@ def login_status():
         return jsonify({"login_success": login_success, "url": current_url})
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        traceback_str = traceback.format_exc()
+        print(traceback_str)  # This will show up in your Koyeb logs
+        return jsonify({"error": str(e), "trace": traceback_str}), 500
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000)
