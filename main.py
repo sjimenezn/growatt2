@@ -1,55 +1,56 @@
-from flask import Flask
+from flask import Flask, jsonify
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import time
 
 app = Flask(__name__)
 
+@app.route("/")
+def index():
+    return "Growatt Login Status Checker"
+
 @app.route("/login-status")
 def login_status():
-    # Configure headless Chrome
+    # Set up Chrome options for headless mode in Docker
     options = Options()
     options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1280x800")
-    options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
-    )
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920x1080")
+    options.binary_location = "/usr/bin/chromium"
 
+    # Start Chrome WebDriver
     driver = webdriver.Chrome(options=options)
 
     try:
         driver.get("https://server.growatt.com/login")
+        time.sleep(2)  # wait for the page to load
 
-        # Wait for username input to appear
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "account"))
-        )
+        # Fill in login fields (replace with your actual credentials)
+        username_input = driver.find_element(By.ID, "account")
+        password_input = driver.find_element(By.ID, "password")
 
-        # Fill in login form
-        driver.find_element(By.ID, "account").send_keys("vospina")
-        driver.find_element(By.ID, "password").send_keys("Vospina.2025")
-        driver.find_element(By.CLASS_NAME, "loginBtn").click()
+        username_input.send_keys("your_username_here")
+        password_input.send_keys("your_password_here")
 
-        # Wait for navigation after login
-        WebDriverWait(driver, 10).until(
-            EC.url_contains("/index")
-        )
+        # Click the login button
+        login_button = driver.find_element(By.CLASS_NAME, "login-btn")
+        login_button.click()
 
-        # If URL contains /index, login is considered successful
-        if "/index" in driver.current_url:
-            return "Login successful!"
+        time.sleep(5)  # wait for redirect
+
+        # Check login success
+        if "dashboard" in driver.current_url:
+            status = "Login successful"
         else:
-            return f"Login failed. Final URL: {driver.current_url}"
+            status = "Login failed or redirected to unexpected page"
+
+        return jsonify({"status": status})
 
     except Exception as e:
-        return f"An error occurred: {str(e)}"
+        return jsonify({"status": "Error", "error": str(e)}), 500
 
     finally:
         driver.quit()
