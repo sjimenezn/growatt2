@@ -1,10 +1,13 @@
-# Use an official Python runtime as a parent image
+# Use an official Python image
 FROM python:3.9-slim
 
-# Set the working directory in the container
+# Set environment variables for non-interactive apt
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install Chromium and dependencies
 RUN apt-get update && apt-get install -y \
     chromium-driver \
     chromium \
@@ -24,9 +27,14 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     xdg-utils \
     wget \
+    curl \
     --no-install-recommends && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Let Selenium know where to find Chromium
+ENV CHROME_BIN=/usr/bin/chromium
+ENV PATH="/usr/lib/chromium:$PATH"
 
 # Copy app files
 COPY . /app
@@ -34,8 +42,8 @@ COPY . /app
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose port 8000
+# Expose port
 EXPOSE 8000
 
-# Run the Flask app
+# Run the app
 CMD ["python", "main.py"]
