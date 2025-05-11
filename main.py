@@ -1,80 +1,49 @@
 import requests
-import matplotlib.pyplot as plt
-from flask import Flask, render_template, request
-import json
+from flask import Flask
 
 app = Flask(__name__)
 
-# Credentials for login
-username = "vospina"
-password = "Vospina.2025"
-login_url = "https://server.growatt.com/login"
-data_url = "https://server.growatt.com/energy/compare/getDevicesDayChart"
-
-# Headers to mimic a browser request
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36',
-    'Content-Type': 'application/x-www-form-urlencoded',
-}
-
 @app.route('/')
-def index():
-    return render_template('login.html')
-
-@app.route('/login', methods=['POST'])
-def login():
-    # Prepare the login form data with the updated input field IDs
-    login_data = {
-        'val_loginAccount': username,  # Updated ID for username field
-        'val_loginPwd': password       # Updated ID for password field
-    }
-
-    # Create a session to maintain cookies
+def login_and_fetch_data():
     session = requests.Session()
 
-    try:
-        # Send POST request to login
-        response = session.post(login_url, data=login_data, headers=headers)
+    # Mimic a real browser's headers
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
+        'Referer': 'https://server.growatt.com/login',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
 
-        # Check if login was successful
-        if response.ok and "dashboard" in response.url:
-            # Now that we are logged in, request the data
-            plant_id = 2817170
-            date = "2025-05-10"
-            json_data = json.dumps([{"type": "storage", "sn": "BNG7CH806N", "params": "capacity"}])
+    # Use correct form field names
+    login_data = {
+        'account': 'vospina',
+        'password': 'Vospina.2025',
+        'language': '1'
+    }
 
-            # Data to send in the GET request
-            params = {
-                'plantId': plant_id,
-                'date': date,
-                'jsonData': json_data
-            }
+    # Step 1: login request
+    login_url = "https://server.growatt.com/login"
+    response = session.post(login_url, data=login_data, headers=headers)
 
-            data_response = session.get(data_url, params=params, headers=headers)
+    if response.ok and "dashboard" in response.url:
+        # Step 2: fetch data using the session
+        data_url = "https://server.growatt.com/energy/compare/getDevicesDayChart"
+        plant_id = 2817170
+        date = "2025-05-10"
+        json_data = '[{"type":"storage","sn":"BNG7CH806N","params":"capacity"}]'
 
-            # Check if we received a valid response
-            if data_response.ok:
-                data = data_response.json()
-                # Extract capacity data
-                capacity_data = data['obj'][0]['datas']['capacity']
+        params = {
+            'plantId': plant_id,
+            'date': date,
+            'jsonData': json_data
+        }
 
-                # Plot the data using Matplotlib
-                plt.plot(capacity_data)
-                plt.title('Capacity over Time')
-                plt.xlabel('Time (hours)')
-                plt.ylabel('Capacity (%)')
-                plt.show()
+        data_response = session.get(data_url, params=params, headers=headers)
 
-                return "Login and data retrieval successful. Data plotted."
-            else:
-                return "Failed to fetch data after login."
+        return f"<pre>{data_response.text}</pre>"
 
-        else:
-            return "Login failed."
+    return "Login failed. Response URL: " + response.url
 
-    except Exception as e:
-        return f"An error occurred: {str(e)}"
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000)
