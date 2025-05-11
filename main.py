@@ -1,5 +1,6 @@
 from flask import Flask, render_template_string, request
 import requests
+import datetime
 
 app = Flask(__name__)
 
@@ -24,8 +25,7 @@ def growatt_login():
         'isReadPact': '0',
         'passwordCrc': PASSWORD_CRC
     }
-    response = session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
-    return response.json()
+    session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
 
 def get_battery_data(date):
     payload = {
@@ -36,19 +36,18 @@ def get_battery_data(date):
     response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
     return response.json()
 
-@app.route('/')
-def index():
-    return '<h2>Growatt Monitor</h2><p>Go to <a href="/battery-chart">Battery Chart</a></p>'
-
 @app.route('/battery-chart', methods=['GET', 'POST'])
 def battery_chart():
-    chart_data = []
-    selected_date = ''
-    if request.method == 'POST':
-        selected_date = request.form['date']
-        growatt_login()
-        battery_json = get_battery_data(selected_date)
-        chart_data = battery_json['obj']['socChart']['capacity']
+    growatt_login()
+
+    now_utc5 = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
+    selected_date = request.form.get('date') or now_utc5.strftime('%Y-%m-%d')
+    battery_json = get_battery_data(selected_date)
+    raw_data = battery_json.get('obj', {}).get('socChart', {}).get('capacity', [])
+    
+    # Pad the array to always be 288 values
+    padded_data = raw_data + [None] * (288 - len(raw_data))
+
     return render_template_string('''
         <!DOCTYPE html>
         <html>
@@ -57,63 +56,82 @@ def battery_chart():
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <script src="https://code.highcharts.com/highcharts.js"></script>
             <style>
-                body { font-family: Arial, sans-serif; margin: 0; padding: 10px; }
-                #chart-container { height: 70vh; width: 100%; }
-                form { margin-bottom: 20px; }
+                body { font-family: sans-serif; margin: 0; padding: 1em; }
+                #chart-container { height: 60vh; width: 100%; }
+                form { display: flex; align-items: center; gap: 0.5em; }
+                button, input[type="date"] { font-size: 1em; }
             </style>
         </head>
         <body>
-            <h2>Select Date</h2>
-            <form method="post">
-                <input type="date" name="date" value="{{ selected_date }}" required>
-                <button type="submit">Show Chart</button>
+            <form method="post" id="dateForm">
+                <button type="button" onclick="shiftDate(-1)">←</button>
+                <input type="date" name="date" id="datePicker" value="{{ selected_date }}">
+                <button type="button" onclick="shiftDate(1)">→</button>
             </form>
 
-            {% if chart_data %}
             <div id="chart-container"></div>
+
             <script>
-                const data = {{ chart_data }};
-                const labels = Array.from({length: 24}, (_, i) => (i < 10 ? '0' : '') + i);
+                const form = document.getElementById('dateForm');
+                document.getElementById('datePicker').addEventListener('change', () => form.submit());
+
+                function shiftDate(offset) {
+                    const picker = document.getElementById('datePicker');
+                    const current = new Date(picker.value);
+                    current.setDate(current.getDate() + offset);
+                    picker.valueAsDate = current;
+                    form.submit();
+                }
+
+                const socData = {{ padded_data | safe }};
+                const xLabels = Array.from({length: 288}, (_, i) => {
+                    const h = Math.floor(i / 12).toString().padStart(2, '0');
+                    const m = (i % 12) * 5;
+                    const mm = m.toString().padStart(2, '0');
+                    return h + ':' + mm;
+                });
+
                 Highcharts.chart('chart-container', {
                     chart: { type: 'line' },
                     title: { text: 'Battery SoC on {{ selected_date }}' },
                     xAxis: {
-                        title: { text: 'Hour' },
-                        categories: labels.flatMap(h => Array(12).fill(h)),
-                        tickInterval: 12
+                        categories: xLabels,
+                        labels: {
+                            step: 12,
+                            formatter: function () {
+                                return this.value.slice(0, 2);  // Only hour
+                            }
+                        },
+                        title: { text: 'Time (Hour)' }
                     },
                     yAxis: {
                         title: { text: 'State of Charge (%)' },
-                        min: 0,
-                        max: 100
+                        max: 100,
+                        min: 0
                     },
                     tooltip: {
-                        formatter: function() {
-                            const hour = Math.floor(this.point.index / 12);
-                            const minute = (this.point.index % 12) * 5;
-                            const hh = hour < 10 ? '0' + hour : hour;
-                            const mm = minute < 10 ? '0' + minute : minute;
-                            return `<b>${hh}:${mm}</b><br>SoC: ${this.y}%`;
+                        formatter: function () {
+                            return `<b>${this.x}</b><br/>SoC: ${this.y}%`;
                         }
                     },
                     series: [{
                         name: 'SoC',
-                        data: data
+                        data: socData
                     }],
                     responsive: {
                         rules: [{
                             condition: { maxWidth: 600 },
                             chartOptions: {
-                                legend: { enabled: false }
+                                chart: { height: '60%' },
+                                xAxis: { labels: { step: 24 } }
                             }
                         }]
                     }
                 });
             </script>
-            {% endif %}
         </body>
         </html>
-    ''', chart_data=chart_data, selected_date=selected_date)
+    ''', padded_data=padded_data, selected_date=selected_date)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
