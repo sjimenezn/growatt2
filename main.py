@@ -4,18 +4,10 @@ import requests
 app = Flask(__name__)
 
 # Configuration
-API_TOKEN = "08u422v880960e6cd322x8c78mc562g0"
 PLANT_ID = 2817170
 DEVICE_SN = "BNG7CH806N"
-
-# Headers including Chrome user-agent
-HEADERS = {
-    "Authorization": f"Bearer {API_TOKEN}",
-    "Content-Type": "application/json",
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                   "Chrome/124.0.0.0 Safari/537.36")
-}
+GROWATT_EMAIL = "vospina"  # Replace with your email
+GROWATT_PASSWORD = "Vospina.2025"        # Replace with your password
 
 @app.route('/capacity', methods=['GET'])
 def capacity_page():
@@ -47,7 +39,9 @@ def capacity_page():
                         return;
                     }
                     Highcharts.chart('chart', {
-                        chart: { type: 'line' },
+                        chart: {
+                            type: 'line'
+                        },
                         title: { text: 'Battery Capacity on ' + date },
                         xAxis: {
                             title: { text: 'Time (5-minute intervals)' },
@@ -75,20 +69,40 @@ def get_capacity_data():
     if not date:
         return jsonify({"error": "Missing date parameter"}), 400
 
+    session = requests.Session()
+
+    # Spoofed User-Agent (Chrome on Windows)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
+    session.headers.update(headers)
+
+    # Step 1: Login to Growatt
+    login_payload = {
+        "userName": GROWATT_EMAIL,
+        "password": GROWATT_PASSWORD
+    }
+    login_response = session.post("https://server.growatt.com/login", data=login_payload)
+
+    if login_response.status_code != 200 or "成功" not in login_response.text:
+        return jsonify({"error": "Login failed"}), 401
+
+    # Step 2: Request capacity data
     payload = {
         "plantId": PLANT_ID,
         "date": date,
-        "jsonData": [{
-            "type": "storage",
-            "sn": DEVICE_SN,
-            "params": "capacity"
-        }]
+        "jsonData": [
+            {
+                "type": "storage",
+                "sn": DEVICE_SN,
+                "params": "capacity"
+            }
+        ]
     }
 
     try:
-        response = requests.post(
+        response = session.post(
             "https://server.growatt.com/energy/compare/getDevicesDayChart",
-            headers=HEADERS,
             json=payload
         )
         response.raise_for_status()
@@ -104,7 +118,7 @@ def test_api():
     <html>
     <head><title>Test Growatt API</title></head>
     <body>
-        <h2>Test Growatt API Response</h2>
+        <h2>Test Growatt API Raw Response</h2>
         <input type="date" id="date">
         <button onclick="loadData()">Load</button>
         <pre id="result" style="white-space: pre-wrap; word-wrap: break-word;"></pre>
@@ -115,6 +129,7 @@ def test_api():
                     alert("Please select a date");
                     return;
                 }
+
                 fetch('/get_capacity_data?date=' + date)
                     .then(response => response.json())
                     .then(data => {
