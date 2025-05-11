@@ -1,40 +1,17 @@
+# Use an official Python runtime as a parent image
 FROM python:3.9-slim
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
-    fonts-liberation \
-    wget \
-    unzip \
-    curl \
-    gnupg \
-    libnss3 \
-    libxss1 \
-    libasound2 \
-    libx11-xcb1 \
-    libatk-bridge2.0-0 \
-    libgtk-3-0 \
-    --no-install-recommends && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set environment variables
-ENV CHROME_BIN=/usr/bin/chromium \
-    PATH=$PATH:/usr/bin
-
-# Set work directory
+# Set the working directory
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt .
+# Copy all files and folders in the current directory (including templates/, static/, etc.)
+COPY . .
+
+# Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY main.py .
-
-# Expose Flask port
+# Make port 8000 available to the world outside this container
 EXPOSE 8000
 
-# Start the app
+# Run the application
 CMD ["python", "main.py"]
