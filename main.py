@@ -1,6 +1,5 @@
 from flask import Flask, render_template_string, request
 import requests
-from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -10,12 +9,11 @@ STORAGE_SN = "BNG7CH806N"
 PLANT_ID = "2817170"
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0',
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     'X-Requested-With': 'XMLHttpRequest'
 }
 
-# Session to persist login
 session = requests.Session()
 
 def growatt_login():
@@ -38,18 +36,6 @@ def get_battery_data(date):
     response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
     return response.json()
 
-def format_chart_data(battery_data):
-    # Starting from 00:00 and adding 5 minutes to each subsequent data point
-    base_time = datetime.strptime("00:00", "%H:%M")
-    formatted_data = []
-
-    # Assuming battery_data is a list of 288 points
-    for i, value in enumerate(battery_data):
-        time = base_time + timedelta(minutes=5 * i)  # Add 5 minutes for each index
-        formatted_data.append([time.timestamp() * 1000, value])  # Highcharts expects time in milliseconds
-
-    return formatted_data
-
 @app.route('/')
 def index():
     return '<h2>Growatt Monitor</h2><p>Go to <a href="/battery-chart">Battery Chart</a></p>'
@@ -62,33 +48,18 @@ def battery_chart():
         selected_date = request.form['date']
         growatt_login()
         battery_json = get_battery_data(selected_date)
-        battery_data = battery_json['obj']['socChart']['capacity']
-        chart_data = format_chart_data(battery_data)
+        chart_data = battery_json['obj']['socChart']['capacity']
     return render_template_string('''
+        <!DOCTYPE html>
         <html>
         <head>
             <title>Battery SoC Chart</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
             <script src="https://code.highcharts.com/highcharts.js"></script>
             <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                    text-align: center;
-                }
-                #chart-container {
-                    height: 400px;
-                    width: 100%;
-                    margin-top: 20px;
-                }
-                form {
-                    margin: 20px;
-                }
-                @media only screen and (max-width: 600px) {
-                    #chart-container {
-                        height: 300px;
-                    }
-                }
+                body { font-family: Arial, sans-serif; margin: 0; padding: 10px; }
+                #chart-container { height: 70vh; width: 100%; }
+                form { margin-bottom: 20px; }
             </style>
         </head>
         <body>
@@ -101,28 +72,42 @@ def battery_chart():
             {% if chart_data %}
             <div id="chart-container"></div>
             <script>
+                const data = {{ chart_data }};
+                const labels = Array.from({length: 24}, (_, i) => (i < 10 ? '0' : '') + i);
                 Highcharts.chart('chart-container', {
                     chart: { type: 'line' },
                     title: { text: 'Battery SoC on {{ selected_date }}' },
                     xAxis: {
-                        type: 'datetime',
-                        title: { text: 'Time' },
-                        labels: {
-                            format: '{value:%H:%M}',  // Format to show time as HH:MM
-                        }
+                        title: { text: 'Hour' },
+                        categories: labels.flatMap(h => Array(12).fill(h)),
+                        tickInterval: 12
                     },
                     yAxis: {
                         title: { text: 'State of Charge (%)' },
+                        min: 0,
                         max: 100
                     },
                     tooltip: {
-                        xDateFormat: '%Y-%m-%d %H:%M',  // Display full date and time in the tooltip
-                        pointFormat: 'SoC: {point.y}%' // SoC value in tooltip
+                        formatter: function() {
+                            const hour = Math.floor(this.point.index / 12);
+                            const minute = (this.point.index % 12) * 5;
+                            const hh = hour < 10 ? '0' + hour : hour;
+                            const mm = minute < 10 ? '0' + minute : minute;
+                            return `<b>${hh}:${mm}</b><br>SoC: ${this.y}%`;
+                        }
                     },
                     series: [{
                         name: 'SoC',
-                        data: {{ chart_data | tojson }}  // Pass the data as JSON
-                    }]
+                        data: data
+                    }],
+                    responsive: {
+                        rules: [{
+                            condition: { maxWidth: 600 },
+                            chartOptions: {
+                                legend: { enabled: false }
+                            }
+                        }]
+                    }
                 });
             </script>
             {% endif %}
@@ -130,6 +115,5 @@ def battery_chart():
         </html>
     ''', chart_data=chart_data, selected_date=selected_date)
 
-# Needed for local or Docker runs
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
