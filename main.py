@@ -1,6 +1,7 @@
 from flask import Flask, render_template_string, request
 import requests
 import datetime
+import json
 
 app = Flask(__name__)
 
@@ -39,11 +40,10 @@ def get_battery_data(date):
 def battery_chart():
     growatt_login()
 
-    # Current date in UTC-5
     utc_now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
     today_str = utc_now.strftime('%Y-%m-%d')
-
     selected_date = request.form.get('date') or today_str
+
     battery_json = get_battery_data(selected_date)
     raw_data = battery_json.get('obj', {}).get('socChart', {}).get('capacity', [])
     padded_data = raw_data + [None] * (288 - len(raw_data))
@@ -57,7 +57,7 @@ def battery_chart():
             <script src="https://code.highcharts.com/highcharts.js"></script>
             <style>
                 body { font-family: sans-serif; margin: 0; padding: 1em; }
-                #chart-container { height: 60vh; width: 100%; margin-top: 1em; }
+                #chart-container { height: 55vh; width: 100%; margin-top: 1em; }
                 .date-controls {
                     display: flex;
                     justify-content: center;
@@ -68,6 +68,15 @@ def battery_chart():
                 .date-controls button, .date-controls input[type="date"] {
                     font-size: 1.5em;
                     padding: 0.4em 1em;
+                }
+                pre {
+                    font-size: 0.8em;
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                    background: #f0f0f0;
+                    padding: 1em;
+                    margin-top: 2em;
+                    overflow-x: auto;
                 }
             </style>
         </head>
@@ -102,7 +111,11 @@ def battery_chart():
                 });
 
                 Highcharts.chart('chart-container', {
-                    chart: { type: 'line' },
+                    chart: {
+                        type: 'line',
+                        spacingTop: 10,
+                        spacingBottom: 10
+                    },
                     title: { text: 'Battery SoC on {{ selected_date }}' },
                     xAxis: {
                         categories: xLabels,
@@ -117,7 +130,8 @@ def battery_chart():
                     yAxis: {
                         title: { text: 'State of Charge (%)' },
                         max: 100,
-                        min: 0
+                        min: 0,
+                        tickInterval: 20
                     },
                     tooltip: {
                         formatter: function () {
@@ -127,21 +141,16 @@ def battery_chart():
                     series: [{
                         name: 'SoC',
                         data: socData
-                    }],
-                    responsive: {
-                        rules: [{
-                            condition: { maxWidth: 600 },
-                            chartOptions: {
-                                chart: { height: '60%' },
-                                xAxis: { labels: { step: 24 } }
-                            }
-                        }]
-                    }
+                    }]
                 });
             </script>
+
+            <pre><strong>Raw Response:</strong>
+{{ battery_json | tojson(indent=2) }}
+            </pre>
         </body>
         </html>
-    ''', padded_data=padded_data, selected_date=selected_date)
+    ''', padded_data=padded_data, selected_date=selected_date, battery_json=battery_json)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
