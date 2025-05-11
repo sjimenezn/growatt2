@@ -1,5 +1,6 @@
 from flask import Flask, render_template_string, request
 import requests
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -37,6 +38,18 @@ def get_battery_data(date):
     response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
     return response.json()
 
+def format_chart_data(battery_data):
+    # Starting from 00:00 and adding 5 minutes to each subsequent data point
+    base_time = datetime.strptime("00:00", "%H:%M")
+    formatted_data = []
+
+    # Assuming battery_data is a list of 288 points
+    for i, value in enumerate(battery_data):
+        time = base_time + timedelta(minutes=5 * i)  # Add 5 minutes for each index
+        formatted_data.append([time.timestamp() * 1000, value])  # Highcharts expects time in milliseconds
+
+    return formatted_data
+
 @app.route('/')
 def index():
     return '<h2>Growatt Monitor</h2><p>Go to <a href="/battery-chart">Battery Chart</a></p>'
@@ -49,12 +62,34 @@ def battery_chart():
         selected_date = request.form['date']
         growatt_login()
         battery_json = get_battery_data(selected_date)
-        chart_data = battery_json['obj']['socChart']['capacity']
+        battery_data = battery_json['obj']['socChart']['capacity']
+        chart_data = format_chart_data(battery_data)
     return render_template_string('''
         <html>
         <head>
             <title>Battery SoC Chart</title>
             <script src="https://code.highcharts.com/highcharts.js"></script>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                    text-align: center;
+                }
+                #chart-container {
+                    height: 400px;
+                    width: 100%;
+                    margin-top: 20px;
+                }
+                form {
+                    margin: 20px;
+                }
+                @media only screen and (max-width: 600px) {
+                    #chart-container {
+                        height: 300px;
+                    }
+                }
+            </style>
         </head>
         <body>
             <h2>Select Date</h2>
@@ -64,21 +99,29 @@ def battery_chart():
             </form>
 
             {% if chart_data %}
-            <div id="chart-container" style="height: 400px; width: 100%; margin-top: 20px;"></div>
+            <div id="chart-container"></div>
             <script>
                 Highcharts.chart('chart-container', {
                     chart: { type: 'line' },
                     title: { text: 'Battery SoC on {{ selected_date }}' },
                     xAxis: {
-                        title: { text: 'Time (Index)' }
+                        type: 'datetime',
+                        title: { text: 'Time' },
+                        labels: {
+                            format: '{value:%H:%M}',  // Format to show time as HH:MM
+                        }
                     },
                     yAxis: {
                         title: { text: 'State of Charge (%)' },
                         max: 100
                     },
+                    tooltip: {
+                        xDateFormat: '%Y-%m-%d %H:%M',  // Display full date and time in the tooltip
+                        pointFormat: 'SoC: {point.y}%' // SoC value in tooltip
+                    },
                     series: [{
                         name: 'SoC',
-                        data: {{ chart_data }}
+                        data: {{ chart_data | tojson }}  // Pass the data as JSON
                     }]
                 });
             </script>
