@@ -1,15 +1,11 @@
-# Use an official lightweight Python image
 FROM python:3.9-slim
 
-# Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROME_FLAGS="--headless=new --no-sandbox --disable-dev-shm-usage"
+ENV CHROME_HEADLESS="--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-software-rasterizer --disable-extensions --single-process --no-zygote"
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies and Chromium
 RUN apt-get update && apt-get install -y \
     chromium \
     chromium-driver \
@@ -33,15 +29,10 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app files
 COPY . .
 
-# Expose the port
 EXPOSE 8000
-
-# Start the app
 CMD ["python", "main.py"]
