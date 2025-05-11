@@ -18,14 +18,13 @@ HEADERS = {
 session = requests.Session()
 
 def growatt_login():
-    data = {
+    session.post('https://server.growatt.com/login', headers=HEADERS, data={
         'account': GROWATT_USERNAME,
         'password': '',
         'validateCode': '',
         'isReadPact': '0',
         'passwordCrc': PASSWORD_CRC
-    }
-    session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
+    })
 
 def get_battery_data(date):
     payload = {
@@ -33,19 +32,20 @@ def get_battery_data(date):
         'storageSn': STORAGE_SN,
         'date': date
     }
-    response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
-    return response.json()
+    res = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
+    return res.json()
 
 @app.route('/battery-chart', methods=['GET', 'POST'])
 def battery_chart():
     growatt_login()
 
-    now_utc5 = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
-    selected_date = request.form.get('date') or now_utc5.strftime('%Y-%m-%d')
+    # Current date in UTC-5
+    utc_now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
+    today_str = utc_now.strftime('%Y-%m-%d')
+
+    selected_date = request.form.get('date') or today_str
     battery_json = get_battery_data(selected_date)
     raw_data = battery_json.get('obj', {}).get('socChart', {}).get('capacity', [])
-    
-    # Pad the array to always be 288 values
     padded_data = raw_data + [None] * (288 - len(raw_data))
 
     return render_template_string('''
@@ -57,16 +57,27 @@ def battery_chart():
             <script src="https://code.highcharts.com/highcharts.js"></script>
             <style>
                 body { font-family: sans-serif; margin: 0; padding: 1em; }
-                #chart-container { height: 60vh; width: 100%; }
-                form { display: flex; align-items: center; gap: 0.5em; }
-                button, input[type="date"] { font-size: 1em; }
+                #chart-container { height: 60vh; width: 100%; margin-top: 1em; }
+                .date-controls {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    gap: 1em;
+                    margin-top: 1em;
+                }
+                .date-controls button, .date-controls input[type="date"] {
+                    font-size: 1.5em;
+                    padding: 0.4em 1em;
+                }
             </style>
         </head>
         <body>
             <form method="post" id="dateForm">
-                <button type="button" onclick="shiftDate(-1)">←</button>
-                <input type="date" name="date" id="datePicker" value="{{ selected_date }}">
-                <button type="button" onclick="shiftDate(1)">→</button>
+                <div class="date-controls">
+                    <button type="button" onclick="shiftDate(-1)">←</button>
+                    <input type="date" name="date" id="datePicker" value="{{ selected_date }}">
+                    <button type="button" onclick="shiftDate(1)">→</button>
+                </div>
             </form>
 
             <div id="chart-container"></div>
@@ -87,8 +98,7 @@ def battery_chart():
                 const xLabels = Array.from({length: 288}, (_, i) => {
                     const h = Math.floor(i / 12).toString().padStart(2, '0');
                     const m = (i % 12) * 5;
-                    const mm = m.toString().padStart(2, '0');
-                    return h + ':' + mm;
+                    return h + ':' + m.toString().padStart(2, '0');
                 });
 
                 Highcharts.chart('chart-container', {
@@ -99,10 +109,10 @@ def battery_chart():
                         labels: {
                             step: 12,
                             formatter: function () {
-                                return this.value.slice(0, 2);  // Only hour
+                                return this.value.slice(0, 2);
                             }
                         },
-                        title: { text: 'Time (Hour)' }
+                        title: { text: 'Hour of Day' }
                     },
                     yAxis: {
                         title: { text: 'State of Charge (%)' },
@@ -111,7 +121,7 @@ def battery_chart():
                     },
                     tooltip: {
                         formatter: function () {
-                            return `<b>${this.x}</b><br/>SoC: ${this.y}%`;
+                            return `<b>${this.x}</b><br/>SoC: ${this.y ?? '—'}%`;
                         }
                     },
                     series: [{
