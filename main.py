@@ -31,7 +31,7 @@ def login():
     logger.debug(f"Using temp user data dir: {chrome_user_data_dir}")
 
     chrome_options = Options()
-    chrome_options.binary_location = "/usr/bin/chromium"
+    chrome_options.binary_location = "/usr/bin/google-chrome"  # Fix to use google-chrome binary
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
