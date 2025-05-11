@@ -1,61 +1,48 @@
-import os
-import tempfile
-import logging
-from flask import Flask, request, render_template
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-import time
+import requests
+from flask import Flask, render_template, request
 
 app = Flask(__name__)
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
+# Route to show the login form
 @app.route('/')
 def index():
     return render_template('login.html')
 
+# Route to handle login
 @app.route('/login', methods=['POST'])
 def login():
-    logger.debug("Starting login process.")
-
-    # Growatt login credentials
+    # Credentials
     username = "vospina"
     password = "Vospina.2025"
     login_url = "https://server.growatt.com/login"
 
-    # Create temp directory for Chrome profile
-    chrome_user_data_dir = tempfile.mkdtemp()
-    logger.debug(f"Using temp user data dir: {chrome_user_data_dir}")
+    # Prepare the login data (the exact field names must be matched with the form)
+    data = {
+        'username': username,
+        'password': password
+    }
 
-    chrome_options = Options()
-    chrome_options.binary_location = "/usr/bin/google-chrome"  # Fix to use google-chrome binary
-    chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument(f"--user-data-dir={chrome_user_data_dir}")
-    chrome_options.add_argument("--disable-gpu")
+    # Headers with a User-Agent to mimic a real browser
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
+    }
 
     try:
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.get(login_url)
-        time.sleep(2)  # Wait for page to load
+        # Create a session object to maintain cookies across requests
+        session = requests.Session()
 
-        logger.debug("Filling login form...")
-        driver.find_element(By.ID, "username").send_keys(username)
-        driver.find_element(By.ID, "password").send_keys(password)
-        driver.find_element(By.ID, "btnLogin").click()
-        time.sleep(5)  # Wait for login to complete
+        # Perform the login request
+        response = session.post(login_url, data=data, headers=headers)
 
-        logger.debug("Login attempted. Current URL: %s", driver.current_url)
-        result = "Login process completed."
+        # Check if the login was successful (you can adjust the success condition)
+        if response.ok and "dashboard" in response.url:
+            result = "Login successful!"
+        else:
+            result = "Login failed or wrong credentials."
+
     except Exception as e:
-        logger.exception("Error during login process")
-        result = f"Login failed: {str(e)}"
-    finally:
-        driver.quit()
+        result = f"Error: {str(e)}"
 
     return result
 
