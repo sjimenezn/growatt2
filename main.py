@@ -761,9 +761,9 @@ def battery_chart():
                 cursor: pointer;
             }
             #chart-container {
-                width: 100%;
-                height: 50vh;
-                margin-top: 10px;
+                width: 800px;
+                height: 400px;
+                margin: 20px auto;
             }
         </style>
     </head>
@@ -811,7 +811,7 @@ def battery_chart():
             });
 
             Highcharts.chart('chart-container', {
-                chart: { type: 'line', spacingTop: 10, spacingBottom: 10 },
+                chart: { type: 'line', spacingTop: 10, spacingBottom: 10, width: 800, height: 400 },
                 title: { text: 'State of Charge on {{ selected_date }}' },
                 xAxis: {
                     categories: timeLabels,
