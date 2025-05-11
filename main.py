@@ -1,6 +1,7 @@
 from flask import Flask, render_template_string, request
 import requests
-from datetime import datetime, timedelta
+import datetime
+import pytz
 
 app = Flask(__name__)
 
@@ -10,12 +11,11 @@ STORAGE_SN = "BNG7CH806N"
 PLANT_ID = "2817170"
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0',
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     'X-Requested-With': 'XMLHttpRequest'
 }
 
-# Session to persist login
 session = requests.Session()
 
 def growatt_login():
@@ -26,8 +26,7 @@ def growatt_login():
         'isReadPact': '0',
         'passwordCrc': PASSWORD_CRC
     }
-    response = session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
-    return response.json()
+    session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
 
 def get_battery_data(date):
     payload = {
@@ -38,111 +37,136 @@ def get_battery_data(date):
     response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
     return response.json()
 
-@app.route('/')
-def index():
-    return '<h2>Growatt Monitor</h2><p>Go to <a href="/battery-chart">Battery Chart</a></p>'
+def get_today_date_utc_minus_5():
+    now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
+    return now.strftime('%Y-%m-%d')
 
 @app.route('/battery-chart', methods=['GET', 'POST'])
 def battery_chart():
-    chart_data = []
-    selected_date = ''
-    if request.method == 'POST':
-        selected_date = request.form['date']
-        growatt_login()
-        battery_json = get_battery_data(selected_date)
-        chart_data = battery_json['obj']['socChart']['capacity']
+    selected_date = request.form.get('date') if request.method == 'POST' else get_today_date_utc_minus_5()
+    growatt_login()
+    raw_json = get_battery_data(selected_date)
+    soc_data = raw_json.get('obj', {}).get('socChart', {}).get('capacity', [])
+
+    # Pad to 288 entries
+    soc_data = soc_data + [None] * (288 - len(soc_data))
+
     return render_template_string('''
-        <html>
-        <head>
-            <title>Battery SoC Chart</title>
-            <script src="https://code.highcharts.com/highcharts.js"></script>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    text-align: center;
-                    margin: 0;
-                    padding: 0;
-                }
-                #chart-container {
-                    height: 300px;  /* Adjusted chart height */
-                    width: 100%;
-                    margin-top: 20px;
-                }
-                @media (max-width: 600px) {
-                    #chart-container {
-                        height: 300px;  /* Set mobile chart height to 300px */
-                    }
-                }
-                .date-picker-container {
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    margin-top: 20px;
-                }
-                .date-picker-container input {
-                    font-size: 1.5em;
-                    padding: 5px;
-                    text-align: center;
-                }
-                .date-picker-container button {
-                    font-size: 1.5em;
-                    padding: 5px 10px;
-                    cursor: pointer;
-                }
-                .arrow-button {
-                    font-size: 2em;
-                    padding: 5px;
-                    cursor: pointer;
-                    background-color: transparent;
-                    border: none;
-                }
-            </style>
-        </head>
-        <body>
-            <h2>Select Date</h2>
-            <div class="date-picker-container">
-                <button class="arrow-button" onclick="changeDate(-1)">&#8592;</button>
-                <form method="post" style="display: inline;">
-                    <input type="date" name="date" value="{{ selected_date }}" required onchange="this.form.submit()">
-                </form>
-                <button class="arrow-button" onclick="changeDate(1)">&#8594;</button>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Battery SoC Chart</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://code.highcharts.com/highcharts.js"></script>
+        <style>
+            body { font-family: sans-serif; margin: 0; padding: 0; text-align: center; }
+            #controls {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                gap: 20px;
+                font-size: 24px;
+                margin-top: 20px;
+            }
+            #controls input[type="date"] {
+                font-size: 20px;
+                padding: 4px;
+            }
+            button.arrow {
+                font-size: 28px;
+                background: none;
+                border: none;
+                cursor: pointer;
+            }
+            #chart-container {
+                width: 100%;
+                height: 50vh;
+                margin-top: 10px;
+            }
+            pre {
+                text-align: left;
+                background: #eee;
+                padding: 10px;
+                overflow-x: scroll;
+                font-size: 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>Battery SoC Chart</h2>
+        <form method="post" id="dateForm">
+            <div id="controls">
+                <button class="arrow" type="button" onclick="shiftDate(-1)">←</button>
+                <input type="date" name="date" id="datePicker" value="{{ selected_date }}" required onchange="submitForm()">
+                <button class="arrow" type="button" onclick="shiftDate(1)">→</button>
             </div>
+        </form>
 
-            {% if chart_data %}
-            <div id="chart-container"></div>
-            <script>
-                Highcharts.chart('chart-container', {
-                    chart: { type: 'line' },
-                    title: { text: 'Battery SoC on {{ selected_date }}' },
-                    xAxis: {
-                        title: { text: 'Time' },
-                        categories: ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23'],
-                    },
-                    yAxis: {
-                        title: { text: 'State of Charge (%)' },
-                        max: 100,
-                        min: 0,
-                        tickInterval: 10,  // Reduced tick distance for Y-axis
-                    },
-                    series: [{
-                        name: 'SoC',
-                        data: {{ chart_data }},
-                    }]
-                });
+        <div id="chart-container"></div>
 
-                function changeDate(direction) {
-                    const currentDate = new Date(document.querySelector('input[name="date"]').value);
-                    currentDate.setDate(currentDate.getDate() + direction);
-                    const formattedDate = currentDate.toISOString().split('T')[0];
-                    document.querySelector('input[name="date"]').value = formattedDate;
-                    document.querySelector('form').submit();
-                }
-            </script>
-            {% endif %}
-        </body>
-        </html>
-    ''', chart_data=chart_data, selected_date=selected_date)
+        <script>
+            function submitForm() {
+                document.getElementById('dateForm').submit();
+            }
 
-# Needed for local or Docker runs
+            function shiftDate(offset) {
+                const picker = document.getElementById('datePicker');
+                const current = new Date(picker.value);
+                current.setDate(current.getDate() + offset);
+                picker.valueAsDate = current;
+                submitForm();
+            }
+
+            const socData = {{ soc_data | tojson }};
+            const timeLabels = [...Array(288).keys()].map(i => {
+                const h = Math.floor(i / 12).toString().padStart(2, '0');
+                const m = (i % 12) * 5;
+                const label = h;
+                return label;
+            });
+
+            Highcharts.chart('chart-container', {
+                chart: {
+                    type: 'line',
+                    spacingTop: 10,
+                    spacingBottom: 10
+                },
+                title: {
+                    text: 'State of Charge on {{ selected_date }}'
+                },
+                xAxis: {
+                    categories: timeLabels,
+                    tickInterval: 12, // Show every hour (12 * 5 min = 60 min)
+                    title: { text: 'Hour' }
+                },
+                yAxis: {
+                    min: 0,
+                    max: 100,
+                    title: { text: 'SoC (%)' }
+                },
+                tooltip: {
+                    formatter: function () {
+                        const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
+                        const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
+                        return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
+                    }
+                },
+                series: [{
+                    name: 'SoC',
+                    data: socData
+                }]
+            });
+        </script>
+
+        <h4>Raw Response</h4>
+        <pre>{{ raw_json | tojson(indent=2) }}</pre>
+    </body>
+    </html>
+    ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
+
+@app.route('/')
+def index():
+    return '<h2>Growatt Monitor</h2><p><a href="/battery-chart">View Battery Chart</a></p>'
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
