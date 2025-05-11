@@ -1,7 +1,6 @@
 from flask import Flask, render_template_string, request
 import requests
-import datetime
-import pytz
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
@@ -11,7 +10,7 @@ STORAGE_SN = "BNG7CH806N"
 PLANT_ID = "2817170"
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     'X-Requested-With': 'XMLHttpRequest'
 }
@@ -26,7 +25,7 @@ def growatt_login():
         'isReadPact': '0',
         'passwordCrc': PASSWORD_CRC
     }
-    session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
+    return session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
 
 def get_battery_data(date):
     payload = {
@@ -37,20 +36,18 @@ def get_battery_data(date):
     response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
     return response.json()
 
-def get_today_date_utc_minus_5():
-    now = datetime.datetime.utcnow() - datetime.timedelta(hours=5)
-    return now.strftime('%Y-%m-%d')
-
 @app.route('/battery-chart', methods=['GET', 'POST'])
 def battery_chart():
-    selected_date = request.form.get('date') if request.method == 'POST' else get_today_date_utc_minus_5()
+    today_local = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y-%m-%d')
+    selected_date = request.form.get('date', today_local)
     growatt_login()
-    raw_json = get_battery_data(selected_date)
-    soc_data = raw_json.get('obj', {}).get('socChart', {}).get('capacity', [])
-
-    # Pad to 288 entries
-    soc_data = soc_data + [None] * (288 - len(soc_data))
-
+    battery_json = get_battery_data(selected_date)
+    raw_response = battery_json
+    data = battery_json.get('obj', {}).get('socChart', {}).get('capacity', [])
+    
+    # Replace nulls with None for proper handling in JavaScript
+    chart_data = [v if v is not None else None for v in data]
+    
     return render_template_string('''
     <!DOCTYPE html>
     <html>
@@ -59,36 +56,38 @@ def battery_chart():
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <script src="https://code.highcharts.com/highcharts.js"></script>
         <style>
-            body { font-family: sans-serif; margin: 0; padding: 0; text-align: center; }
+            body {
+                font-family: Arial, sans-serif;
+                margin: 10px;
+                text-align: center;
+            }
             #controls {
                 display: flex;
                 justify-content: center;
                 align-items: center;
-                gap: 20px;
-                font-size: 24px;
-                margin-top: 20px;
-            }
-            #controls input[type="date"] {
-                font-size: 20px;
-                padding: 4px;
-            }
-            button.arrow {
-                font-size: 28px;
-                background: none;
-                border: none;
-                cursor: pointer;
+                margin: 15px 0;
+                gap: 15px;
+                font-size: 2em;
             }
             #chart-container {
+                height: 200px;
                 width: 100%;
-                height: 50vh;
-                margin-top: 10px;
+                margin: 0 auto;
+            }
+            @media (max-width: 600px) {
+                #chart-container {
+                    height: 150px;
+                }
             }
             pre {
                 text-align: left;
-                background: #eee;
-                padding: 10px;
-                overflow-x: scroll;
                 font-size: 12px;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                background: #f8f8f8;
+                padding: 10px;
+                border: 1px solid #ccc;
             }
         </style>
     </head>
@@ -96,77 +95,64 @@ def battery_chart():
         <h2>Battery SoC Chart</h2>
         <form method="post" id="dateForm">
             <div id="controls">
-                <button class="arrow" type="button" onclick="shiftDate(-1)">←</button>
-                <input type="date" name="date" id="datePicker" value="{{ selected_date }}" required onchange="submitForm()">
-                <button class="arrow" type="button" onclick="shiftDate(1)">→</button>
+                <button type="button" onclick="changeDate(-1)">&#8592;</button>
+                <input type="date" name="date" id="dateInput" value="{{ selected_date }}">
+                <button type="button" onclick="changeDate(1)">&#8594;</button>
             </div>
         </form>
 
         <div id="chart-container"></div>
 
         <script>
-            function submitForm() {
-                document.getElementById('dateForm').submit();
-            }
+            const chartData = {{ chart_data|tojson }};
+            const baseTime = new Date("{{ selected_date }}T00:00:00Z").getTime();
 
-            function shiftDate(offset) {
-                const picker = document.getElementById('datePicker');
-                const current = new Date(picker.value);
-                current.setDate(current.getDate() + offset);
-                picker.valueAsDate = current;
-                submitForm();
-            }
-
-            const socData = {{ soc_data | tojson }};
-            const timeLabels = [...Array(288).keys()].map(i => {
-                const h = Math.floor(i / 12).toString().padStart(2, '0');
-                const m = (i % 12) * 5;
-                const label = h;
-                return label;
-            });
+            const processedData = chartData.map((val, i) => val !== null ? [baseTime + i * 5 * 60000, val] : [baseTime + i * 5 * 60000, null]);
 
             Highcharts.chart('chart-container', {
-                chart: {
-                    type: 'line',
-                    spacingTop: 10,
-                    spacingBottom: 10
-                },
-                title: {
-                    text: 'State of Charge on {{ selected_date }}'
-                },
+                chart: { type: 'line' },
+                title: { text: 'Battery SoC on {{ selected_date }}' },
                 xAxis: {
-                    categories: timeLabels,
-                    tickInterval: 12, // Show every hour (12 * 5 min = 60 min)
-                    title: { text: 'Hour' }
+                    type: 'datetime',
+                    labels: {
+                        format: '{value:%H}',
+                        step: 12
+                    },
+                    tickInterval: 3600 * 1000
                 },
                 yAxis: {
                     min: 0,
                     max: 100,
-                    title: { text: 'SoC (%)' }
+                    title: { text: 'State of Charge (%)' }
                 },
                 tooltip: {
-                    formatter: function () {
-                        const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
-                        const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
-                        return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
-                    }
+                    xDateFormat: '%H:%M',
+                    shared: true
                 },
                 series: [{
                     name: 'SoC',
-                    data: socData
+                    data: processedData
                 }]
             });
+
+            function changeDate(offsetDays) {
+                const input = document.getElementById("dateInput");
+                const date = new Date(input.value);
+                date.setDate(date.getDate() + offsetDays);
+                input.valueAsDate = date;
+                document.getElementById("dateForm").submit();
+            }
         </script>
 
-        <h4>Raw Response</h4>
-        <pre>{{ raw_json | tojson(indent=2) }}</pre>
+        <h4>Raw Response:</h4>
+        <pre>{{ raw_response | tojson(indent=2) }}</pre>
     </body>
     </html>
-    ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
+    ''', chart_data=chart_data, selected_date=selected_date, raw_response=raw_response)
 
 @app.route('/')
 def index():
-    return '<h2>Growatt Monitor</h2><p><a href="/battery-chart">View Battery Chart</a></p>'
+    return '<h2>Growatt Monitor</h2><p>Go to <a href="/battery-chart">Battery Chart</a></p>'
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
