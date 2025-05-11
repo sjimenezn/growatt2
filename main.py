@@ -18,7 +18,7 @@ HEADERS = {
 
 session = requests.Session()
 
-def growatt_login():
+def growatt_login2():
     data = {
         'account': GROWATT_USERNAME,
         'password': '',
@@ -44,7 +44,7 @@ def get_today_date_utc_minus_5():
 @app.route('/battery-chart', methods=['GET', 'POST'])
 def battery_chart():
     selected_date = request.form.get('date') if request.method == 'POST' else get_today_date_utc_minus_5()
-    growatt_login()
+    growatt_login2()
     raw_json = get_battery_data(selected_date)
     soc_data = raw_json.get('obj', {}).get('socChart', {}).get('capacity', [])
 
