@@ -408,7 +408,7 @@ def home():
 @app.route("/logs")
 def charts_view():
     try:
-        # Read the saved data from the file
+        # Read and parse the saved data
         with open(data_file, "r") as file:
             saved_data = file.readlines()
         parsed_data = [json.loads(line.strip()) for line in saved_data]
@@ -416,12 +416,19 @@ def charts_view():
         log_message(f"❌ Error reading saved data for charts: {e}")
         return "Error loading chart data.", 500
 
-    # Extract chart data
-    timestamps = [entry['timestamp'] for entry in parsed_data]
-    ac_input = [float(entry['vGrid']) for entry in parsed_data]
-    ac_output = [float(entry['outPutVolt']) for entry in parsed_data]
-    active_power = [int(entry['activePower']) for entry in parsed_data]
-    battery_capacity = [int(entry['capacity']) for entry in parsed_data]
+    # Filter entries from the last 24 hours
+    now = datetime.now()
+    last_24h = now - timedelta(hours=24)
+    filtered_data = [
+        entry for entry in parsed_data
+        if datetime.strptime(entry['timestamp'], "%Y-%m-%d %H:%M:%S") >= last_24h
+    ]
+
+    timestamps = [entry['timestamp'] for entry in filtered_data]
+    ac_input = [float(entry['vGrid']) for entry in filtered_data]
+    ac_output = [float(entry['outPutVolt']) for entry in filtered_data]
+    active_power = [int(entry['activePower']) for entry in filtered_data]
+    battery_capacity = [int(entry['capacity']) for entry in filtered_data]
 
     return render_template_string("""
     <!DOCTYPE html>
@@ -430,12 +437,14 @@ def charts_view():
         <title>Growatt Charts</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.3/build/global/luxon.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
         <style>
             body {
                 font-family: Arial, sans-serif;
+                background-color: #f9f9f9;
                 margin: 0;
                 padding: 0;
-                background-color: #f9f9f9;
             }
             nav {
                 background-color: #333;
@@ -468,9 +477,8 @@ def charts_view():
                 margin: 20px;
             }
             canvas {
-                margin: 20px auto;
                 display: block;
-                max-width: 1000px;
+                margin: 30px auto;
                 background: #fff;
                 border: 1px solid #ccc;
                 padding: 10px;
@@ -490,11 +498,11 @@ def charts_view():
             </ul>
         </nav>
 
-        <h2>Growatt Monitoring Charts</h2>
-        <canvas id="acInputChart"></canvas>
-        <canvas id="acOutputChart"></canvas>
-        <canvas id="activePowerChart"></canvas>
-        <canvas id="batteryChart"></canvas>
+        <h2>Growatt Monitoring Charts (Last 24 Hours)</h2>
+        <canvas id="acInputChart" width="1000" height="500"></canvas>
+        <canvas id="acOutputChart" width="1000" height="500"></canvas>
+        <canvas id="activePowerChart" width="1000" height="500"></canvas>
+        <canvas id="batteryChart" width="1000" height="500"></canvas>
 
         <script>
             const labels = {{ timestamps | tojson }};
@@ -518,10 +526,25 @@ def charts_view():
                         }]
                     },
                     options: {
-                        responsive: true,
+                        responsive: false,
+                        maintainAspectRatio: false,
                         scales: {
-                            x: { ticks: { autoSkip: true, maxTicksLimit: 25 } },
-                            y: { beginAtZero: false }
+                            x: {
+                                type: 'time',
+                                time: {
+                                    parser: 'yyyy-MM-dd HH:mm:ss',
+                                    unit: 'hour',
+                                    displayFormats: { hour: 'HH:mm' },
+                                    tooltipFormat: 'yyyy-MM-dd HH:mm'
+                                },
+                                ticks: {
+                                    autoSkip: true,
+                                    maxTicksLimit: 20
+                                }
+                            },
+                            y: {
+                                beginAtZero: false
+                            }
                         }
                     }
                 });
@@ -536,7 +559,7 @@ def charts_view():
     </html>
     """, timestamps=timestamps, ac_input=ac_input, ac_output=ac_output,
          active_power=active_power, battery_capacity=battery_capacity)
-
+        
 @app.route("/chatlog")
 def chatlog_view():
     return render_template_string("""
