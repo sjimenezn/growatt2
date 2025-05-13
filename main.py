@@ -5,20 +5,63 @@ import pprint
 import json
 import os
 import time
-import curl
 import requests
 from datetime import datetime, timedelta
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
+import os
+import json
+
 # File for saving data
 data_file = "saved_data.json"
 
-# Ensure the file exists before any read/write operations
+# Your 20 new entries
+new_data = [
+    {"timestamp": "2025-05-12 22:12:42", "vGrid": "118.4", "outPutVolt": "118.4", "activePower": "217", "capacity": "39"},
+    {"timestamp": "2025-05-12 22:17:26", "vGrid": "117.8", "outPutVolt": "117.8", "activePower": "214", "capacity": "43"},
+    {"timestamp": "2025-05-12 22:22:09", "vGrid": "118.2", "outPutVolt": "118.2", "activePower": "222", "capacity": "47"},
+    {"timestamp": "2025-05-12 22:26:53", "vGrid": "118.6", "outPutVolt": "118.6", "activePower": "213", "capacity": "51"},
+    {"timestamp": "2025-05-12 22:31:37", "vGrid": "118.2", "outPutVolt": "118.2", "activePower": "226", "capacity": "54"},
+    {"timestamp": "2025-05-12 22:36:20", "vGrid": "119", "outPutVolt": "119", "activePower": "217", "capacity": "58"},
+    {"timestamp": "2025-05-12 22:41:04", "vGrid": "119", "outPutVolt": "119", "activePower": "217", "capacity": "62"},
+    {"timestamp": "2025-05-12 22:45:48", "vGrid": "118.8", "outPutVolt": "118.8", "activePower": "286", "capacity": "66"},
+    {"timestamp": "2025-05-12 22:50:31", "vGrid": "119.4", "outPutVolt": "119.4", "activePower": "214", "capacity": "70"},
+    {"timestamp": "2025-05-12 22:55:15", "vGrid": "120.4", "outPutVolt": "120.4", "activePower": "213", "capacity": "74"},
+    {"timestamp": "2025-05-12 22:59:59", "vGrid": "120.1", "outPutVolt": "120.1", "activePower": "288", "capacity": "78"},
+    {"timestamp": "2025-05-12 23:04:43", "vGrid": "120", "outPutVolt": "120", "activePower": "210", "capacity": "81"},
+    {"timestamp": "2025-05-12 23:09:27", "vGrid": "120", "outPutVolt": "120", "activePower": "250", "capacity": "85"},
+    {"timestamp": "2025-05-12 23:14:10", "vGrid": "120.3", "outPutVolt": "120.3", "activePower": "201", "capacity": "89"},
+    {"timestamp": "2025-05-12 23:18:54", "vGrid": "122.6", "outPutVolt": "122.6", "activePower": "233", "capacity": "92"},
+    {"timestamp": "2025-05-12 23:23:38", "vGrid": "122.6", "outPutVolt": "122.6", "activePower": "208", "capacity": "92"},
+    {"timestamp": "2025-05-12 23:28:22", "vGrid": "122.5", "outPutVolt": "122.5", "activePower": "300", "capacity": "92"},
+    {"timestamp": "2025-05-12 23:33:05", "vGrid": "123.1", "outPutVolt": "123.1", "activePower": "227", "capacity": "95"},
+    {"timestamp": "2025-05-12 23:37:49", "vGrid": "122.8", "outPutVolt": "122.8", "activePower": "231", "capacity": "97"},
+    {"timestamp": "2025-05-12 23:42:33", "vGrid": "124.2", "outPutVolt": "120.1", "activePower": "297", "capacity": "100"}
+]
+
+# Create or append to the JSON file
 if not os.path.exists(data_file):
+    # File doesn't exist, create it with new data
     with open(data_file, "w") as f:
-        pass  # Creates an empty file if it doesn't exist
+        json.dump(new_data, f, indent=4)
+    print("File created and data written.")
+else:
+    # File exists, read and append
+    with open(data_file, "r") as f:
+        try:
+            existing_data = json.load(f)
+            if not isinstance(existing_data, list):
+                existing_data = []
+        except json.JSONDecodeError:
+            existing_data = []
+
+    # Append new entries
+    existing_data.extend(new_data)
+    with open(data_file, "w") as f:
+        json.dump(existing_data, f, indent=4)
+    print("Data appended to existing file.")
 
 # Credentials
 username1 = "vospina"
@@ -330,6 +373,7 @@ def home():
                     font-family: Arial, sans-serif;
                     margin: 0;
                     padding: 0;
+                    text-align: center;
                 }
                 nav {
                     background-color: #333;
@@ -357,6 +401,19 @@ def home():
                     background-color: #ddd;
                     color: black;
                 }
+                .content {
+                    max-width: 800px;
+                    margin: 0 auto;
+                    padding: 20px;
+                }
+                table {
+                    margin: 0 auto;
+                    border-collapse: collapse;
+                }
+                table th, table td {
+                    padding: 8px 12px;
+                    border: 1px solid #000;
+                }
             </style>
         </head>
         <body>
@@ -370,23 +427,27 @@ def home():
                     <li><a href="/battery-chart">Battery Chart</a></li>
                 </ul>
             </nav>
-             <h1>✅ Growatt Monitor is Running!</h1>
-             <h2>Detalles del Inversor</h2>
-            <h3>Información constante</h3>
-            <p>Plant ID: {{ plant_id }}</p>
-            <p>User ID: {{ user_id }}</p>
-            <p>Inverter SN: {{ inverter_sn }}</p>
-            <p>Datalogger SN: {{ datalog_sn }}</p>
-            <h2>Datos en tiempo real</h2>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-            </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
+
+            <div class="content">
+                <h1>✅ Growatt Monitor is Running!</h1>
+                <h2>Detalles del Inversor</h2>
+                <h3>Información constante</h3>
+                <p>Plant ID: {{ plant_id }}</p>
+                <p>User ID: {{ user_id }}</p>
+                <p>Inverter SN: {{ inverter_sn }}</p>
+                <p>Datalogger SN: {{ datalog_sn }}</p>
+
+                <h2>Datos en tiempo real</h2>
+                <table>
+                    <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
+                    <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
+                    <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
+                    <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
+                    <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
+                    <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
+                </table>
+                <p><b>Última actualización:</b> {{ last }}</p>
+            </div>
         </body>
         </html>
     """, d=current_data, last=last_update_time,
