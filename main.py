@@ -841,9 +841,9 @@ def battery_chart():
                 return h;
             });
 
-            Highcharts.chart('chart-container', {
+Highcharts.chart('chart-container', {
     chart: {
-        type: 'line',
+        type: 'area', // << changed from 'line' to 'area'
         spacingTop: 10,
         spacingBottom: 10,
         width: 1000,
@@ -873,17 +873,17 @@ def battery_chart():
             return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
         }
     },
+    plotOptions: {
+        area: {
+            fillOpacity: 0.2,
+            marker: {
+                enabled: false
+            }
+        }
+    },
     series: [{
         name: 'SoC',
-        data: socData,
-        fillOpacity: 0.2,
-        fillColor: {
-            linearGradient: [0, 0, 0, 300],
-            stops: [
-                [0, Highcharts.getOptions().colors[0]],
-                [1, Highcharts.color(Highcharts.getOptions().colors[0]).setOpacity(0).get('rgba')]
-            ]
-        }
+        data: socData
     }]
 });
         </script>
