@@ -861,9 +861,17 @@ def battery_chart():
                 cursor: pointer;
             }
             #chart-container {
-                width: 1000px;
+                width: 100%;  /* Ensure the chart width scales to container */
                 height: 500px;
                 margin: 20px auto;
+            }
+
+            /* Media query for portrait/mobile view */
+            @media (max-width: 768px) {
+                #chart-container {
+                    width: 800px;  /* Fix width on smaller screens */
+                    height: 400px;  /* Reduce height for mobile */
+                }
             }
         </style>
     </head>
@@ -904,14 +912,16 @@ def battery_chart():
             }
 
             const socData = {{ soc_data | tojson }};
-            const timeLabels = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
+            const timeLabels = Array.from({ length: 288 }, (_, i) => {
+                return Math.floor(i / 12).toString().padStart(2, '0');  // Show only hour labels
+            });
 
             Highcharts.chart('chart-container', {
                 chart: {
                     type: 'area',
                     spacingTop: 10,
                     spacingBottom: 10,
-                    width: 1000,
+                    width: '100%',  // Adjust width for better responsiveness
                     height: 500,
                     animation: false
                 },
@@ -924,7 +934,7 @@ def battery_chart():
                 },
                 xAxis: {
                     categories: timeLabels,
-                    tickInterval: 1,
+                    tickInterval: 12,  // Only label every 12th data point (i.e., every hour)
                     title: {
                         text: 'Hour',
                         style: {
@@ -933,6 +943,9 @@ def battery_chart():
                         }
                     },
                     labels: {
+                        formatter: function () {
+                            return this.pos % 12 === 0 ? timeLabels[this.pos] : '';  // Show label only for each hour (0, 1, ..., 23)
+                        },
                         style: {
                             fontWeight: 'bold',
                             fontSize: '16px'
@@ -988,9 +1001,11 @@ def battery_chart():
                 }
             });
         </script>
+
     </body>
     </html>
     ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
+
 
 
 if __name__ == '__main__':
