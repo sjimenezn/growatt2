@@ -5,6 +5,7 @@ import pprint
 import json
 import os
 import time
+import curl
 import requests
 from datetime import datetime, timedelta
 from growattServer import GrowattApi
@@ -732,7 +733,7 @@ def battery_chart():
     growatt_login2()
     raw_json = get_battery_data(selected_date)
     soc_data = raw_json.get("obj", {}).get("socChart", {}).get("capacity", [])
-    soc_data = soc_data + [None] * (288 - len(soc_data))
+    soc_data = soc_data + [None] * (288 - len(soc_data))  # pad to 288 points
 
     return render_template_string('''
     <!DOCTYPE html>
@@ -742,7 +743,14 @@ def battery_chart():
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <script src="https://code.highcharts.com/highcharts.js"></script>
         <style>
-            body { font-family: sans-serif; margin: 0; padding: 0; text-align: center; }
+            html, body {
+                width: 100%;
+                overflow-x: hidden;
+                font-family: sans-serif;
+                margin: 0;
+                padding: 0;
+                text-align: center;
+            }
             nav {
                 background-color: #333;
                 overflow: hidden;
@@ -792,8 +800,8 @@ def battery_chart():
                 cursor: pointer;
             }
             #chart-container {
-                width: 800px;
-                height: 400px;
+                width: 1000px;
+                height: 500px;
                 margin: 20px auto;
             }
         </style>
@@ -835,57 +843,89 @@ def battery_chart():
             }
 
             const socData = {{ soc_data | tojson }};
-            const timeLabels = [...Array(288).keys()].map(i => {
-                const h = Math.floor(i / 12).toString().padStart(2, '0');
-                const m = (i % 12) * 5;
-                return h;
-            });
+            const timeLabels = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
 
-Highcharts.chart('chart-container', {
-    chart: {
-        type: 'area', // << changed from 'line' to 'area'
-        spacingTop: 10,
-        spacingBottom: 10,
-        width: 1000,
-        height: 500
-    },
-    title: {
-        text: 'State of Charge on {{ selected_date }}'
-    },
-    xAxis: {
-        categories: timeLabels,
-        tickInterval: 12,
-        title: {
-            text: 'Hour'
-        }
-    },
-    yAxis: {
-        min: 0,
-        max: 100,
-        title: {
-            text: 'SoC (%)'
-        }
-    },
-    tooltip: {
-        formatter: function () {
-            const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
-            const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
-            return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
-        }
-    },
-    plotOptions: {
-        area: {
-            fillOpacity: 0.2,
-            marker: {
-                enabled: false
-            }
-        }
-    },
-    series: [{
-        name: 'SoC',
-        data: socData
-    }]
-});
+            Highcharts.chart('chart-container', {
+                chart: {
+                    type: 'area',
+                    spacingTop: 10,
+                    spacingBottom: 10,
+                    width: 1000,
+                    height: 500,
+                    animation: false
+                },
+                title: {
+                    text: 'State of Charge on {{ selected_date }}',
+                    style: {
+                        fontWeight: 'bold',
+                        fontSize: '24px'
+                    }
+                },
+                xAxis: {
+                    categories: timeLabels,
+                    tickInterval: 1,
+                    title: {
+                        text: 'Hour',
+                        style: {
+                            fontWeight: 'bold',
+                            fontSize: '18px'
+                        }
+                    },
+                    labels: {
+                        style: {
+                            fontWeight: 'bold',
+                            fontSize: '16px'
+                        }
+                    }
+                },
+                yAxis: {
+                    min: 0,
+                    max: 100,
+                    title: {
+                        text: 'SoC (%)',
+                        style: {
+                            fontWeight: 'bold',
+                            fontSize: '18px'
+                        }
+                    },
+                    labels: {
+                        style: {
+                            fontWeight: 'bold',
+                            fontSize: '16px'
+                        }
+                    }
+                },
+                tooltip: {
+                    shared: true,
+                    style: {
+                        fontWeight: 'bold',
+                        fontSize: '16px'
+                    },
+                    formatter: function () {
+                        const hour = Math.floor(this.points[0].point.index / 12).toString().padStart(2, '0');
+                        const minute = ((this.points[0].point.index % 12) * 5).toString().padStart(2, '0');
+                        return `Time: ${hour}:${minute}<br>SoC: ${this.points[0].y}%`;
+                    }
+                },
+                plotOptions: {
+                    area: {
+                        fillOpacity: 0.2,
+                        marker: {
+                            enabled: false
+                        }
+                    },
+                    series: {
+                        lineWidth: 2
+                    }
+                },
+                series: [{
+                    name: 'SoC',
+                    data: socData
+                }],
+                responsive: {
+                    rules: []  // Disable automatic resizing
+                }
+            });
         </script>
     </body>
     </html>
