@@ -842,27 +842,50 @@ def battery_chart():
             });
 
             Highcharts.chart('chart-container', {
-                chart: { type: 'line', spacingTop: 10, spacingBottom: 10, width: 800, height: 400 },
-                title: { text: 'State of Charge on {{ selected_date }}' },
-                xAxis: {
-                    categories: timeLabels,
-                    tickInterval: 12,
-                    title: { text: 'Hour' }
-                },
-                yAxis: {
-                    min: 0,
-                    max: 100,
-                    title: { text: 'SoC (%)' }
-                },
-                tooltip: {
-                    formatter: function () {
-                        const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
-                        const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
-                        return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
-                    }
-                },
-                series: [{ name: 'SoC', data: socData }]
-            });
+    chart: {
+        type: 'line',
+        spacingTop: 10,
+        spacingBottom: 10,
+        width: 1000,
+        height: 500
+    },
+    title: {
+        text: 'State of Charge on {{ selected_date }}'
+    },
+    xAxis: {
+        categories: timeLabels,
+        tickInterval: 12,
+        title: {
+            text: 'Hour'
+        }
+    },
+    yAxis: {
+        min: 0,
+        max: 100,
+        title: {
+            text: 'SoC (%)'
+        }
+    },
+    tooltip: {
+        formatter: function () {
+            const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
+            const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
+            return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
+        }
+    },
+    series: [{
+        name: 'SoC',
+        data: socData,
+        fillOpacity: 0.2,
+        fillColor: {
+            linearGradient: [0, 0, 0, 300],
+            stops: [
+                [0, Highcharts.getOptions().colors[0]],
+                [1, Highcharts.color(Highcharts.getOptions().colors[0]).setOpacity(0).get('rgba')]
+            ]
+        }
+    }]
+});
         </script>
     </body>
     </html>
