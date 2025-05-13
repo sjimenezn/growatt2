@@ -512,43 +512,58 @@ def charts_view():
             const batteryCapacity = {{ battery_capacity | tojson }};
 
             function drawChart(id, label, data, color) {
-                new Chart(document.getElementById(id), {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: label,
-                            data: data,
-                            borderColor: color,
-                            backgroundColor: color + '33',
-                            fill: true,
-                            tension: 0.2
-                        }]
+    const transparentColor = {
+        "blue": "rgba(0, 0, 255, 0.2)",
+        "green": "rgba(0, 128, 0, 0.2)",
+        "red": "rgba(255, 0, 0, 0.2)",
+        "orange": "rgba(255, 165, 0, 0.2)"
+    }[color] || color;
+
+    new Chart(document.getElementById(id), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: label,
+                data: data,
+                borderColor: color,
+                backgroundColor: transparentColor,
+                fill: true,
+                tension: 0.2
+            }]
+        },
+        options: {
+            responsive: false,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        parser: 'yyyy-MM-dd HH:mm:ss',
+                        unit: 'hour',
+                        displayFormats: { hour: 'HH:mm' },
+                        tooltipFormat: 'yyyy-MM-dd HH:mm'
                     },
-                    options: {
-                        responsive: false,
-                        maintainAspectRatio: false,
-                        scales: {
-                            x: {
-                                type: 'time',
-                                time: {
-                                    parser: 'yyyy-MM-dd HH:mm:ss',
-                                    unit: 'hour',
-                                    displayFormats: { hour: 'HH:mm' },
-                                    tooltipFormat: 'yyyy-MM-dd HH:mm'
-                                },
-                                ticks: {
-                                    autoSkip: true,
-                                    maxTicksLimit: 20
-                                }
-                            },
-                            y: {
-                                beginAtZero: false
-                            }
+                    ticks: {
+                        autoSkip: true,
+                        maxTicksLimit: 20,
+                        font: {
+                            weight: 'bold'
                         }
                     }
-                });
+                },
+                y: {
+                    beginAtZero: false,
+                    ticks: {
+                        font: {
+                            weight: 'bold'
+                        }
+                    }
+                }
             }
+        }
+    });
+}
 
             drawChart("acInputChart", "AC Input Voltage", acInput, "blue");
             drawChart("acOutputChart", "AC Output Voltage", acOutput, "green");
