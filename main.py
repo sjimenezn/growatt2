@@ -854,7 +854,13 @@ def battery_chart():
             });
 
             Highcharts.chart('chart-container', {
-                chart: { type: 'line', spacingTop: 10, spacingBottom: 10, width: 800, height: 400 },
+                chart: { 
+                    type: 'area', 
+                    spacingTop: 10, 
+                    spacingBottom: 10, 
+                    width: 800, 
+                    height: 400 
+                },
                 title: { text: 'State of Charge on {{ selected_date }}' },
                 xAxis: {
                     categories: timeLabels,
@@ -873,7 +879,12 @@ def battery_chart():
                         return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
                     }
                 },
-                series: [{ name: 'SoC', data: socData }]
+                series: [{
+                    name: 'SoC',
+                    data: socData,
+                    color: 'blue',
+                    fillOpacity: 0.2
+                }]
             });
         </script>
     </body>
