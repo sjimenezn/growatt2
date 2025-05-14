@@ -137,7 +137,6 @@
     const socData = {{ soc_data | tojson }};
     const timeLabels = [...Array(288).keys()].map(i => {
         const h = Math.floor(i / 12).toString().padStart(2, '0');
-        const m = (i % 12) * 5;
         return h;
     });
 
@@ -171,14 +170,19 @@
 
     // Energy Chart
     const energySeries = {{ energy_series | tojson }};
-    const energyCategories = {{ energy_titles | tojson }};
+    // Apply same x-axis labels logic as SoC chart
+    const energyTimeLabels = [...Array(288).keys()].map(i => {
+        const h = Math.floor(i / 12).toString().padStart(2, '0');
+        return h;
+    });
 
     Highcharts.chart('energy-chart-container', {
         chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'Energy Flow on {{ selected_date }}' },
         xAxis: {
-            categories: energyCategories,
-            title: { text: 'Time' }
+            categories: energyTimeLabels,
+            tickInterval: 12,
+            title: { text: 'Hour' }
         },
         yAxis: {
             title: { text: 'Power (W)' },
@@ -187,7 +191,26 @@
         },
         tooltip: {
             shared: true,
-            valueSuffix: ' W'
+            valueSuffix: ' W',
+            formatter: function () {
+                // this.points is an array when shared:true, take first point index
+                const pointIndex = this.points[0].point.index;
+                const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
+                const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
+                let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
+                this.points.forEach(p => {
+                    tooltipHtml += `${p.series.name}: ${p.y} W<br/>`;
+                });
+                return tooltipHtml;
+            },
+            positioner: function (labelWidth, labelHeight, point) {
+                return {
+                    x: point.plotX - labelWidth / 2,
+                    y: point.plotY - labelHeight - 20
+                };
+            },
+            shadow: false,
+            borderWidth: 1
         },
         legend: {
             layout: 'horizontal',
