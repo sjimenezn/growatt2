@@ -1,3 +1,4 @@
+
 import pytz
 from flask import Flask, render_template_string, jsonify, request
 import threading
@@ -229,7 +230,7 @@ def monitor_growatt():
                 log_message(f"Updated current_data: {current_data}")
 
                 loop_counter += 1
-                if loop_counter >= 1:
+                if loop_counter >= 7:
                     data_to_save = {
                         "timestamp": last_update_time,
                         "vGrid": ac_input_v,
@@ -512,43 +513,58 @@ def charts_view():
             const batteryCapacity = {{ battery_capacity | tojson }};
 
             function drawChart(id, label, data, color) {
-                new Chart(document.getElementById(id), {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: label,
-                            data: data,
-                            borderColor: color,
-                            backgroundColor: color + '33',
-                            fill: true,
-                            tension: 0.2
-                        }]
+    const transparentColor = {
+        "blue": "rgba(0, 0, 255, 0.2)",
+        "green": "rgba(0, 128, 0, 0.2)",
+        "red": "rgba(255, 0, 0, 0.2)",
+        "orange": "rgba(255, 165, 0, 0.2)"
+    }[color] || color;
+
+    new Chart(document.getElementById(id), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: label,
+                data: data,
+                borderColor: color,
+                backgroundColor: transparentColor,
+                fill: true,
+                tension: 0.2
+            }]
+        },
+        options: {
+            responsive: false,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        parser: 'yyyy-MM-dd HH:mm:ss',
+                        unit: 'hour',
+                        displayFormats: { hour: 'HH:mm' },
+                        tooltipFormat: 'yyyy-MM-dd HH:mm'
                     },
-                    options: {
-                        responsive: false,
-                        maintainAspectRatio: false,
-                        scales: {
-                            x: {
-                                type: 'time',
-                                time: {
-                                    parser: 'yyyy-MM-dd HH:mm:ss',
-                                    unit: 'hour',
-                                    displayFormats: { hour: 'HH:mm' },
-                                    tooltipFormat: 'yyyy-MM-dd HH:mm'
-                                },
-                                ticks: {
-                                    autoSkip: true,
-                                    maxTicksLimit: 20
-                                }
-                            },
-                            y: {
-                                beginAtZero: false
-                            }
+                    ticks: {
+                        autoSkip: true,
+                        maxTicksLimit: 20,
+                        font: {
+                            weight: 'bold'
                         }
                     }
-                });
+                },
+                y: {
+                    beginAtZero: false,
+                    ticks: {
+                        font: {
+                            weight: 'bold'
+                        }
+                    }
+                }
             }
+        }
+    });
+}
 
             drawChart("acInputChart", "AC Input Voltage", acInput, "blue");
             drawChart("acOutputChart", "AC Output Voltage", acOutput, "green");
@@ -720,6 +736,8 @@ def details_view():
         </body>
         </html>
     """, latest_entry=latest_entry)
+
+
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
@@ -836,13 +854,7 @@ def battery_chart():
             });
 
             Highcharts.chart('chart-container', {
-                chart: { 
-                    type: 'area', 
-                    spacingTop: 10, 
-                    spacingBottom: 10, 
-                    width: 800, 
-                    height: 400 
-                },
+                chart: { type: 'line', spacingTop: 10, spacingBottom: 10, width: 800, height: 400 },
                 title: { text: 'State of Charge on {{ selected_date }}' },
                 xAxis: {
                     categories: timeLabels,
@@ -861,16 +873,13 @@ def battery_chart():
                         return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
                     }
                 },
-                series: [{
-                    name: 'SoC',
-                    data: socData,
-                    color: 'blue',
-                    fillOpacity: 0.2
-                }]
+                series: [{ name: 'SoC', data: socData }]
             });
         </script>
     </body>
     </html>
     ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
