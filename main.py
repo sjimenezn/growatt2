@@ -40,23 +40,31 @@ new_data = [
 
 # Create or append to the JSON file
 if not os.path.exists(data_file):
+    # If the file does not exist, create it and add data
     with open(data_file, "w") as f:
         json.dump(new_data, f, indent=4)
     print("File created and data written.")
 else:
+    # If the file exists, load and append new data
     with open(data_file, "r") as f:
         try:
             existing_data = json.load(f)
-            if not isinstance(existing_data, list):
+            if not isinstance(existing_data, list):  # If data format is wrong, reset
                 existing_data = []
         except json.JSONDecodeError:
             existing_data = []
 
+    # Append new data (ensure no duplicates)
     existing_data.extend(new_data)
+    
+    # Remove duplicates based on timestamp (optional, but useful for keeping things clean)
+    seen_timestamps = set()
+    existing_data = [entry for entry in existing_data if entry['timestamp'] not in seen_timestamps and not seen_timestamps.add(entry['timestamp'])]
+
+    # Save updated data back to the file
     with open(data_file, "w") as f:
         json.dump(existing_data, f, indent=4)
     print("Data appended to existing file.")
-
 
 # Credentials
 username1 = "vospina"
