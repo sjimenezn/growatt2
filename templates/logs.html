@@ -55,7 +55,6 @@
             margin: 20px 0;
         }
 
-        /* ✅ Responsive chart container */
         .chart-container {
             width: 95%;
             max-width: 1000px;
@@ -102,10 +101,10 @@
             const timeLabels = labels.map(label => new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 
             Highcharts.chart(id, {
-                chart: { 
-                    type: 'area', 
-                    spacingTop: 10, 
-                    spacingBottom: 10,
+                chart: {
+                    type: 'area',
+                    spacingTop: 10,
+                    spacingBottom: 10
                 },
                 title: { text: title },
                 xAxis: {
@@ -118,7 +117,12 @@
                 },
                 tooltip: {
                     formatter: function () {
-                        return `Time: ${this.x}<br>Value: ${this.y}`;
+                        const originalTime = labels[this.point.index];
+                        const timeStr = new Date(originalTime).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                        return `Time: ${timeStr}<br>Value: ${this.y}`;
                     }
                 },
                 series: [{
