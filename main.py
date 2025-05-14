@@ -229,7 +229,7 @@ def monitor_growatt():
                 log_message(f"Updated current_data: {current_data}")
 
                 loop_counter += 1
-                if loop_counter >= 7:
+                if loop_counter >= 1:
                     data_to_save = {
                         "timestamp": last_update_time,
                         "vGrid": ac_input_v,
@@ -720,8 +720,6 @@ def details_view():
         </body>
         </html>
     """, latest_entry=latest_entry)
-
-
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
@@ -838,7 +836,13 @@ def battery_chart():
             });
 
             Highcharts.chart('chart-container', {
-                chart: { type: 'line', spacingTop: 10, spacingBottom: 10, width: 800, height: 400 },
+                chart: { 
+                    type: 'area', 
+                    spacingTop: 10, 
+                    spacingBottom: 10, 
+                    width: 800, 
+                    height: 400 
+                },
                 title: { text: 'State of Charge on {{ selected_date }}' },
                 xAxis: {
                     categories: timeLabels,
@@ -857,13 +861,16 @@ def battery_chart():
                         return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
                     }
                 },
-                series: [{ name: 'SoC', data: socData }]
+                series: [{
+                    name: 'SoC',
+                    data: socData,
+                    color: 'blue',
+                    fillOpacity: 0.2
+                }]
             });
         </script>
     </body>
     </html>
     ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
-
-
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
