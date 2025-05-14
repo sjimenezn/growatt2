@@ -135,9 +135,9 @@
 
     // SoC Chart
     const socData = {{ soc_data | tojson }};
+    // Hours only for x-axis categories 0-23
     const timeLabels = [...Array(288).keys()].map(i => {
-        const h = Math.floor(i / 12).toString().padStart(2, '0');
-        return h;
+        return Math.floor(i / 12).toString().padStart(2, '0');
     });
 
     Highcharts.chart('chart-container', {
@@ -170,10 +170,9 @@
 
     // Energy Chart
     const energySeries = {{ energy_series | tojson }};
-    // Apply same x-axis labels logic as SoC chart
+    // Hours only for x-axis categories 0-23
     const energyTimeLabels = [...Array(288).keys()].map(i => {
-        const h = Math.floor(i / 12).toString().padStart(2, '0');
-        return h;
+        return Math.floor(i / 12).toString().padStart(2, '0');
     });
 
     Highcharts.chart('energy-chart-container', {
@@ -193,7 +192,6 @@
             shared: true,
             valueSuffix: ' W',
             formatter: function () {
-                // this.points is an array when shared:true, take first point index
                 const pointIndex = this.points[0].point.index;
                 const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
                 const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
