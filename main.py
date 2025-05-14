@@ -1,6 +1,6 @@
 
 import pytz
-from flask import Flask, render_template_string, jsonify, request
+from flask import Flask, render_template_string, jsonify, request, send_file
 import threading
 import pprint
 import json
@@ -558,5 +558,13 @@ def battery_chart():
         raw_json=raw_json
     )
 
+@app.route('/download-logs')
+def download_logs():
+    try:
+        return send_file("saved_data.json", as_attachment=True, download_name="saved_data.json")
+    except Exception as e:
+        return f"❌ Error downloading file: {e}", 500
+
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
