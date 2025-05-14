@@ -582,6 +582,8 @@ def battery_chart():
         )
         energy_response.raise_for_status()
         energy_data = energy_response.json()
+        log_message(f"📦 Raw energy response for {selected_date}: {energy_data}")
+
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch energy chart data for {selected_date}: {e}")
         energy_data = {}
