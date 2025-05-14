@@ -532,9 +532,6 @@ def details_view():
         </html>
     """, latest_entry=latest_entry)
 
-
-from flask import render_template
-
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
@@ -582,24 +579,27 @@ def battery_chart():
         )
         energy_response.raise_for_status()
         energy_data = energy_response.json()
-       
-
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch energy chart data for {selected_date}: {e}")
         energy_data = {}
 
+    # Access charts inside obj
     energy_obj = energy_data.get("obj", {}).get("charts", {})
     energy_titles = energy_data.get("titles", [])
 
     if not energy_titles or not energy_obj:
         log_message(f"⚠️ No energy chart data received for {selected_date}")
 
-    def prepare_series(item, name, color):
-        if not item:
+    # Format each data series for Highcharts
+    def prepare_series(data_list, name, color):
+        if not data_list or not isinstance(data_list, list):
             return None
-        item["name"] = name
-        item["color"] = color
-        return item
+        return {
+            "name": name,
+            "data": data_list,
+            "color": color,
+            "fillOpacity": 0.2
+        }
 
     energy_series = [
         prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#30D3EB"),
@@ -622,7 +622,6 @@ def battery_chart():
         energy_titles=energy_titles,
         energy_series=energy_series
     )
-
 
 @app.route('/download-logs')
 def download_logs():
