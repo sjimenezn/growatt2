@@ -11,9 +11,6 @@ from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
-import os
-import json
-
 # File for saving data
 data_file = "saved_data.json"
 
@@ -43,12 +40,10 @@ new_data = [
 
 # Create or append to the JSON file
 if not os.path.exists(data_file):
-    # File doesn't exist, create it with new data
     with open(data_file, "w") as f:
         json.dump(new_data, f, indent=4)
     print("File created and data written.")
 else:
-    # File exists, read and append
     with open(data_file, "r") as f:
         try:
             existing_data = json.load(f)
@@ -57,11 +52,11 @@ else:
         except json.JSONDecodeError:
             existing_data = []
 
-    # Append new entries
     existing_data.extend(new_data)
     with open(data_file, "w") as f:
         json.dump(existing_data, f, indent=4)
     print("Data appended to existing file.")
+
 
 # Credentials
 username1 = "vospina"
@@ -211,17 +206,25 @@ def login_growatt():
 
 def save_data_to_file(data):
     try:
+        # Load existing data or start fresh
         if os.path.exists(data_file):
             with open(data_file, "r") as f:
-                lines = f.readlines()
+                try:
+                    existing_data = json.load(f)
+                    if not isinstance(existing_data, list):
+                        existing_data = []
+                except json.JSONDecodeError:
+                    existing_data = []
         else:
-            lines = []
+            existing_data = []
 
-        lines.append(json.dumps(data) + "\n")
-        lines = lines[-1000:]
+        # Append and keep only last 1000 entries
+        existing_data.append(data)
+        existing_data = existing_data[-1000:]
 
+        # Save back to file
         with open(data_file, "w") as f:
-            f.writelines(lines)
+            json.dump(existing_data, f, indent=4)
 
         log_message("✅ Saved data to file.")
     except Exception as e:
@@ -787,7 +790,6 @@ def details_view():
         </html>
     """, latest_entry=latest_entry)
 
-
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
@@ -861,17 +863,9 @@ def battery_chart():
                 cursor: pointer;
             }
             #chart-container {
-                width: 100%;  /* Ensure the chart width scales to container */
+                width: 1000px;
                 height: 500px;
                 margin: 20px auto;
-            }
-
-            /* Media query for portrait/mobile view */
-            @media (max-width: 768px) {
-                #chart-container {
-                    width: 800px;  /* Fix width on smaller screens */
-                    height: 400px;  /* Reduce height for mobile */
-                }
             }
         </style>
     </head>
@@ -912,16 +906,14 @@ def battery_chart():
             }
 
             const socData = {{ soc_data | tojson }};
-            const timeLabels = Array.from({ length: 288 }, (_, i) => {
-                return Math.floor(i / 12).toString().padStart(2, '0');  // Show only hour labels
-            });
+            const timeLabels = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
 
             Highcharts.chart('chart-container', {
                 chart: {
                     type: 'area',
                     spacingTop: 10,
                     spacingBottom: 10,
-                    width: '100%',  // Adjust width for better responsiveness
+                    width: 1000,
                     height: 500,
                     animation: false
                 },
@@ -934,7 +926,7 @@ def battery_chart():
                 },
                 xAxis: {
                     categories: timeLabels,
-                    tickInterval: 12,  // Only label every 12th data point (i.e., every hour)
+                    tickInterval: 1,
                     title: {
                         text: 'Hour',
                         style: {
@@ -943,9 +935,6 @@ def battery_chart():
                         }
                     },
                     labels: {
-                        formatter: function () {
-                            return this.pos % 12 === 0 ? timeLabels[this.pos] : '';  // Show label only for each hour (0, 1, ..., 23)
-                        },
                         style: {
                             fontWeight: 'bold',
                             fontSize: '16px'
@@ -1001,10 +990,10 @@ def battery_chart():
                 }
             });
         </script>
-
     </body>
     </html>
     ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
+
 
 
 
