@@ -1,171 +1,201 @@
 <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Battery SoC Chart</title>
-        <!-- ✅ Lock zoom and fit width -->
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-        <script src="https://code.highcharts.com/highcharts.js"></script>
-        <style>
-            body {
-                font-family: sans-serif;
-                margin: 0;
-                padding: 0;
-                text-align: center;
-            }
+<html>
+<head>
+    <title>Battery SoC Chart</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
 
-            nav {
-                background-color: #333;
-                overflow: hidden;
-                position: sticky;
-                top: 0;
-                z-index: 100;
-            }
+        nav {
+            background-color: #333;
+            overflow: hidden;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
 
-            nav ul {
-                list-style-type: none;
-                margin: 0;
-                padding: 0;
-                display: flex;
-                justify-content: center;
-                flex-wrap: wrap;
-            }
+        nav ul {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
 
-            nav ul li {
-                padding: 14px 20px;
-            }
+        nav ul li {
+            padding: 14px 20px;
+        }
 
-            nav ul li a {
-                color: white;
-                text-decoration: none;
-                font-size: 18px;
-            }
+        nav ul li a {
+            color: white;
+            text-decoration: none;
+            font-size: 18px;
+        }
 
-            nav ul li a:hover {
-                background-color: #ddd;
-                color: black;
-            }
+        nav ul li a:hover {
+            background-color: #ddd;
+            color: black;
+        }
 
-            nav ul li a.active {
-                background-color: #04AA6D;
-                color: white;
-            }
+        nav ul li a.active {
+            background-color: #04AA6D;
+            color: white;
+        }
 
+        #controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            font-size: 24px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        #controls input[type="date"] {
+            font-size: 20px;
+            padding: 4px;
+            max-width: 160px;
+        }
+
+        button.arrow {
+            font-size: 28px;
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
+
+        #chart-container, #energy-chart-container {
+            width: 95%;
+            max-width: 1000px;
+            height: 400px;
+            margin: 20px auto;
+        }
+
+        @media (max-width: 600px) {
             #controls {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                gap: 20px;
-                font-size: 24px;
-                margin-top: 20px;
-                flex-wrap: wrap;
+                font-size: 18px;
+                gap: 10px;
             }
 
-            #controls input[type="date"] {
-                font-size: 20px;
-                padding: 4px;
-                max-width: 160px;
+            #chart-container,
+            #energy-chart-container {
+                height: 300px;
             }
+        }
+    </style>
+</head>
+<body>
+<nav>
+    <ul>
+        <li><a href="/">Home</a></li>
+        <li><a href="/logs">Logs</a></li>
+        <li><a href="/chatlog">Chatlog</a></li>
+        <li><a href="/console">Console</a></li>
+        <li><a href="/details">Details</a></li>
+        <li><a href="/battery-chart" class="active">Battery Chart</a></li>
+    </ul>
+</nav>
 
-            button.arrow {
-                font-size: 28px;
-                background: none;
-                border: none;
-                cursor: pointer;
+<h2>Battery SoC Chart</h2>
+<form method="post" id="dateForm">
+    <div id="controls">
+        <button class="arrow" type="button" onclick="shiftDate(-1)">←</button>
+        <input type="date" name="date" id="datePicker" value="{{ selected_date }}" required onchange="submitForm()">
+        <button class="arrow" type="button" onclick="shiftDate(1)">→</button>
+    </div>
+</form>
+
+<!-- SoC Chart -->
+<div id="chart-container"></div>
+
+<!-- Energy Chart -->
+<h2>Energy Flow Chart</h2>
+<div id="energy-chart-container"></div>
+
+<script>
+    function submitForm() {
+        document.getElementById('dateForm').submit();
+    }
+
+    function shiftDate(offset) {
+        const picker = document.getElementById('datePicker');
+        const current = new Date(picker.value);
+        current.setDate(current.getDate() + offset);
+        picker.valueAsDate = current;
+        submitForm();
+    }
+
+    // SoC Chart
+    const socData = {{ soc_data | tojson }};
+    const timeLabels = [...Array(288).keys()].map(i => {
+        const h = Math.floor(i / 12).toString().padStart(2, '0');
+        const m = (i % 12) * 5;
+        return h;
+    });
+
+    Highcharts.chart('chart-container', {
+        chart: { type: 'area', spacingTop: 10, spacingBottom: 10 },
+        title: { text: 'State of Charge on {{ selected_date }}' },
+        xAxis: {
+            categories: timeLabels,
+            tickInterval: 12,
+            title: { text: 'Hour' }
+        },
+        yAxis: {
+            min: 0,
+            max: 100,
+            title: { text: 'SoC (%)' }
+        },
+        tooltip: {
+            formatter: function () {
+                const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
+                const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
+                return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
             }
+        },
+        series: [{
+            name: 'SoC',
+            data: socData,
+            color: 'blue',
+            fillOpacity: 0.2
+        }]
+    });
 
-            /* ✅ Responsive chart container */
-            #chart-container {
-                width: 95%;
-                max-width: 1000px;
-                height: 400px;
-                margin: 20px auto;
-            }
+    // Energy Chart
+    const energySeries = {{ energy_series | tojson }};
+    const energyCategories = {{ energy_titles | tojson }};
 
-            @media (max-width: 600px) {
-                #controls {
-                    font-size: 18px;
-                    gap: 10px;
-                }
-                #chart-container {
-                    height: 300px;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <nav>
-            <ul>
-                <li><a href="/">Home</a></li>
-                <li><a href="/logs">Logs</a></li>
-                <li><a href="/chatlog">Chatlog</a></li>
-                <li><a href="/console">Console</a></li>
-                <li><a href="/details">Details</a></li>
-                <li><a href="/battery-chart" class="active">Battery Chart</a></li>
-            </ul>
-        </nav>
-
-        <h2>Battery SoC Chart</h2>
-        <form method="post" id="dateForm">
-            <div id="controls">
-                <button class="arrow" type="button" onclick="shiftDate(-1)">←</button>
-                <input type="date" name="date" id="datePicker" value="{{ selected_date }}" required onchange="submitForm()">
-                <button class="arrow" type="button" onclick="shiftDate(1)">→</button>
-            </div>
-        </form>
-
-        <div id="chart-container"></div>
-
-        <script>
-            function submitForm() {
-                document.getElementById('dateForm').submit();
-            }
-
-            function shiftDate(offset) {
-                const picker = document.getElementById('datePicker');
-                const current = new Date(picker.value);
-                current.setDate(current.getDate() + offset);
-                picker.valueAsDate = current;
-                submitForm();
-            }
-
-            const socData = {{ soc_data | tojson }};
-            const timeLabels = [...Array(288).keys()].map(i => {
-                const h = Math.floor(i / 12).toString().padStart(2, '0');
-                const m = (i % 12) * 5;
-                return h;
-            });
-
-            Highcharts.chart('chart-container', {
-                chart: { 
-                    type: 'area', 
-                    spacingTop: 10, 
-                    spacingBottom: 10,
-                },
-                title: { text: 'State of Charge on {{ selected_date }}' },
-                xAxis: {
-                    categories: timeLabels,
-                    tickInterval: 12,
-                    title: { text: 'Hour' }
-                },
-                yAxis: {
-                    min: 0,
-                    max: 100,
-                    title: { text: 'SoC (%)' }
-                },
-                tooltip: {
-                    formatter: function () {
-                        const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
-                        const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
-                        return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
-                    }
-                },
-                series: [{
-                    name: 'SoC',
-                    data: socData,
-                    color: 'blue',
-                    fillOpacity: 0.2
-                }]
-            });
-        </script>
-    </body>
-    </html>
+    Highcharts.chart('energy-chart-container', {
+        chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
+        title: { text: 'Energy Flow on {{ selected_date }}' },
+        xAxis: {
+            categories: energyCategories,
+            title: { text: 'Time' }
+        },
+        yAxis: {
+            title: { text: 'Power (W)' },
+            labels: { format: '{value} W' },
+            gridLineColor: '#e1e1e1'
+        },
+        tooltip: {
+            shared: true,
+            valueSuffix: ' W'
+        },
+        legend: {
+            layout: 'horizontal',
+            align: 'center',
+            verticalAlign: 'bottom'
+        },
+        series: energySeries
+    });
+</script>
+</body>
+</html>
