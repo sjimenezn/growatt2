@@ -1,21 +1,10 @@
-import pytz
-from flask import Flask, render_template_string, jsonify, request
-import threading
-import pprint
-import json
 import os
-import time
-import requests
-from datetime import datetime, timedelta
-from growattServer import GrowattApi
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+import json
 
-# File for saving data
 data_file = "saved_data.json"
 
-# Your 20 new entries
-new_data = [
+# Default data to start with (so you can visualize charts)
+default_data = [
     {"timestamp": "2025-05-12 22:12:42", "vGrid": "118.4", "outPutVolt": "118.4", "activePower": "217", "capacity": "39"},
     {"timestamp": "2025-05-12 22:17:26", "vGrid": "117.8", "outPutVolt": "117.8", "activePower": "214", "capacity": "43"},
     {"timestamp": "2025-05-12 22:22:09", "vGrid": "118.2", "outPutVolt": "118.2", "activePower": "222", "capacity": "47"},
@@ -40,31 +29,38 @@ new_data = [
 
 # Create or append to the JSON file
 if not os.path.exists(data_file):
-    # If the file does not exist, create it and add data
+    # If the file doesn't exist, create it and add the default data
     with open(data_file, "w") as f:
-        json.dump(new_data, f, indent=4)
+        json.dump(default_data, f, indent=4)
     print("File created and data written.")
 else:
-    # If the file exists, load and append new data
-    with open(data_file, "r") as f:
-        try:
-            existing_data = json.load(f)
-            if not isinstance(existing_data, list):  # If data format is wrong, reset
-                existing_data = []
-        except json.JSONDecodeError:
-            existing_data = []
+    try:
+        # Read the existing data
+        with open(data_file, "r") as f:
+            try:
+                existing_data = json.load(f)
+                if not isinstance(existing_data, list):  # If not a list, reset
+                    existing_data = []
+            except json.JSONDecodeError:
+                # If the file is empty or corrupted, reset the content to the default data
+                print("Error reading existing data. Resetting file with default data...")
+                existing_data = default_data
+        
+        # Append new data
+        existing_data.extend(default_data)
 
-    # Append new data (ensure no duplicates)
-    existing_data.extend(new_data)
-    
-    # Remove duplicates based on timestamp (optional, but useful for keeping things clean)
-    seen_timestamps = set()
-    existing_data = [entry for entry in existing_data if entry['timestamp'] not in seen_timestamps and not seen_timestamps.add(entry['timestamp'])]
+        # Remove duplicates based on timestamp (optional)
+        seen_timestamps = set()
+        existing_data = [entry for entry in existing_data if entry['timestamp'] not in seen_timestamps and not seen_timestamps.add(entry['timestamp'])]
 
-    # Save updated data back to the file
-    with open(data_file, "w") as f:
-        json.dump(existing_data, f, indent=4)
-    print("Data appended to existing file.")
+        # Write the updated data back to the file
+        with open(data_file, "w") as f:
+            json.dump(existing_data, f, indent=4)
+        print("Data appended to existing file.")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
 
 # Credentials
 username1 = "vospina"
