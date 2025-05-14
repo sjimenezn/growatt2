@@ -26,6 +26,7 @@
             padding: 0;
             display: flex;
             justify-content: center;
+            flex-wrap: wrap;
         }
         nav ul li {
             padding: 14px 20px;
@@ -39,17 +40,27 @@
             background-color: #ddd;
             color: black;
         }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
         h2 {
             text-align: center;
-            margin: 20px;
+            margin: 20px 0;
+        }
+        .chart-container {
+            width: 100%;
+            overflow-x: auto;
         }
         canvas {
-            display: block;
-            margin: 30px auto;
+            width: 100% !important;
+            height: auto !important;
             background: #fff;
             border: 1px solid #ccc;
             padding: 10px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
         }
     </style>
 </head>
@@ -65,11 +76,14 @@
         </ul>
     </nav>
 
-    <h2>Growatt Monitoring Charts (Last 24 Hours)</h2>
-    <canvas id="acInputChart" width="1000" height="500"></canvas>
-    <canvas id="acOutputChart" width="1000" height="500"></canvas>
-    <canvas id="activePowerChart" width="1000" height="500"></canvas>
-    <canvas id="batteryChart" width="1000" height="500"></canvas>
+    <div class="container">
+        <h2>Growatt Monitoring Charts (Last 24 Hours)</h2>
+
+        <div class="chart-container"><canvas id="acInputChart"></canvas></div>
+        <div class="chart-container"><canvas id="acOutputChart"></canvas></div>
+        <div class="chart-container"><canvas id="activePowerChart"></canvas></div>
+        <div class="chart-container"><canvas id="batteryChart"></canvas></div>
+    </div>
 
     <script>
         const labels = {{ timestamps | tojson }};
@@ -100,8 +114,12 @@
                     }]
                 },
                 options: {
-                    responsive: false,
+                    responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
                     scales: {
                         x: {
                             type: 'time',
