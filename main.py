@@ -1,6 +1,6 @@
 
 import pytz
-from flask import Flask, render_template_string, jsonify, request, send_file
+from flask import Flask, render_template, render_template_string, jsonify, request, send_file
 import threading
 import pprint
 import json
