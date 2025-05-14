@@ -53,15 +53,7 @@ def growatt_login2():
         'passwordCrc': PASSWORD_CRC
     }
     session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
-
-def get_battery_data(date):
-    payload = {
-        'plantId': PLANT_ID,
-        'storageSn': STORAGE_SN,
-        'date': date
-    }
-    response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=payload)
-    return response.json()
+#aca iba el fetch the battery
 
 def get_today_date_utc_minus_5():
     now = datetime.utcnow() - timedelta(hours=5)
@@ -546,17 +538,88 @@ from flask import render_template
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
+
     growatt_login2()
-    raw_json = get_battery_data(selected_date)
-    soc_data = raw_json.get("obj", {}).get("socChart", {}).get("capacity", [])
+
+    # Request Battery SoC Data
+    battery_payload = {
+        'plantId': PLANT_ID,
+        'storageSn': STORAGE_SN,
+        'date': selected_date
+    }
+
+    try:
+        battery_response = session.post(
+            'https://server.growatt.com/panel/storage/getStorageBatChart',
+            headers=HEADERS,
+            data=battery_payload,
+            timeout=10
+        )
+        battery_response.raise_for_status()
+        battery_data = battery_response.json()
+    except requests.exceptions.RequestException as e:
+        log_message(f"❌ Failed to fetch battery data for {selected_date}: {e}")
+        battery_data = {}
+
+    soc_data = battery_data.get("obj", {}).get("socChart", {}).get("capacity", [])
+    if not soc_data:
+        log_message(f"⚠️ No SoC data received for {selected_date}")
     soc_data = soc_data + [None] * (288 - len(soc_data))
+
+    # Request Energy Chart Data
+    energy_payload = {
+        "date": selected_date,
+        "plantId": PLANT_ID,
+        "storageSn": STORAGE_SN
+    }
+
+    try:
+        energy_response = session.post(
+            "https://server.growatt.com/panel/storage/getStorageEnergyDayChart",
+            headers=HEADERS,
+            data=energy_payload,
+            timeout=10
+        )
+        energy_response.raise_for_status()
+        energy_data = energy_response.json()
+    except requests.exceptions.RequestException as e:
+        log_message(f"❌ Failed to fetch energy chart data for {selected_date}: {e}")
+        energy_data = {}
+
+    energy_obj = energy_data.get("obj", {})
+    energy_titles = energy_data.get("titles", [])
+    if not energy_titles or not energy_obj:
+        log_message(f"⚠️ No energy chart data received for {selected_date}")
+
+    def prepare_series(item, name, color):
+        if not item:
+            return None
+        item["name"] = name
+        item["color"] = color
+        return item
+
+    energy_series = [
+        prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#30D3EB"),
+        prepare_series(energy_obj.get("userLoad"), "Load Consumption", "#FB6E6C"),
+        prepare_series(energy_obj.get("pacToUser"), "Imported from Grid", "#6370DE"),
+    ]
+
+    if "pacToGrid" in energy_obj:
+        grid_series = prepare_series(energy_obj.get("pacToGrid"), "Exported to Grid", "#02a7f0")
+        if grid_series:
+            energy_series.append(grid_series)
+
+    energy_series = [s for s in energy_series if s]
 
     return render_template(
         "battery-chart.html",
-        soc_data=soc_data,
         selected_date=selected_date,
-        raw_json=raw_json
+        soc_data=soc_data,
+        raw_json=battery_data,
+        energy_titles=energy_titles,
+        energy_series=energy_series
     )
+
 
 @app.route('/download-logs')
 def download_logs():
