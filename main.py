@@ -231,7 +231,7 @@ def monitor_growatt():
                 log_message(f"Updated current_data: {current_data}")
 
                 loop_counter += 1
-                if loop_counter >= 7:
+                if loop_counter >= 1:
                     data_to_save = {
                         "timestamp": last_update_time,
                         "vGrid": ac_input_v,
