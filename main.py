@@ -18,14 +18,13 @@ data_file = "saved_data.json"
 if not os.path.exists(data_file):
     with open(data_file, "w") as f:
         pass  # Creates an empty file if it doesn't exist
-        
 # Credentials
 username1 = "vospina"
 password1 = "Vospina.2025"
 
 # Telegram Config
 TELEGRAM_TOKEN = "7653969082:AAGJ_8TL2-MA0uCLgtx8UAyfEBRwCmFWyzY"
-CHAT_IDS = ["5715745951"]
+CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
 
 # Flask App
@@ -67,46 +66,54 @@ def get_today_date_utc_minus_5():
     now = datetime.utcnow() - timedelta(hours=5)
     return now.strftime('%Y-%m-%d')
 
+
+# Growatt API
 api = GrowattApi()
 api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 })
 
+# Shared Data
 current_data = {}
 last_update_time = "Never"
 console_logs = []
-updater = None
+updater = None  # Global reference
 
 def log_message(message):
+    # Apply a 5-hour reduction to the timestamp
     timestamped = f"{(datetime.now() - timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
     print(timestamped)
     console_logs.append((time.time(), timestamped))
     now = time.time()
     console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
 
+
 def send_telegram_message(message):
     for chat_id in CHAT_IDS:
-        for attempt in range(3):
+        for attempt in range(3):  # Retry up to 3 times
             try:
                 url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
                 payload = {"chat_id": chat_id, "text": message}
                 response = requests.post(url, data=payload, timeout=10)
-                response.raise_for_status()
+                response.raise_for_status()  # Raise exception for HTTP errors
                 log_message(f"✅ Message sent to {chat_id}")
-                break
+                break  # Exit retry loop if successful
             except requests.exceptions.RequestException as e:
                 log_message(f"❌ Attempt {attempt + 1} failed to send message to {chat_id}: {e}")
-                time.sleep(5)
-                if attempt == 2:
+                time.sleep(5)  # Wait before retrying
+                if attempt == 2:  # Final attempt failed
                     log_message(f"❌ Failed to send message to {chat_id} after 3 attempts")
 
+# Global variable to hold the fetched data
 fetched_data = {}
 
 def login_growatt():
     log_message("🔄 Attempting Growatt login...")
+    
     try:
+        # Attempting to login and fetching the login response
         login_response = api.login(username1, password1)
-        fetched_data['login_response'] = login_response
+        fetched_data['login_response'] = login_response  # Save login response
         user = login_response.get('user', {})
         user_id = user.get('id')
         fetched_data['user_id'] = user_id
@@ -122,11 +129,12 @@ def login_growatt():
         return None
 
     try:
+        # Fetching plant information
         plant_info = api.plant_list(user_id)
-        fetched_data['plant_info'] = plant_info
+        fetched_data['plant_info'] = plant_info  # Save plant info
         plant_data = plant_info['data'][0]
         plant_id = plant_data['plantId']
-        fetched_data['plant_id'] = plant_id
+        fetched_data['plant_id'] = plant_id  # Save plant ID
         fetched_data['plant_name'] = plant_data['plantName']
         fetched_data['plant_total_data'] = plant_info.get('totalData', {})
     except Exception as e:
@@ -134,13 +142,14 @@ def login_growatt():
         return None
 
     try:
+        # Fetching inverter information
         inverter_info = api.inverter_list(plant_id)
-        fetched_data['inverter_info'] = inverter_info
+        fetched_data['inverter_info'] = inverter_info  # Save inverter info
         inverter_data = inverter_info[0]
         inverter_sn = inverter_data['deviceSn']
         datalog_sn = inverter_data.get('datalogSn', 'N/A')
-        fetched_data['inverter_sn'] = inverter_sn
-        fetched_data['datalog_sn'] = datalog_sn
+        fetched_data['inverter_sn'] = inverter_sn  # Save inverter SN
+        fetched_data['datalog_sn'] = datalog_sn  # Save datalogger SN
         fetched_data['inverter_alias'] = inverter_data.get('deviceAilas')
         fetched_data['inverter_capacity'] = inverter_data.get('capacity')
         fetched_data['inverter_energy'] = inverter_data.get('energy')
@@ -152,50 +161,39 @@ def login_growatt():
         return None
 
     try:
+        # Fetching storage details
         storage_detail = api.storage_detail(inverter_sn)
-        fetched_data['storage_detail'] = storage_detail
+        fetched_data['storage_detail'] = storage_detail  # Save full storage detail
     except Exception as e:
         log_message(f"❌ Failed to retrieve storage detail: {e}")
         fetched_data['storage_detail'] = {}
 
+    # Log the fetched data
     log_message(f"🌿 User ID: {user_id}")
     log_message(f"🌿 Plant ID: {plant_id}")
     log_message(f"🌿 Inverter SN: {inverter_sn}")
     log_message(f"🌿 Datalogger SN: {datalog_sn}")
 
+    # Return the gathered data
     return user_id, plant_id, inverter_sn, datalog_sn
+
+data_file = "saved_data.json"
 
 def save_data_to_file(data):
     try:
-        # Load existing data or start fresh
-        if os.path.exists(data_file):
-            with open(data_file, "r") as f:
-                try:
-                    existing_data = json.load(f)
-                    if not isinstance(existing_data, list):
-                        existing_data = []
-                except json.JSONDecodeError:
-                    existing_data = []
-        else:
-            existing_data = []
-
-        # Append and keep only last 1000 entries
-        existing_data.append(data)
-        existing_data = existing_data[-1000:]
-
-        # Save back to file
-        with open(data_file, "w") as f:
-            json.dump(existing_data, f, indent=4)
-
-        log_message("✅ Saved data to file.")
+        with open(data_file, "a") as file:
+            file.write(json.dumps(data) + "\n")
+        log_message(f"✔️ Data saved successfully: {data}")  # Log message for successful data save
     except Exception as e:
-        log_message(f"❌ Error saving data to file: {e}")
+        log_message(f"⚠️ Error saving data to file: {e}")
+
 
 def monitor_growatt():
     global last_update_time
     threshold = 80
     sent_lights_off = False
     sent_lights_on = False
+
     loop_counter = 0
 
     try:
@@ -231,7 +229,7 @@ def monitor_growatt():
                 log_message(f"Updated current_data: {current_data}")
 
                 loop_counter += 1
-                if loop_counter >= 1:
+                if loop_counter >= 7:
                     data_to_save = {
                         "timestamp": last_update_time,
                         "vGrid": ac_input_v,
@@ -281,14 +279,18 @@ Consumo actual     : {load_w} W"""
 
     except Exception as e_outer:
         log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
+# The rest of your code (Telegram handlers, Flask routes, etc.) remains unchanged
 
+# Telegram Handlers
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
 
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
+
     timestamp = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
+
     msg = f"""⚡ /status Estado del Inversor /stop⚡
         🕒 Hora--> {timestamp} 
 Voltaje Red          : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
@@ -301,7 +303,6 @@ Batería                 : {current_data.get('battery_capacity', 'N/A')}%
         log_message(f"✅ Status sent to {update.effective_chat.id}")
     except Exception as e:
         log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
-
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     ids = "\n".join(str(cid) for cid in chat_log)
@@ -319,9 +320,11 @@ dp.add_handler(CommandHandler("status", send_status))
 dp.add_handler(CommandHandler("chatlog", send_chatlog))
 dp.add_handler(CommandHandler("stop", stop_bot))
 
+# Start background monitoring thread
 monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
 monitor_thread.start()
 
+# Start Telegram bot polling
 updater.start_polling()
 
 # Flask Routes
@@ -337,7 +340,6 @@ def home():
                     font-family: Arial, sans-serif;
                     margin: 0;
                     padding: 0;
-                    text-align: center;
                 }
                 nav {
                     background-color: #333;
@@ -365,19 +367,6 @@ def home():
                     background-color: #ddd;
                     color: black;
                 }
-                .content {
-                    max-width: 800px;
-                    margin: 0 auto;
-                    padding: 20px;
-                }
-                table {
-                    margin: 0 auto;
-                    border-collapse: collapse;
-                }
-                table th, table td {
-                    padding: 8px 12px;
-                    border: 1px solid #000;
-                }
             </style>
         </head>
         <body>
@@ -391,27 +380,23 @@ def home():
                     <li><a href="/battery-chart">Battery Chart</a></li>
                 </ul>
             </nav>
-
-            <div class="content">
-                <h1>✅ Growatt Monitor is Running!</h1>
-                <h2>Detalles del Inversor</h2>
-                <h3>Información constante</h3>
-                <p>Plant ID: {{ plant_id }}</p>
-                <p>User ID: {{ user_id }}</p>
-                <p>Inverter SN: {{ inverter_sn }}</p>
-                <p>Datalogger SN: {{ datalog_sn }}</p>
-
-                <h2>Datos en tiempo real</h2>
-                <table>
-                    <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                    <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                    <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                    <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                    <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                    <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-                </table>
-                <p><b>Última actualización:</b> {{ last }}</p>
-            </div>
+             <h1>✅ Growatt Monitor is Running!</h1>
+             <h2>Detalles del Inversor</h2>
+            <h3>Información constante</h3>
+            <p>Plant ID: {{ plant_id }}</p>
+            <p>User ID: {{ user_id }}</p>
+            <p>Inverter SN: {{ inverter_sn }}</p>
+            <p>Datalogger SN: {{ datalog_sn }}</p>
+            <h2>Datos en tiempo real</h2>
+            <table border="1">
+                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
+                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
+                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
+                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
+                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
+                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
+            </table>
+            <p><b>Última actualización:</b> {{ last }}</p>
         </body>
         </html>
     """, d=current_data, last=last_update_time,
@@ -527,58 +512,43 @@ def charts_view():
             const batteryCapacity = {{ battery_capacity | tojson }};
 
             function drawChart(id, label, data, color) {
-    const transparentColor = {
-        "blue": "rgba(0, 0, 255, 0.2)",
-        "green": "rgba(0, 128, 0, 0.2)",
-        "red": "rgba(255, 0, 0, 0.2)",
-        "orange": "rgba(255, 165, 0, 0.2)"
-    }[color] || color;
-
-    new Chart(document.getElementById(id), {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: label,
-                data: data,
-                borderColor: color,
-                backgroundColor: transparentColor,
-                fill: true,
-                tension: 0.2
-            }]
-        },
-        options: {
-            responsive: false,
-            maintainAspectRatio: false,
-            scales: {
-                x: {
-                    type: 'time',
-                    time: {
-                        parser: 'yyyy-MM-dd HH:mm:ss',
-                        unit: 'hour',
-                        displayFormats: { hour: 'HH:mm' },
-                        tooltipFormat: 'yyyy-MM-dd HH:mm'
+                new Chart(document.getElementById(id), {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: label,
+                            data: data,
+                            borderColor: color,
+                            backgroundColor: color + '33',
+                            fill: true,
+                            tension: 0.2
+                        }]
                     },
-                    ticks: {
-                        autoSkip: true,
-                        maxTicksLimit: 20,
-                        font: {
-                            weight: 'bold'
+                    options: {
+                        responsive: false,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    parser: 'yyyy-MM-dd HH:mm:ss',
+                                    unit: 'hour',
+                                    displayFormats: { hour: 'HH:mm' },
+                                    tooltipFormat: 'yyyy-MM-dd HH:mm'
+                                },
+                                ticks: {
+                                    autoSkip: true,
+                                    maxTicksLimit: 20
+                                }
+                            },
+                            y: {
+                                beginAtZero: false
+                            }
                         }
                     }
-                },
-                y: {
-                    beginAtZero: false,
-                    ticks: {
-                        font: {
-                            weight: 'bold'
-                        }
-                    }
-                }
+                });
             }
-        }
-    });
-}
 
             drawChart("acInputChart", "AC Input Voltage", acInput, "blue");
             drawChart("acOutputChart", "AC Output Voltage", acOutput, "green");
@@ -751,13 +721,14 @@ def details_view():
         </html>
     """, latest_entry=latest_entry)
 
+
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
     growatt_login2()
     raw_json = get_battery_data(selected_date)
     soc_data = raw_json.get("obj", {}).get("socChart", {}).get("capacity", [])
-    soc_data = soc_data + [None] * (288 - len(soc_data))  # pad to 288 points
+    soc_data = soc_data + [None] * (288 - len(soc_data))
 
     return render_template_string('''
     <!DOCTYPE html>
@@ -767,14 +738,7 @@ def battery_chart():
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <script src="https://code.highcharts.com/highcharts.js"></script>
         <style>
-            html, body {
-                width: 100%;
-                overflow-x: hidden;
-                font-family: sans-serif;
-                margin: 0;
-                padding: 0;
-                text-align: center;
-            }
+            body { font-family: sans-serif; margin: 0; padding: 0; text-align: center; }
             nav {
                 background-color: #333;
                 overflow: hidden;
@@ -824,8 +788,8 @@ def battery_chart():
                 cursor: pointer;
             }
             #chart-container {
-                width: 1000px;
-                height: 500px;
+                width: 800px;
+                height: 400px;
                 margin: 20px auto;
             }
         </style>
@@ -867,95 +831,38 @@ def battery_chart():
             }
 
             const socData = {{ soc_data | tojson }};
-            const timeLabels = Array.from({length: 24}, (_, i) => i.toString().padStart(2, '0'));
+            const timeLabels = [...Array(288).keys()].map(i => {
+                const h = Math.floor(i / 12).toString().padStart(2, '0');
+                const m = (i % 12) * 5;
+                return h;
+            });
 
             Highcharts.chart('chart-container', {
-                chart: {
-                    type: 'area',
-                    spacingTop: 10,
-                    spacingBottom: 10,
-                    width: 1000,
-                    height: 500,
-                    animation: false
-                },
-                title: {
-                    text: 'State of Charge on {{ selected_date }}',
-                    style: {
-                        fontWeight: 'bold',
-                        fontSize: '24px'
-                    }
-                },
+                chart: { type: 'line', spacingTop: 10, spacingBottom: 10, width: 800, height: 400 },
+                title: { text: 'State of Charge on {{ selected_date }}' },
                 xAxis: {
                     categories: timeLabels,
-                    tickInterval: 1,
-                    title: {
-                        text: 'Hour',
-                        style: {
-                            fontWeight: 'bold',
-                            fontSize: '18px'
-                        }
-                    },
-                    labels: {
-                        style: {
-                            fontWeight: 'bold',
-                            fontSize: '16px'
-                        }
-                    }
+                    tickInterval: 12,
+                    title: { text: 'Hour' }
                 },
                 yAxis: {
                     min: 0,
                     max: 100,
-                    title: {
-                        text: 'SoC (%)',
-                        style: {
-                            fontWeight: 'bold',
-                            fontSize: '18px'
-                        }
-                    },
-                    labels: {
-                        style: {
-                            fontWeight: 'bold',
-                            fontSize: '16px'
-                        }
-                    }
+                    title: { text: 'SoC (%)' }
                 },
                 tooltip: {
-                    shared: true,
-                    style: {
-                        fontWeight: 'bold',
-                        fontSize: '16px'
-                    },
                     formatter: function () {
-                        const hour = Math.floor(this.points[0].point.index / 12).toString().padStart(2, '0');
-                        const minute = ((this.points[0].point.index % 12) * 5).toString().padStart(2, '0');
-                        return `Time: ${hour}:${minute}<br>SoC: ${this.points[0].y}%`;
+                        const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
+                        const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
+                        return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
                     }
                 },
-                plotOptions: {
-                    area: {
-                        fillOpacity: 0.2,
-                        marker: {
-                            enabled: false
-                        }
-                    },
-                    series: {
-                        lineWidth: 2
-                    }
-                },
-                series: [{
-                    name: 'SoC',
-                    data: socData
-                }],
-                responsive: {
-                    rules: []  // Disable automatic resizing
-                }
+                series: [{ name: 'SoC', data: socData }]
             });
         </script>
     </body>
     </html>
     ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
-
-
 
 
 if __name__ == '__main__':
