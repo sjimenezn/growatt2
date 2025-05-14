@@ -230,7 +230,7 @@ def monitor_growatt():
                 log_message(f"Updated current_data: {current_data}")
 
                 loop_counter += 1
-                if loop_counter >= 7:
+                if loop_counter >= 1:
                     data_to_save = {
                         "timestamp": last_update_time,
                         "vGrid": ac_input_v,
@@ -331,80 +331,13 @@ updater.start_polling()
 # Flask Routes
 @app.route("/")
 def home():
-    return render_template_string("""
-        <html>
-        <head>
-            <title>Home - Growatt Monitor</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                }
-                nav {
-                    background-color: #333;
-                    overflow: hidden;
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                }
-                nav ul {
-                    list-style-type: none;
-                    margin: 0;
-                    padding: 0;
-                    display: flex;
-                    justify-content: center;
-                }
-                nav ul li {
-                    padding: 14px 20px;
-                }
-                nav ul li a {
-                    color: white;
-                    text-decoration: none;
-                    font-size: 18px;
-                }
-                nav ul li a:hover {
-                    background-color: #ddd;
-                    color: black;
-                }
-            </style>
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                    <li><a href="/battery-chart">Battery Chart</a></li>
-                </ul>
-            </nav>
-             <h1>✅ Growatt Monitor is Running!</h1>
-             <h2>Detalles del Inversor</h2>
-            <h3>Información constante</h3>
-            <p>Plant ID: {{ plant_id }}</p>
-            <p>User ID: {{ user_id }}</p>
-            <p>Inverter SN: {{ inverter_sn }}</p>
-            <p>Datalogger SN: {{ datalog_sn }}</p>
-            <h2>Datos en tiempo real</h2>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-            </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
-        </body>
-        </html>
-    """, d=current_data, last=last_update_time,
-       plant_id=current_data.get("plant_id", "N/A"),
-       user_id=current_data.get("user_id", "N/A"),
-       inverter_sn=current_data.get("inverter_sn", "N/A"),
-       datalog_sn=current_data.get("datalog_sn", "N/A"))
+    return render_template("home.html",
+        d=current_data,
+        last=last_update_time,
+        plant_id=current_data.get("plant_id", "N/A"),
+        user_id=current_data.get("user_id", "N/A"),
+        inverter_sn=current_data.get("inverter_sn", "N/A"),
+        datalog_sn=current_data.get("datalog_sn", "N/A"))
 
 @app.route("/logs")
 def charts_view():
@@ -738,6 +671,8 @@ def details_view():
     """, latest_entry=latest_entry)
 
 
+from flask import render_template
+
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
@@ -746,151 +681,12 @@ def battery_chart():
     soc_data = raw_json.get("obj", {}).get("socChart", {}).get("capacity", [])
     soc_data = soc_data + [None] * (288 - len(soc_data))
 
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Battery SoC Chart</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <script src="https://code.highcharts.com/highcharts.js"></script>
-        <style>
-            body { font-family: sans-serif; margin: 0; padding: 0; text-align: center; }
-            nav {
-                background-color: #333;
-                overflow: hidden;
-                position: sticky;
-                top: 0;
-                z-index: 100;
-            }
-            nav ul {
-                list-style-type: none;
-                margin: 0;
-                padding: 0;
-                display: flex;
-                justify-content: center;
-            }
-            nav ul li {
-                padding: 14px 20px;
-            }
-            nav ul li a {
-                color: white;
-                text-decoration: none;
-                font-size: 18px;
-            }
-            nav ul li a:hover {
-                background-color: #ddd;
-                color: black;
-            }
-            nav ul li a.active {
-                background-color: #04AA6D;
-                color: white;
-            }
-            #controls {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                gap: 20px;
-                font-size: 24px;
-                margin-top: 20px;
-            }
-            #controls input[type="date"] {
-                font-size: 20px;
-                padding: 4px;
-            }
-            button.arrow {
-                font-size: 28px;
-                background: none;
-                border: none;
-                cursor: pointer;
-            }
-            #chart-container {
-                width: 800px;
-                height: 400px;
-                margin: 20px auto;
-            }
-        </style>
-    </head>
-    <body>
-        <nav>
-            <ul>
-                <li><a href="/">Home</a></li>
-                <li><a href="/logs">Logs</a></li>
-                <li><a href="/chatlog">Chatlog</a></li>
-                <li><a href="/console">Console</a></li>
-                <li><a href="/details">Details</a></li>
-                <li><a href="/battery-chart" class="active">Battery Chart</a></li>
-            </ul>
-        </nav>
-
-        <h2>Battery SoC Chart</h2>
-        <form method="post" id="dateForm">
-            <div id="controls">
-                <button class="arrow" type="button" onclick="shiftDate(-1)">←</button>
-                <input type="date" name="date" id="datePicker" value="{{ selected_date }}" required onchange="submitForm()">
-                <button class="arrow" type="button" onclick="shiftDate(1)">→</button>
-            </div>
-        </form>
-
-        <div id="chart-container"></div>
-
-        <script>
-            function submitForm() {
-                document.getElementById('dateForm').submit();
-            }
-
-            function shiftDate(offset) {
-                const picker = document.getElementById('datePicker');
-                const current = new Date(picker.value);
-                current.setDate(current.getDate() + offset);
-                picker.valueAsDate = current;
-                submitForm();
-            }
-
-            const socData = {{ soc_data | tojson }};
-            const timeLabels = [...Array(288).keys()].map(i => {
-                const h = Math.floor(i / 12).toString().padStart(2, '0');
-                const m = (i % 12) * 5;
-                return h;
-            });
-
-            Highcharts.chart('chart-container', {
-                chart: { 
-                    type: 'area', 
-                    spacingTop: 10, 
-                    spacingBottom: 10, 
-                    width: 800, 
-                    height: 400 
-                },
-                title: { text: 'State of Charge on {{ selected_date }}' },
-                xAxis: {
-                    categories: timeLabels,
-                    tickInterval: 12,
-                    title: { text: 'Hour' }
-                },
-                yAxis: {
-                    min: 0,
-                    max: 100,
-                    title: { text: 'SoC (%)' }
-                },
-                tooltip: {
-                    formatter: function () {
-                        const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
-                        const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
-                        return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
-                    }
-                },
-                series: [{
-                    name: 'SoC',
-                    data: socData,
-                    color: 'blue',
-                    fillOpacity: 0.2
-                }]
-            });
-        </script>
-    </body>
-    </html>
-    ''', soc_data=soc_data, selected_date=selected_date, raw_json=raw_json)
-
+    return render_template(
+        "battery-chart.html",
+        soc_data=soc_data,
+        selected_date=selected_date,
+        raw_json=raw_json
+    )
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
