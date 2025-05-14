@@ -582,14 +582,15 @@ def battery_chart():
         )
         energy_response.raise_for_status()
         energy_data = energy_response.json()
-        log_message(f"📦 Raw energy response for {selected_date}: {energy_data}")
+       
 
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch energy chart data for {selected_date}: {e}")
         energy_data = {}
 
-    energy_obj = energy_data.get("obj", {})
+    energy_obj = energy_data.get("obj", {}).get("charts", {})
     energy_titles = energy_data.get("titles", [])
+
     if not energy_titles or not energy_obj:
         log_message(f"⚠️ No energy chart data received for {selected_date}")
 
