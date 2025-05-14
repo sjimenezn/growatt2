@@ -11,67 +11,14 @@ from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
-
+# File for saving data
 data_file = "saved_data.json"
 
-# Default data to start with (so you can visualize charts)
-default_data = [
-    {"timestamp": "2025-05-12 22:12:42", "vGrid": "118.4", "outPutVolt": "118.4", "activePower": "217", "capacity": "39"},
-    {"timestamp": "2025-05-12 22:17:26", "vGrid": "117.8", "outPutVolt": "117.8", "activePower": "214", "capacity": "43"},
-    {"timestamp": "2025-05-12 22:22:09", "vGrid": "118.2", "outPutVolt": "118.2", "activePower": "222", "capacity": "47"},
-    {"timestamp": "2025-05-12 22:26:53", "vGrid": "118.6", "outPutVolt": "118.6", "activePower": "213", "capacity": "51"},
-    {"timestamp": "2025-05-12 22:31:37", "vGrid": "118.2", "outPutVolt": "118.2", "activePower": "226", "capacity": "54"},
-    {"timestamp": "2025-05-12 22:36:20", "vGrid": "119", "outPutVolt": "119", "activePower": "217", "capacity": "58"},
-    {"timestamp": "2025-05-12 22:41:04", "vGrid": "119", "outPutVolt": "119", "activePower": "217", "capacity": "62"},
-    {"timestamp": "2025-05-12 22:45:48", "vGrid": "118.8", "outPutVolt": "118.8", "activePower": "286", "capacity": "66"},
-    {"timestamp": "2025-05-12 22:50:31", "vGrid": "119.4", "outPutVolt": "119.4", "activePower": "214", "capacity": "70"},
-    {"timestamp": "2025-05-12 22:55:15", "vGrid": "120.4", "outPutVolt": "120.4", "activePower": "213", "capacity": "74"},
-    {"timestamp": "2025-05-12 22:59:59", "vGrid": "120.1", "outPutVolt": "120.1", "activePower": "288", "capacity": "78"},
-    {"timestamp": "2025-05-12 23:04:43", "vGrid": "120", "outPutVolt": "120", "activePower": "210", "capacity": "81"},
-    {"timestamp": "2025-05-12 23:09:27", "vGrid": "120", "outPutVolt": "120", "activePower": "250", "capacity": "85"},
-    {"timestamp": "2025-05-12 23:14:10", "vGrid": "120.3", "outPutVolt": "120.3", "activePower": "201", "capacity": "89"},
-    {"timestamp": "2025-05-12 23:18:54", "vGrid": "122.6", "outPutVolt": "122.6", "activePower": "233", "capacity": "92"},
-    {"timestamp": "2025-05-12 23:23:38", "vGrid": "122.6", "outPutVolt": "122.6", "activePower": "208", "capacity": "92"},
-    {"timestamp": "2025-05-12 23:28:22", "vGrid": "122.5", "outPutVolt": "122.5", "activePower": "300", "capacity": "92"},
-    {"timestamp": "2025-05-12 23:33:05", "vGrid": "123.1", "outPutVolt": "123.1", "activePower": "227", "capacity": "95"},
-    {"timestamp": "2025-05-12 23:37:49", "vGrid": "122.8", "outPutVolt": "122.8", "activePower": "231", "capacity": "97"},
-    {"timestamp": "2025-05-12 23:42:33", "vGrid": "124.2", "outPutVolt": "120.1", "activePower": "297", "capacity": "100"}
-]
-
-# Check if the file exists and handle corruption
-if not os.path.exists(data_file) or os.stat(data_file).st_size == 0:
-    # If the file doesn't exist or is empty, create it with default data
+# Ensure the file exists before any read/write operations
+if not os.path.exists(data_file):
     with open(data_file, "w") as f:
-        json.dump(default_data, f, indent=4)
-    print("File created with default data.")
-else:
-    # Attempt to read and fix the data
-    try:
-        with open(data_file, "r") as f:
-            try:
-                existing_data = json.load(f)
-                if not isinstance(existing_data, list):  # If the data is not a list, reset
-                    print("Corrupted data format. Resetting to default data...")
-                    existing_data = default_data
-            except json.JSONDecodeError:
-                # If there's a decoding error (corrupt or empty file), reset the data
-                print("Error reading data. Resetting file with default data...")
-                existing_data = default_data
+        pass  # Creates an empty file if it doesn't exist
         
-        # Append new data (you can adjust this logic based on your data collection)
-        existing_data.extend(default_data)
-        
-        # Remove duplicates (optional, based on timestamp)
-        seen_timestamps = set()
-        existing_data = [entry for entry in existing_data if entry['timestamp'] not in seen_timestamps and not seen_timestamps.add(entry['timestamp'])]
-
-        # Write the updated data back to the file
-        with open(data_file, "w") as f:
-            json.dump(existing_data, f, indent=4)
-        print("Data written to file.")
-    
-    except Exception as e:
-        print(f"An error occurred while handling the data file: {e}")
 # Credentials
 username1 = "vospina"
 password1 = "Vospina.2025"
