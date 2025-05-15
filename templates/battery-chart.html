@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Battery SoC Chart</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
         body {
@@ -13,11 +13,11 @@
         }
 
         nav {
+            background-color: black;
             position: sticky;
             top: 0;
             z-index: 100;
             width: 100%;
-            background-color: black;
         }
 
         nav ul {
@@ -87,16 +87,11 @@
         }
 
         @media (max-width: 600px) {
-            body {
-                transform: scale(0.4);
-                transform-origin: top center;
-                width: 1024px;
-                margin: 0 auto;
-            }
+            /* Removed body scale-down */
         }
     </style>
 </head>
-<body>
+<body onload="window.scrollTo(0, 0)">
 <nav>
     <ul>
         <li><a href="/">Home</a></li>
@@ -135,7 +130,6 @@
         submitForm();
     }
 
-    // SoC Chart
     const socData = {{ soc_data | tojson }};
     const timeLabels = [...Array(288).keys()].map(i => {
         const h = Math.floor(i / 12).toString().padStart(2, '0');
@@ -170,7 +164,6 @@
         }]
     });
 
-    // Energy Chart
     const energySeries = {{ energy_series | tojson }};
     const energyTimeLabels = [...Array(288).keys()].map(i => {
         const h = Math.floor(i / 12).toString().padStart(2, '0');
@@ -219,15 +212,6 @@
         },
         series: energySeries
     });
-
-    // On load: scroll to top and ensure viewport zoom is correct
-    window.onload = () => {
-        window.scrollTo(0, 0);
-        const viewport = document.querySelector("meta[name=viewport]");
-        if (viewport) {
-            viewport.setAttribute("content", "width=device-width, initial-scale=1.0");
-        }
-    };
 </script>
 </body>
 </html>
