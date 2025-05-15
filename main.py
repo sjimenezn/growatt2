@@ -492,46 +492,6 @@ def console_view():
     logs="\n\n".join(m for _, m in console_logs),
     data=pprint.pformat(fetched_data, indent=2))
 
-@app.route("/details")
-def details_view():
-    try:
-        # Read the saved data from the file
-        with open(data_file, "r") as file:
-            saved_data = file.readlines()
-
-        # Parse each line as a JSON object and prepare it for display
-        parsed_data = [json.loads(line.strip()) for line in saved_data]
-
-    except Exception as e:
-        log_message(f"❌ Error reading saved data for details: {e}")
-        return "Error loading details data.", 500
-
-    # Display the details of the most recent entry
-    latest_entry = parsed_data[-1] if parsed_data else {}
-    return render_template_string("""
-        <html>
-        <head>
-            <title>Growatt Details</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-        </head>
-        <body>
-            <nav>
-                <ul>
-                    <li><a href="/">Home</a></li>
-                    <li><a href="/logs">Logs</a></li>
-                    <li><a href="/chatlog">Chatlog</a></li>
-                    <li><a href="/console">Console</a></li>
-                    <li><a href="/details">Details</a></li>
-                    <li><a href="/battery-chart">Battery Chart</a></li>
-                </ul>
-            </nav>
-            <h1>Details</h1>
-            <h2>Latest Data</h2>
-            <pre>{{ latest_entry }}</pre>
-        </body>
-        </html>
-    """, latest_entry=latest_entry)
-
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
@@ -599,25 +559,18 @@ def battery_chart():
             "data": data_list,
             "color": color,
             "fillOpacity": 0.2,
-            "lineWidth": 1  # Adjust line thickness here (default is 2, half of that is 1)
+            "lineWidth": 1
         }
 
-    # Use the requested colors for the chart
+    # Use the requested colors for the chart (without "Exported to Grid")
     energy_series = [
         prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#FFEB3B"),  # Yellow
         prepare_series(energy_obj.get("userLoad"), "Load Consumption", "#9C27B0"),  # Purple
         prepare_series(energy_obj.get("pacToUser"), "Imported from Grid", "#00BCD4"),  # Cyan
     ]
+    energy_series = [s for s in energy_series if s and s['name'] != 'Exported to Grid']
 
-    if "pacToGrid" in energy_obj:
-        grid_series = prepare_series(energy_obj.get("pacToGrid"), "Exported to Grid", "#F44336")  # Red
-        if grid_series:
-            energy_series.append(grid_series)
-
-    energy_series = [s for s in energy_series if s]
-
-    # Ensure 288 data points for energy data (similar to battery chart)
-    # Assuming that energy_obj has data for all the required points, if not, fill with None
+    # Ensure 288 data points for energy data
     for series in energy_series:
         series["data"] = series["data"] + [None] * (288 - len(series["data"]))
 
@@ -629,6 +582,7 @@ def battery_chart():
         energy_titles=energy_titles,
         energy_series=energy_series
     )
+
 
 
 @app.route('/dn')
