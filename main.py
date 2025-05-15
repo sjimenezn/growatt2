@@ -236,6 +236,7 @@ def monitor_growatt():
                         "outPutVolt": ac_output_v,
                         "activePower": load_w,
                         "capacity": battery_pct
+                        "freqOutPut": ac_output_f
                     }
                     save_data_to_file(data_to_save)
                     loop_counter = 0
