@@ -5,95 +5,110 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
-body {
-    font-family: sans-serif;
-    margin: 0;
-    padding: 0;
-    text-align: center;
-}
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
 
-nav {
-    background-color: #333;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    width: 100%;
-}
+        nav {
+            background-color: #333;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            width: 100%;
+        }
 
-nav ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    justify-content: space-evenly;
-    align-items: center;
-    flex-wrap: nowrap;
-}
+        nav ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: space-evenly;
+            align-items: center;
+            flex-wrap: nowrap;
+        }
 
-nav ul li {
-    flex: 1 1 auto;
-    text-align: center;
-}
+        nav ul li {
+            flex: 1 1 auto;
+            text-align: center;
+        }
 
-nav ul li a {
-    display: block;
-    padding: 14px 8px;
-    text-decoration: none;
-    color: white;
-    font-size: clamp(10px, 2vw, 18px);
-}
+        nav ul li a {
+            display: block;
+            padding: 14px 8px;
+            text-decoration: none;
+            color: white;
+            font-size: clamp(10px, 2vw, 18px);
+        }
 
-nav ul li a:hover,
-nav ul li a.active {
-    background: transparent;
-    color: white;
-}
+        nav ul li a:hover {
+            background-color: #ddd;
+            color: black;
+        }
 
-#controls {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 20px;
-    font-size: 24px;
-    margin-top: 20px;
-    flex-wrap: wrap;
-}
+        nav ul li a.active {
+            background-color: #04AA6D;
+            color: white;
+        }
 
-#controls input[type="date"] {
-    font-size: 20px;
-    padding: 4px;
-    max-width: 160px;
-}
+        #controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            font-size: 24px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
 
-button.arrow {
-    font-size: 28px;
-    background: none;
-    border: none;
-    cursor: pointer;
-}
+        #controls input[type="date"] {
+            font-size: 20px;
+            padding: 4px;
+            max-width: 160px;
+        }
 
-#chart-container,
-#energy-chart-container {
-    width: 95%;
-    max-width: 1000px;
-    height: 400px;
-    margin: 20px auto;
-}
+        button.arrow {
+            font-size: 28px;
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
 
-@media (max-width: 600px) {
-    #controls {
-        font-size: 18px;
-        gap: 10px;
-    }
-    #chart-container,
-    #energy-chart-container {
-        height: 300px;
-    }
-}
-</style>
+        /* Wrapper for both charts */
+        #charts-wrapper {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px auto;
+            max-width: 1000px;
+        }
 
+        #chart-container,
+        #energy-chart-container {
+            width: 100%;
+            height: 400px;
+        }
 
+        @media (max-width: 600px) {
+            #controls {
+                font-size: 18px;
+                gap: 10px;
+            }
 
+            #charts-wrapper {
+                max-width: 100%;
+            }
+
+            #chart-container,
+            #energy-chart-container {
+                width: 50%;
+                height: 300px;
+            }
+        }
+    </style>
 </head>
 <body>
 <nav>
@@ -116,12 +131,11 @@ button.arrow {
     </div>
 </form>
 
-<!-- SoC Chart -->
-<div id="chart-container"></div>
-
-<!-- Energy Chart -->
-<h2>Energy Flow Chart</h2>
-<div id="energy-chart-container"></div>
+<!-- Wrap the charts for side-by-side on mobile -->
+<div id="charts-wrapper">
+    <div id="chart-container"></div>
+    <div id="energy-chart-container"></div>
+</div>
 
 <script>
     function submitForm() {
@@ -173,7 +187,6 @@ button.arrow {
 
     // Energy Chart
     const energySeries = {{ energy_series | tojson }};
-    // Apply same x-axis labels logic as SoC chart
     const energyTimeLabels = [...Array(288).keys()].map(i => {
         const h = Math.floor(i / 12).toString().padStart(2, '0');
         return h;
@@ -196,7 +209,6 @@ button.arrow {
             shared: true,
             valueSuffix: ' W',
             formatter: function () {
-                // this.points is an array when shared:true, take first point index
                 const pointIndex = this.points[0].point.index;
                 const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
                 const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
