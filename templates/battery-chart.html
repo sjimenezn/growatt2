@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Battery SoC Chart</title>
-    <meta name="viewport" content="width=1024, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
         body {
@@ -13,6 +13,7 @@
         }
 
         nav {
+            background-color: black;
             position: sticky;
             top: 0;
             z-index: 100;
@@ -39,7 +40,7 @@
             padding: 14px 8px;
             text-decoration: none;
             font-size: clamp(10px, 2vw, 18px);
-            color: black;
+            color: white;
             background: none;
         }
 
@@ -70,7 +71,6 @@
             cursor: pointer;
         }
 
-        /* Wrapper for both charts */
         #charts-wrapper {
             display: flex;
             justify-content: center;
@@ -87,13 +87,7 @@
         }
 
         @media (max-width: 600px) {
-            /* Scale down entire body content visually to 40% but keep layout sizes intact */
-            body {
-                transform: scale(0.4);
-                transform-origin: top center;
-                width: 1024px; /* fix width to desktop width to avoid layout shifts */
-                margin: 0 auto;
-            }
+            /* Removed body scale-down */
         }
     </style>
 </head>
@@ -118,7 +112,6 @@
     </div>
 </form>
 
-<!-- Wrap the charts for side-by-side on mobile -->
 <div id="charts-wrapper">
     <div id="chart-container"></div>
     <div id="energy-chart-container"></div>
@@ -137,7 +130,6 @@
         submitForm();
     }
 
-    // SoC Chart
     const socData = {{ soc_data | tojson }};
     const timeLabels = [...Array(288).keys()].map(i => {
         const h = Math.floor(i / 12).toString().padStart(2, '0');
@@ -172,7 +164,6 @@
         }]
     });
 
-    // Energy Chart
     const energySeries = {{ energy_series | tojson }};
     const energyTimeLabels = [...Array(288).keys()].map(i => {
         const h = Math.floor(i / 12).toString().padStart(2, '0');
