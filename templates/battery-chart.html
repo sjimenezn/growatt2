@@ -161,7 +161,7 @@
             formatter: function () {
                 const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
                 const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
-                return Time: ${hour}:${minute}<br>SoC: ${this.y}%;
+                return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
             }
         },
         series: [{
@@ -199,9 +199,9 @@
                 const pointIndex = this.points[0].point.index;
                 const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
                 const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
-                let tooltipHtml = Time: ${hour}:${minute}<br/>;
+                let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
                 this.points.forEach(p => {
-                    tooltipHtml += ${p.series.name}: ${p.y} W<br/>;
+                    tooltipHtml += `${p.series.name}: ${p.y} W<br/>`;
                 });
                 return tooltipHtml;
             },
