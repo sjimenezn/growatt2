@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Battery SoC Chart</title>
-    <meta name="viewport" content="width=1024, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
         body {
@@ -17,7 +17,7 @@
             top: 0;
             z-index: 100;
             width: 100%;
-            background-color: black; /* Added background color for the nav bar */
+            background-color: black;
         }
 
         nav ul {
@@ -39,7 +39,7 @@
             display: block;
             padding: 14px 8px;
             text-decoration: none;
-            font-size: clamp(10px, 2vw, 18px); /* 2vw will be relative to the viewport width (1024px here) */
+            font-size: clamp(10px, 2vw, 18px);
             color: white;
         }
 
@@ -76,8 +76,8 @@
             justify-content: center;
             flex-wrap: wrap;
             gap: 10px;
-            margin: 20px auto; /* This will center the wrapper if it's narrower than the body/viewport */
-            max-width: 1000px; /* Content itself is max 1000px wide */
+            margin: 20px auto;
+            max-width: 1000px;
         }
 
         #chart-container,
@@ -87,14 +87,14 @@
         }
 
         @media (max-width: 600px) {
+            html {
+                overflow-x: hidden;
+            }
             body {
-                /* REMOVED: transform: scale(0.4); */
-                /* REMOVED: transform-origin: top center; */
-                /* This width ensures the body tries to use the full 1024px of the viewport. */
-                /* It might be redundant if the body naturally fills it, but harmless. */
-                width: 1024px;
-                /* margin: 0 auto; is ineffective here if body width equals viewport width (1024px) */
-                /* It can be removed for clarity or kept if there are scenarios where viewport might be wider. */
+                transform: scale(0.6); /* Adjust scale as needed */
+                transform-origin: top center;
+                width: 1000px; /* Match max-width of charts-wrapper */
+                margin: 0 auto;
             }
         }
     </style>
@@ -126,12 +126,24 @@
 </div>
 
 <script>
-    // Ensure the page loads scrolled to the top
+    // Scroll to top on page load
     window.onload = function() {
         window.scrollTo(0, 0);
+        // Reset zoom level on initial load
+        if (window.innerWidth < 600) {
+            document.body.style.transform = 'scale(0.6)'; // Or your desired initial scale
+        } else {
+            document.body.style.transform = 'scale(1.0)'; // Reset for larger screens
+        }
     };
 
     function submitForm() {
+        // Reset zoom level before submitting the form (date change)
+        if (window.innerWidth < 600) {
+            document.body.style.transform = 'scale(0.6)'; // Or your desired scale after date change
+        } else {
+            document.body.style.transform = 'scale(1.0)';
+        }
         document.getElementById('dateForm').submit();
     }
 
