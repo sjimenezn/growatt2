@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Battery SoC Chart</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
         body {
@@ -10,6 +10,8 @@
             margin: 0;
             padding: 0;
             text-align: center;
+            width: 100%; /* Ensure body takes full width */
+            overflow-x: auto; /* Allow horizontal scroll if content overflows */
         }
 
         nav {
@@ -78,6 +80,7 @@
             gap: 10px;
             margin: 20px auto;
             max-width: 1000px;
+            width: 100%; /* Ensure wrapper takes full available width */
         }
 
         #chart-container,
@@ -86,16 +89,9 @@
             height: 400px;
         }
 
+        /* Media query for smaller screens */
         @media (max-width: 600px) {
-            html {
-                overflow-x: hidden;
-            }
-            body {
-                transform: scale(0.6); /* Adjust scale as needed */
-                transform-origin: top center;
-                width: 1000px; /* Match max-width of charts-wrapper */
-                margin: 0 auto;
-            }
+            /* No more scaling of the body */
         }
     </style>
 </head>
@@ -129,21 +125,9 @@
     // Scroll to top on page load
     window.onload = function() {
         window.scrollTo(0, 0);
-        // Reset zoom level on initial load
-        if (window.innerWidth < 600) {
-            document.body.style.transform = 'scale(0.6)'; // Or your desired initial scale
-        } else {
-            document.body.style.transform = 'scale(1.0)'; // Reset for larger screens
-        }
     };
 
     function submitForm() {
-        // Reset zoom level before submitting the form (date change)
-        if (window.innerWidth < 600) {
-            document.body.style.transform = 'scale(0.6)'; // Or your desired scale after date change
-        } else {
-            document.body.style.transform = 'scale(1.0)';
-        }
         document.getElementById('dateForm').submit();
     }
 
