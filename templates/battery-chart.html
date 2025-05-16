@@ -17,6 +17,7 @@
             top: 0;
             z-index: 100;
             width: 100%;
+            background-color: black; /* Added background color for the nav bar */
         }
 
         nav ul {
@@ -39,12 +40,15 @@
             padding: 14px 8px;
             text-decoration: none;
             font-size: clamp(10px, 2vw, 18px);
-            color: black;
-            background: none;
+            color: white; /* Changed text color to white */
+            /* background: none; Removed as nav has background now */
         }
 
         nav ul li a.active {
             font-weight: bold;
+            /* Optional: you might want a different color or style for the active link on a black background */
+            /* For example, a slightly lighter shade of white or an underline */
+             color: #cccccc; /* Example: a lighter gray for active link */
         }
 
         #controls {
@@ -118,7 +122,6 @@
     </div>
 </form>
 
-<!-- Wrap the charts for side-by-side on mobile -->
 <div id="charts-wrapper">
     <div id="chart-container"></div>
     <div id="energy-chart-container"></div>
