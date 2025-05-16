@@ -591,6 +591,7 @@ def battery_chart():
     )
 
 
+
 @app.route('/dn')
 def download_logs():
     try:
