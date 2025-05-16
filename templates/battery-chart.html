@@ -39,16 +39,13 @@
             display: block;
             padding: 14px 8px;
             text-decoration: none;
-            font-size: clamp(10px, 2vw, 18px);
-            color: white; /* Changed text color to white */
-            /* background: none; Removed as nav has background now */
+            font-size: clamp(10px, 2vw, 18px); /* 2vw will be relative to the viewport width (1024px here) */
+            color: white;
         }
 
         nav ul li a.active {
             font-weight: bold;
-            /* Optional: you might want a different color or style for the active link on a black background */
-            /* For example, a slightly lighter shade of white or an underline */
-             color: #cccccc; /* Example: a lighter gray for active link */
+            color: #cccccc;
         }
 
         #controls {
@@ -74,14 +71,13 @@
             cursor: pointer;
         }
 
-        /* Wrapper for both charts */
         #charts-wrapper {
             display: flex;
             justify-content: center;
             flex-wrap: wrap;
             gap: 10px;
-            margin: 20px auto;
-            max-width: 1000px;
+            margin: 20px auto; /* This will center the wrapper if it's narrower than the body/viewport */
+            max-width: 1000px; /* Content itself is max 1000px wide */
         }
 
         #chart-container,
@@ -91,12 +87,14 @@
         }
 
         @media (max-width: 600px) {
-            /* Scale down entire body content visually to 40% but keep layout sizes intact */
             body {
-                transform: scale(0.4);
-                transform-origin: top center;
-                width: 1024px; /* fix width to desktop width to avoid layout shifts */
-                margin: 0 auto;
+                /* REMOVED: transform: scale(0.4); */
+                /* REMOVED: transform-origin: top center; */
+                /* This width ensures the body tries to use the full 1024px of the viewport. */
+                /* It might be redundant if the body naturally fills it, but harmless. */
+                width: 1024px;
+                /* margin: 0 auto; is ineffective here if body width equals viewport width (1024px) */
+                /* It can be removed for clarity or kept if there are scenarios where viewport might be wider. */
             }
         }
     </style>
@@ -128,6 +126,11 @@
 </div>
 
 <script>
+    // Ensure the page loads scrolled to the top
+    window.onload = function() {
+        window.scrollTo(0, 0);
+    };
+
     function submitForm() {
         document.getElementById('dateForm').submit();
     }
