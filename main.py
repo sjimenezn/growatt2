@@ -498,6 +498,7 @@ def battery_chart():
         selected_date = request.form.get("date")
     else:
         selected_date = get_today_date_utc_minus_5()
+        print(f"Selected date on GET: {selected_date}")  # Add this line for debugging
 
     growatt_login2()
 
