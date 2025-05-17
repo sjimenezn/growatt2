@@ -122,7 +122,7 @@
 </div>
 
 <script>
-    // Function to get today's date in YYYY-MM-DD format
+    // Function to get today's date in<ctrl3348>-MM-DD format
     function getTodayDate() {
         const today = new Date();
         const year = today.getFullYear();
@@ -131,12 +131,15 @@
         return `${year}-${month}-${day}`;
     }
 
-    // Scroll to top on page load and set date picker to today if it's not a POST
+    // Scroll to top on page load and set date picker to today only on initial load or refresh
     window.onload = function() {
         window.scrollTo(0, 0);
 
-        // Check if the form was just submitted (POST request)
-        if (performance.navigation.type !== 1) { // TYPE_RELOAD = 1
+        // Check if it's an initial load or a hard refresh
+        if (performance.navigation.type === 0 || performance.navigation.type === 2) { // TYPE_NAVIGATE = 0, TYPE_RELOAD = 2 (for some browsers)
+            const datePicker = document.getElementById('datePicker');
+            datePicker.value = getTodayDate();
+        } else if (performance.navigation.type === undefined) { // Fallback for older browsers
             const datePicker = document.getElementById('datePicker');
             datePicker.value = getTodayDate();
         }
