@@ -135,13 +135,14 @@
     window.onload = function() {
         window.scrollTo(0, 0);
 
-        // Check if it's an initial load or a hard refresh
-        if (performance.navigation.type === 0 || performance.navigation.type === 2) { // TYPE_NAVIGATE = 0, TYPE_RELOAD = 2 (for some browsers)
-            const datePicker = document.getElementById('datePicker');
-            datePicker.value = getTodayDate();
-        } else if (performance.navigation.type === undefined) { // Fallback for older browsers
-            const datePicker = document.getElementById('datePicker');
-            datePicker.value = getTodayDate();
+        const datePicker = document.getElementById('datePicker');
+
+        // Check if the date picker has no value (initial load or hard refresh)
+        if (!datePicker.value) {
+            // Check navigation type to differentiate initial load/refresh from history navigation
+            if (performance.navigation.type === 0 || performance.navigation.type === 2 || performance.navigation.type === undefined) {
+                datePicker.value = getTodayDate();
+            }
         }
     };
 
