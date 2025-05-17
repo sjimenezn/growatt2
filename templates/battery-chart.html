@@ -10,8 +10,8 @@
             margin: 0;
             padding: 0;
             text-align: center;
-            width: 100%; /* Ensure body takes full width */
-            overflow-x: auto; /* Allow horizontal scroll if content overflows beyond body */
+            width: 100%;
+            overflow-x: auto;
         }
 
         nav {
@@ -79,21 +79,41 @@
             flex-wrap: wrap;
             gap: 10px;
             margin: 20px auto;
-            max-width: 1200px; /* Set a maximum width for the chart area */
+            max-width: 1200px; /* Adjust as needed */
             width: 100%;
+            overflow: hidden; /* Hide overflow of the wrapper itself */
         }
 
         #chart-container,
         #energy-chart-container {
-            width: 100%;
+            width: 580px; /* Explicit width - adjust as needed, considering gap */
             height: 400px;
-            overflow: hidden; /* Prevent internal content from causing page scroll */
+            overflow: hidden;
+        }
+
+        /* Specifically target SVG elements that might cause overflow */
+        #chart-container svg,
+        #energy-chart-container svg {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* Further prevent overflow within the SVG */
+        #chart-container svg *[clip-path^="url("],
+        #energy-chart-container svg *[clip-path^="url("] {
+            overflow: hidden !important;
         }
 
         /* Media query for smaller screens */
         @media (max-width: 600px) {
             #charts-wrapper {
-                max-width: 100%; /* Allow full width on smaller screens */
+                max-width: 100%;
+                flex-direction: column; /* Stack charts on smaller screens */
+                align-items: center;
+            }
+            #chart-container,
+            #energy-chart-container {
+                width: 100%; /* Full width on smaller screens */
             }
         }
     </style>
