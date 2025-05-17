@@ -11,7 +11,7 @@
             padding: 0;
             text-align: center;
             width: 100%; /* Ensure body takes full width */
-            overflow-x: auto; /* Allow horizontal scroll if content overflows */
+            overflow-x: auto; /* Allow horizontal scroll if content overflows beyond body */
         }
 
         nav {
@@ -79,19 +79,22 @@
             flex-wrap: wrap;
             gap: 10px;
             margin: 20px auto;
-            max-width: 1000px;
-            width: 100%; /* Ensure wrapper takes full available width */
+            max-width: 1200px; /* Set a maximum width for the chart area */
+            width: 100%;
         }
 
         #chart-container,
         #energy-chart-container {
             width: 100%;
             height: 400px;
+            overflow: hidden; /* Prevent internal content from causing page scroll */
         }
 
         /* Media query for smaller screens */
         @media (max-width: 600px) {
-            /* No more scaling of the body */
+            #charts-wrapper {
+                max-width: 100%; /* Allow full width on smaller screens */
+            }
         }
     </style>
 </head>
