@@ -551,7 +551,9 @@ def battery_chart():
     energy_obj = energy_data.get("obj", {}).get("charts", {})
     energy_titles = energy_data.get("titles", [])
 
-    if not energy_titles or not energy_obj:
+    # Check if there is *any* actual data in energy_obj before logging
+    has_energy_data = any(energy_obj.get(key) for key in ["ppv", "userLoad", "pacToUser"])
+    if not energy_titles or not energy_obj or not has_energy_data:
         log_message(f"⚠️ No energy chart data received for {selected_date}")
 
     # Format each data series for Highcharts with updated line width and color
@@ -589,6 +591,7 @@ def battery_chart():
         energy_titles=energy_titles,
         energy_series=energy_series
     )
+
 
 
 
