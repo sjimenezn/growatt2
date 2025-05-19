@@ -551,30 +551,21 @@ def battery_chart():
     energy_obj = energy_data.get("obj", {}).get("charts", {})
     energy_titles = energy_data.get("titles", [])
 
-    # Check if there is *any* actual data in energy_obj before logging
-    has_energy_data = any(energy_obj.get(key) for key in ["ppv", "userLoad", "pacToUser"])
-    if not energy_titles or not energy_obj or not has_energy_data:
-        log_message(f"⚠️ No energy chart data received for {selected_date}")
-
     # Format each data series for Highcharts with updated line width and color
     def prepare_series(data_list, name, color):
-        if not data_list or not isinstance(data_list, list):
+        if not data_list or not isinstance(data_list, list) or not data_list: # Check if data_list is empty too
             return None
-        return {
-            "name": name,
-            "data": data_list,
-            "color": color,
-            "fillOpacity": 0.2,
-            "lineWidth": 1
-        }
+        return {"name": name, "data": data_list, "color": color, "fillOpacity": 0.2, "lineWidth": 1}
 
-    # Use the requested colors for the chart (without "Exported to Grid")
     energy_series = [
-        prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#FFEB3B"),  # Yellow
-        prepare_series(energy_obj.get("userLoad"), "Load Consumption", "#9C27B0"),  # Purple
-        prepare_series(energy_obj.get("pacToUser"), "Imported from Grid", "#00BCD4"),  # Cyan
+        prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#FFEB3B"),
+        prepare_series(energy_obj.get("userLoad"), "Load Consumption", "#9C27B0"),
+        prepare_series(energy_obj.get("pacToUser"), "Imported from Grid", "#00BCD4"),
     ]
     energy_series = [s for s in energy_series if s and s['name'] != 'Exported to Grid']
+
+    if not any(series and series['data'] for series in energy_series):
+        log_message(f"⚠️ No usable energy chart data received for {selected_date}")
 
     # Ensure 288 data points for energy data
     for series in energy_series:
@@ -591,9 +582,6 @@ def battery_chart():
         energy_titles=energy_titles,
         energy_series=energy_series
     )
-
-
-
 
 @app.route('/dn')
 def download_logs():
