@@ -184,14 +184,17 @@
     // SoC Chart
     const socData = {{ soc_data | tojson }};
     const timeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-    const tickPositions = Array.from({ length: 24 }, (_, i) => Math.round(i * (288 / 23))); // Distribute ticks
+    const tickPositions = Array.from({ length: 24 }, (_, i) => Math.round(i * (288 / 23))); // Attempt 1
+
+    // More explicit tick positions based on hour intervals
+    const hourlyTickPositions = Array.from({ length: 24 }, (_, i) => i * 12);
 
     Highcharts.chart('chart-container', {
         chart: { type: 'area', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'State of Charge on {{ selected_date }}' },
         xAxis: {
             categories: timeLabels,
-            tickPositions: tickPositions,
+            tickPositions: hourlyTickPositions,
             title: { text: 'Hour' }
         },
         yAxis: {
@@ -217,14 +220,17 @@
     // Energy Chart
     const energySeries = {{ energy_series | tojson }};
     const energyTimeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-    const energyTickPositions = Array.from({ length: 24 }, (_, i) => Math.round(i * (288 / 23))); // Distribute ticks
+    const energyTickPositions = Array.from({ length: 24 }, (_, i) => Math.round(i * (288 / 23))); // Attempt 1
+
+    // More explicit tick positions based on hour intervals
+    const hourlyEnergyTickPositions = Array.from({ length: 24 }, (_, i) => i * 12);
 
     Highcharts.chart('energy-chart-container', {
         chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'Energy Flow on {{ selected_date }}' },
         xAxis: {
             categories: energyTimeLabels,
-            tickPositions: energyTickPositions,
+            tickPositions: hourlyEnergyTickPositions,
             title: { text: 'Hour' }
         },
         yAxis: {
@@ -262,6 +268,7 @@
         series: energySeries
     });
 </script>
+
 
 </body>
 </html>
