@@ -377,7 +377,7 @@ def chatlog_view():
         <html>
         <head>
             <title>Growatt Monitor - Chatlog</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -435,7 +435,7 @@ def console_view():
         <html>
         <head>
             <title>Console Logs</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
             <style>
                 body {
                     font-family: Arial, sans-serif;
