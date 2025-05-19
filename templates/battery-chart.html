@@ -145,7 +145,7 @@
 </div>
 
 <script>
-    // Function to get today's date in<ctrl3348>-MM-DD format
+    // Function to get today's date in YYYY-MM-DD format
     function getTodayDate() {
         const today = new Date();
         const year = today.getFullYear();
@@ -183,17 +183,14 @@
 
     // SoC Chart
     const socData = {{ soc_data | tojson }};
-    const timeLabels = [...Array(288).keys()].map(i => {
-        const h = Math.floor(i / 12).toString().padStart(2, '0');
-        return h;
-    });
+    const timeLabels = [...Array(24).keys()].map(i => String(i).padStart(2, '0'));
 
     Highcharts.chart('chart-container', {
         chart: { type: 'area', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'State of Charge on {{ selected_date }}' },
         xAxis: {
             categories: timeLabels,
-            tickInterval: 12,
+            tickInterval: 1,
             title: { text: 'Hour' }
         },
         yAxis: {
@@ -203,8 +200,9 @@
         },
         tooltip: {
             formatter: function () {
-                const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
-                const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
+                const index = this.point.index * (288 / 24); // Scale index to 5-min intervals
+                const hour = Math.floor(index / 12).toString().padStart(2, '0');
+                const minute = ((index % 12) * 5).toString().padStart(2, '0');
                 return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
             }
         },
@@ -218,17 +216,14 @@
 
     // Energy Chart
     const energySeries = {{ energy_series | tojson }};
-    const energyTimeLabels = [...Array(288).keys()].map(i => {
-        const h = Math.floor(i / 12).toString().padStart(2, '0');
-        return h;
-    });
+    const energyTimeLabels = [...Array(24).keys()].map(i => String(i).padStart(2, '0'));
 
     Highcharts.chart('energy-chart-container', {
         chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'Energy Flow on {{ selected_date }}' },
         xAxis: {
             categories: energyTimeLabels,
-            tickInterval: 12,
+            tickInterval: 1,
             title: { text: 'Hour' }
         },
         yAxis: {
@@ -240,7 +235,7 @@
             shared: true,
             valueSuffix: ' W',
             formatter: function () {
-                const pointIndex = this.points[0].point.index;
+                const pointIndex = this.points[0].point.index * (288 / 24); // Scale index
                 const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
                 const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
                 let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
@@ -266,5 +261,6 @@
         series: energySeries
     });
 </script>
+
 </body>
 </html>
