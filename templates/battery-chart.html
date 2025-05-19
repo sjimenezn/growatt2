@@ -183,17 +183,14 @@
 
     // SoC Chart
     const socData = {{ soc_data | tojson }};
-    const timeLabels = [...Array(288).keys()].map(i => {
-        const h = Math.floor(i / 12).toString().padStart(2, '0');
-        return h;
-    });
+    const timeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 
     Highcharts.chart('chart-container', {
         chart: { type: 'area', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'State of Charge on {{ selected_date }}' },
         xAxis: {
             categories: timeLabels,
-            tickInterval: 12,
+            tickInterval: 1,
             title: { text: 'Hour' }
         },
         yAxis: {
@@ -218,17 +215,14 @@
 
     // Energy Chart
     const energySeries = {{ energy_series | tojson }};
-    const energyTimeLabels = [...Array(288).keys()].map(i => {
-        const h = Math.floor(i / 12).toString().padStart(2, '0');
-        return h;
-    });
+    const energyTimeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 
     Highcharts.chart('energy-chart-container', {
         chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'Energy Flow on {{ selected_date }}' },
         xAxis: {
             categories: energyTimeLabels,
-            tickInterval: 12,
+            tickInterval: 1,
             title: { text: 'Hour' }
         },
         yAxis: {
