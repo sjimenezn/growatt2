@@ -145,7 +145,7 @@
 </div>
 
 <script>
-    // Function to get today's date in YYYY-MM-DD format
+    // Function to get today's date in<ctrl3348>-MM-DD format
     function getTodayDate() {
         const today = new Date();
         const year = today.getFullYear();
@@ -183,14 +183,17 @@
 
     // SoC Chart
     const socData = {{ soc_data | tojson }};
-    const timeLabels = [...Array(24).keys()].map(i => String(i).padStart(2, '0'));
+    const timeLabels = [...Array(288).keys()].map(i => {
+        const h = Math.floor(i / 12).toString().padStart(2, '0');
+        return h;
+    });
 
     Highcharts.chart('chart-container', {
         chart: { type: 'area', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'State of Charge on {{ selected_date }}' },
         xAxis: {
             categories: timeLabels,
-            tickInterval: 1,
+            tickInterval: 12,
             title: { text: 'Hour' }
         },
         yAxis: {
@@ -215,14 +218,17 @@
 
     // Energy Chart
     const energySeries = {{ energy_series | tojson }};
-    const energyTimeLabels = [...Array(24).keys()].map(i => String(i).padStart(2, '0'));
+    const energyTimeLabels = [...Array(288).keys()].map(i => {
+        const h = Math.floor(i / 12).toString().padStart(2, '0');
+        return h;
+    });
 
     Highcharts.chart('energy-chart-container', {
         chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
         title: { text: 'Energy Flow on {{ selected_date }}' },
         xAxis: {
             categories: energyTimeLabels,
-            tickInterval: 1,
+            tickInterval: 12,
             title: { text: 'Hour' }
         },
         yAxis: {
