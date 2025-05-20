@@ -295,3 +295,7 @@
 {"timestamp": "2025-05-20 18:10:04", "vGrid": "119.8", "outPutVolt": "121.3", "activePower": "238", "capacity": "76", "freqOutPut": "60.04"}
 {"timestamp": "2025-05-20 18:14:48", "vGrid": "118.1", "outPutVolt": "119.9", "activePower": "142", "capacity": "75", "freqOutPut": "59.96"}
 {"timestamp": "2025-05-20 18:19:31", "vGrid": "118.1", "outPutVolt": "120", "activePower": "202", "capacity": "74", "freqOutPut": "59.98"}
+{"timestamp": "2025-05-20 18:24:15", "vGrid": "116.9", "outPutVolt": "119.9", "activePower": "145", "capacity": "74", "freqOutPut": "59.96"}
+{"timestamp": "2025-05-20 18:28:59", "vGrid": "116.9", "outPutVolt": "119.7", "activePower": "141", "capacity": "73", "freqOutPut": "59.95"}
+{"timestamp": "2025-05-20 18:33:43", "vGrid": "116.8", "outPutVolt": "119.9", "activePower": "143", "capacity": "73", "freqOutPut": "60.02"}
+{"timestamp": "2025-05-20 18:42:09", "vGrid": "120.9", "outPutVolt": "120.1", "activePower": "138", "capacity": "72", "freqOutPut": "60.01"}
