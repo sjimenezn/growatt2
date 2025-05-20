@@ -349,19 +349,40 @@ def charts_view():
         log_message(f"❌ Error reading saved data for charts: {e}")
         return "Error loading chart data.", 500
 
-    # Filter entries from the last 24 hours
+    # Sort data by timestamp (important for consistent slicing in JS)
+    # Ensure all timestamps are converted to datetime objects for comparison
+    for entry in parsed_data:
+        if isinstance(entry.get('timestamp'), str):
+            entry['dt_timestamp'] = datetime.strptime(entry['timestamp'], "%Y-%m-%d %H:%M:%S")
+        else:
+            # Handle cases where timestamp might be missing or not a string if applicable
+            entry['dt_timestamp'] = datetime.min # Or some other fallback
+    
+    # Sort the data by the new datetime object
+    parsed_data.sort(key=lambda x: x['dt_timestamp'])
+
+    # Determine the maximum duration we want to support (96 hours)
+    # This will ensure we send enough data for all dropdown options
+    max_duration_hours = 96
     now = datetime.now()
-    last_24h = now - timedelta(hours=24)
-    filtered_data = [
+    cutoff_time = now - timedelta(hours=max_duration_hours)
+
+    # Filter data to include only up to the maximum desired duration
+    # This prevents sending excessively large datasets if your file has years of data
+    filtered_data_for_frontend = [
         entry for entry in parsed_data
-        if datetime.strptime(entry['timestamp'], "%Y-%m-%d %H:%M:%S") >= last_24h
+        if entry['dt_timestamp'] >= cutoff_time
     ]
 
-    timestamps = [entry['timestamp'] for entry in filtered_data]
-    ac_input = [float(entry['vGrid']) for entry in filtered_data]
-    ac_output = [float(entry['outPutVolt']) for entry in filtered_data]
-    active_power = [int(entry['activePower']) for entry in filtered_data]
-    battery_capacity = [int(entry['capacity']) for entry in filtered_data]
+    # Extract data, converting timestamps back to string if needed by Highcharts,
+    # or just keep them as they are in the file if Highcharts can parse them directly
+    # from the original string format.
+    # It's safer to send the original string timestamp for consistency.
+    timestamps = [entry['timestamp'] for entry in filtered_data_for_frontend]
+    ac_input = [float(entry['vGrid']) for entry in filtered_data_for_frontend]
+    ac_output = [float(entry['outPutVolt']) for entry in filtered_data_for_frontend]
+    active_power = [int(entry['activePower']) for entry in filtered_data_for_frontend]
+    battery_capacity = [int(entry['capacity']) for entry in filtered_data_for_frontend]
 
     return render_template("logs.html",
         timestamps=timestamps,
