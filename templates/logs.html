@@ -64,6 +64,17 @@
             margin: 20px auto;
         }
 
+        .controls-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .controls-container label,
+        .controls-container select {
+            font-size: 1.1em;
+            padding: 5px;
+        }
+
         @media (max-width: 600px) {
             .chart-container {
                 height: 300px;
@@ -84,7 +95,13 @@
     </nav>
 
     <div class="container">
-        <h2>Growatt Monitoring Charts (Last 24 Hours)</h2>
+        <h2>Growatt Monitoring Charts</h2>
+
+        <div class="controls-container">
+            <label for="timeRangeSelect">Show Last:</label>
+            <select id="timeRangeSelect" onchange="updateCharts()">
+                <option value="288" selected>24 hours</option> <option value="576">48 hours</option>   <option value="864">72 hours</option>   <option value="1152">96 hours</option>  </select>
+        </div>
 
         <div class="chart-container" id="acInputChart"></div>
         <div class="chart-container" id="acOutputChart"></div>
@@ -93,14 +110,29 @@
     </div>
 
     <script>
-        const labels = {{ timestamps | tojson }};
-        const acInput = {{ ac_input | tojson }};
-        const acOutput = {{ ac_output | tojson }};
-        const activePower = {{ active_power | tojson }};
-        const batteryCapacity = {{ battery_capacity | tojson }};
+        // These global variables will hold the full dataset
+        const allLabels = {{ timestamps | tojson }};
+        const allAcInput = {{ ac_input | tojson }};
+        const allAcOutput = {{ ac_output | tojson }};
+        const allActivePower = {{ active_power | tojson }};
+        const allBatteryCapacity = {{ battery_capacity | tojson }};
 
-        function drawChart(id, title, data, color) {
-            const timeLabels = labels.map(label => new Date(label).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        // Function to draw a single chart, now taking numberOfPoints as an argument
+        function drawChart(id, title, data, color, numberOfPoints) {
+            const effectiveLabels = allLabels.slice(); // Create a mutable copy
+            const effectiveData = data.slice(); // Create a mutable copy
+
+            const totalDataPoints = effectiveData.length;
+            const startIndex = Math.max(0, totalDataPoints - numberOfPoints);
+
+            const displayedLabels = effectiveLabels.slice(startIndex);
+            const displayedData = effectiveData.slice(startIndex);
+
+            // Generate time labels for x-axis categories from the displayedLabels
+            const timeLabels = displayedLabels.map(label => {
+                const date = new Date(label);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            });
 
             Highcharts.chart(id, {
                 chart: {
@@ -111,7 +143,13 @@
                 title: { text: title },
                 xAxis: {
                     categories: timeLabels,
-                    title: { text: 'Time' }
+                    title: { text: 'Time' },
+                    // Optimal tick interval based on the number of displayed points
+                    tickInterval: Math.max(1, Math.floor(timeLabels.length / 12)), // Show roughly 12 ticks
+                    labels: {
+                        rotation: -45, // Rotate labels for better readability
+                        align: 'right'
+                    }
                 },
                 yAxis: {
                     title: { text: 'Value' },
@@ -119,7 +157,8 @@
                 },
                 tooltip: {
                     formatter: function () {
-                        const originalTime = labels[this.point.index];
+                        // Access the actual timestamp from the displayedLabels array
+                        const originalTime = displayedLabels[this.point.index];
                         const timeStr = new Date(originalTime).toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit'
@@ -129,17 +168,28 @@
                 },
                 series: [{
                     name: title,
-                    data: data,
+                    data: displayedData, // Use the sliced data
                     color: color,
                     fillOpacity: 0.2
                 }]
             });
         }
 
-        drawChart("acInputChart", "AC Input Voltage", acInput, "blue");
-        drawChart("acOutputChart", "AC Output Voltage", acOutput, "green");
-        drawChart("activePowerChart", "Active Power", activePower, "red");
-        drawChart("batteryChart", "Battery Capacity", batteryCapacity, "orange");
+        // Function to update all charts based on the selected time range
+        function updateCharts() {
+            const selectElement = document.getElementById('timeRangeSelect');
+            const numberOfPoints = parseInt(selectElement.value);
+
+            drawChart("acInputChart", "AC Input Voltage", allAcInput, "blue", numberOfPoints);
+            drawChart("acOutputChart", "AC Output Voltage", allAcOutput, "green", numberOfPoints);
+            drawChart("activePowerChart", "Active Power", allActivePower, "red", numberOfPoints);
+            drawChart("batteryChart", "Battery Capacity", allBatteryCapacity, "orange", numberOfPoints);
+        }
+
+        // Initial chart drawing on page load
+        window.onload = function() {
+            updateCharts(); // Draw charts with the default "24 hours" option
+        };
     </script>
 </body>
 </html>
