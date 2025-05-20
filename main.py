@@ -1,4 +1,4 @@
-import pytz
+l 100-8786 perdón Mex porfa import pytz
 from flask import Flask, render_template, render_template_string, jsonify, request, send_file
 import threading
 import pprint
@@ -178,7 +178,7 @@ def save_data_to_file(data):
             lines = []
 
         lines.append(json.dumps(data) + "\n")
-        lines = lines[-1000:]
+        lines = lines[-1200:]
 
         with open(data_file, "w") as f:
             f.writelines(lines)
