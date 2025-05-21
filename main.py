@@ -340,44 +340,69 @@ def home():
 
 @app.route("/logs")
 def charts_view():
-    try:
-        # Read and parse the saved data
-        with open(data_file, "r") as file:
-            saved_data = file.readlines()
-        parsed_data = [json.loads(line.strip()) for line in saved_data]
-    except Exception as e:
-        log_message(f"❌ Error reading saved data for charts: {e}")
-        return "Error loading chart data.", 500
+    parsed_data = []
+    if os.path.exists(data_file):
+        try:
+            # Read and parse the saved data from saved_data.json
+            with open(data_file, "r") as file:
+                # Assuming saved_data.json has one JSON object per line,
+                # like the dummy data we've been using.
+                saved_data_lines = file.readlines()
+            parsed_data = [json.loads(line.strip()) for line in saved_data_lines]
+        except Exception as e:
+            log_message(f"❌ Error reading saved data for charts from {data_file}: {e}")
+            # If there's an error, parsed_data remains empty
+    else:
+        log_message(f"⚠️ Data file not found: {data_file}. Charts will be empty.")
+        # Create an empty file if it doesn't exist, to prevent future errors
+        try:
+            with open(data_file, "w") as f:
+                f.write("")
+            log_message(f"Created empty data file: {data_file}")
+        except Exception as e:
+            log_message(f"❌ Error creating empty data file: {e}")
+
+
+    # Prepare timestamps as datetime objects for sorting and filtering
+    processed_data = []
+    for entry in parsed_data:
+        # Ensure timestamp exists and is a string before attempting conversion
+        if 'timestamp' in entry and isinstance(entry['timestamp'], str):
+            try:
+                entry['dt_timestamp'] = datetime.strptime(entry['timestamp'], "%Y-%m-%d %H:%M:%S")
+                processed_data.append(entry)
+            except ValueError:
+                log_message(f"Skipping entry with invalid timestamp format: {entry.get('timestamp')}")
+        else:
+            log_message(f"Skipping entry with missing or non-string timestamp: {entry}")
+
 
     # Sort data by timestamp (important for consistent slicing in JS)
-    # Ensure all timestamps are converted to datetime objects for comparison
-    for entry in parsed_data:
-        if isinstance(entry.get('timestamp'), str):
-            entry['dt_timestamp'] = datetime.strptime(entry['timestamp'], "%Y-%m-%d %H:%M:%S")
-        else:
-            # Handle cases where timestamp might be missing or not a string if applicable
-            entry['dt_timestamp'] = datetime.min # Or some other fallback
+    processed_data.sort(key=lambda x: x['dt_timestamp'])
+
+    # Filter data to send a maximum of 96 hours to the frontend
+    # This prevents sending excessively large datasets
+    max_duration_hours_to_send = 96
     
-    # Sort the data by the new datetime object
-    parsed_data.sort(key=lambda x: x['dt_timestamp'])
+    # Use the latest timestamp in the processed_data as 'now' for filtering,
+    # if data exists. Otherwise, use actual current time.
+    if processed_data:
+        # Get the timestamp of the very last entry in your data
+        # This makes the "last 24 hours" relative to your actual data, not the server's current time.
+        reference_time = processed_data[-1]['dt_timestamp']
+    else:
+        # If no data is available, use the current time
+        reference_time = datetime.now() 
 
-    # Determine the maximum duration we want to support (96 hours)
-    # This will ensure we send enough data for all dropdown options
-    max_duration_hours = 96
-    now = datetime.now()
-    cutoff_time = now - timedelta(hours=max_duration_hours)
+    cutoff_time = reference_time - timedelta(hours=max_duration_hours_to_send)
 
-    # Filter data to include only up to the maximum desired duration
-    # This prevents sending excessively large datasets if your file has years of data
+    # Filter data to only include entries within the last `max_duration_hours_to_send`
     filtered_data_for_frontend = [
-        entry for entry in parsed_data
+        entry for entry in processed_data
         if entry['dt_timestamp'] >= cutoff_time
     ]
 
-    # Extract data, converting timestamps back to string if needed by Highcharts,
-    # or just keep them as they are in the file if Highcharts can parse them directly
-    # from the original string format.
-    # It's safer to send the original string timestamp for consistency.
+    # Extract data - send original string timestamp for Highcharts
     timestamps = [entry['timestamp'] for entry in filtered_data_for_frontend]
     ac_input = [float(entry['vGrid']) for entry in filtered_data_for_frontend]
     ac_output = [float(entry['outPutVolt']) for entry in filtered_data_for_frontend]
@@ -389,9 +414,7 @@ def charts_view():
         ac_input=ac_input,
         ac_output=ac_output,
         active_power=active_power,
-        battery_capacity=battery_capacity)
-
-        
+        battery_capacity=battery_capacity)     
 @app.route("/chatlog")
 def chatlog_view():
     return render_template_string("""
