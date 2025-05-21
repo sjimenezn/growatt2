@@ -107,89 +107,104 @@
         <div class="chart-container" id="acOutputChart"></div>
         <div class="chart-container" id="activePowerChart"></div>
         <div class="chart-container" id="batteryChart"></div>
-    </div>
+        
+    </<script>
+    // These global variables will hold the full dataset
+    const allLabels = {{ timestamps | tojson }};
+    const allAcInput = {{ ac_input | tojson }};
+    const allAcOutput = {{ ac_output | tojson }};
+    const allActivePower = {{ active_power | tojson }};
+    const allBatteryCapacity = {{ battery_capacity | tojson }};
 
-    <script>
-        // These global variables will hold the full dataset
-        const allLabels = {{ timestamps | tojson }};
-        const allAcInput = {{ ac_input | tojson }};
-        const allAcOutput = {{ ac_output | tojson }};
-        const allActivePower = {{ active_power | tojson }};
-        const allBatteryCapacity = {{ battery_capacity | tojson }};
+    // --- Add this console log to check the total data length received ---
+    console.log("Total data points received from Flask (timestamps):", allLabels.length);
+    console.log("Total data points received from Flask (AC Input):", allAcInput.length);
+    // You can add more for other data arrays if you want to be exhaustive
+    // ------------------------------------------------------------------
 
-        // Function to draw a single chart, now taking numberOfPoints as an argument
-        function drawChart(id, title, data, color, numberOfPoints) {
-            const effectiveLabels = allLabels.slice(); // Create a mutable copy
-            const effectiveData = data.slice(); // Create a mutable copy
+    // Function to draw a single chart, now taking numberOfPoints as an argument
+    function drawChart(id, title, data, color, numberOfPoints) {
+        console.log(`--- Drawing Chart: ${title} ---`);
+        console.log(`  Requested numberOfPoints (from dropdown): ${numberOfPoints}`);
+        console.log(`  Full data array length (inside drawChart): ${data.length}`);
 
-            const totalDataPoints = effectiveData.length;
-            const startIndex = Math.max(0, totalDataPoints - numberOfPoints);
+        const effectiveLabels = allLabels.slice(); // Create a mutable copy
+        const effectiveData = data.slice(); // Create a mutable copy
 
-            const displayedLabels = effectiveLabels.slice(startIndex);
-            const displayedData = effectiveData.slice(startIndex);
+        const totalDataPoints = effectiveData.length;
+        const startIndex = Math.max(0, totalDataPoints - numberOfPoints);
+        
+        console.log(`  Calculated startIndex: ${startIndex}`);
+        console.log(`  Length of displayedData (should be close to requested numberOfPoints or less if not enough data): ${totalDataPoints - startIndex}`);
 
-            // Generate time labels for x-axis categories from the displayedLabels
-            const timeLabels = displayedLabels.map(label => {
-                const date = new Date(label);
-                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            });
+        const displayedLabels = effectiveLabels.slice(startIndex);
+        const displayedData = effectiveData.slice(startIndex);
 
-            Highcharts.chart(id, {
-                chart: {
-                    type: 'area',
-                    spacingTop: 10,
-                    spacingBottom: 10
-                },
-                title: { text: title },
-                xAxis: {
-                    categories: timeLabels,
-                    title: { text: 'Time' },
-                    // Optimal tick interval based on the number of displayed points
-                    tickInterval: Math.max(1, Math.floor(timeLabels.length / 12)), // Show roughly 12 ticks
-                    labels: {
-                        rotation: -45, // Rotate labels for better readability
-                        align: 'right'
-                    }
-                },
-                yAxis: {
-                    title: { text: 'Value' },
-                    min: 0
-                },
-                tooltip: {
-                    formatter: function () {
-                        // Access the actual timestamp from the displayedLabels array
-                        const originalTime = displayedLabels[this.point.index];
-                        const timeStr = new Date(originalTime).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
-                        return `Time: ${timeStr}<br>Value: ${this.y}`;
-                    }
-                },
-                series: [{
-                    name: title,
-                    data: displayedData, // Use the sliced data
-                    color: color,
-                    fillOpacity: 0.2
-                }]
-            });
-        }
+        // Generate time labels for x-axis categories from the displayedLabels
+        const timeLabels = displayedLabels.map(label => {
+            const date = new Date(label);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        });
 
-        // Function to update all charts based on the selected time range
-        function updateCharts() {
-            const selectElement = document.getElementById('timeRangeSelect');
-            const numberOfPoints = parseInt(selectElement.value);
+        Highcharts.chart(id, {
+            chart: {
+                type: 'area',
+                spacingTop: 10,
+                spacingBottom: 10
+            },
+            title: { text: title },
+            xAxis: {
+                categories: timeLabels,
+                title: { text: 'Time' },
+                // Optimal tick interval based on the number of displayed points
+                tickInterval: Math.max(1, Math.floor(timeLabels.length / 12)), // Show roughly 12 ticks
+                labels: {
+                    rotation: -45, // Rotate labels for better readability
+                    align: 'right'
+                }
+            },
+            yAxis: {
+                title: { text: 'Value' },
+                min: 0
+            },
+            tooltip: {
+                formatter: function () {
+                    // Access the actual timestamp from the displayedLabels array
+                    const originalTime = displayedLabels[this.point.index];
+                    const timeStr = new Date(originalTime).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                    return `Time: ${timeStr}<br>Value: ${this.y}`;
+                }
+            },
+            series: [{
+                name: title,
+                data: displayedData, // Use the sliced data
+                color: color,
+                fillOpacity: 0.2
+            }]
+        });
+    }
 
-            drawChart("acInputChart", "AC Input Voltage", allAcInput, "blue", numberOfPoints);
-            drawChart("acOutputChart", "AC Output Voltage", allAcOutput, "green", numberOfPoints);
-            drawChart("activePowerChart", "Active Power", allActivePower, "red", numberOfPoints);
-            drawChart("batteryChart", "Battery Capacity", allBatteryCapacity, "orange", numberOfPoints);
-        }
+    // Function to update all charts based on the selected time range
+    function updateCharts() {
+        const selectElement = document.getElementById('timeRangeSelect');
+        const numberOfPoints = parseInt(selectElement.value);
+        console.log(`--- Dropdown selected value: ${selectElement.value}, Parsed numberOfPoints: ${numberOfPoints} ---`);
 
-        // Initial chart drawing on page load
-        window.onload = function() {
-            updateCharts(); // Draw charts with the default "24 hours" option
-        };
-    </script>
+
+        drawChart("acInputChart", "AC Input Voltage", allAcInput, "blue", numberOfPoints);
+        drawChart("acOutputChart", "AC Output Voltage", allAcOutput, "green", numberOfPoints);
+        drawChart("activePowerChart", "Active Power", allActivePower, "red", numberOfPoints);
+        drawChart("batteryChart", "Battery Capacity", allBatteryCapacity, "orange", numberOfPoints);
+    }
+
+    // Initial chart drawing on page load
+    window.onload = function() {
+        updateCharts(); // Draw charts with the default "24 hours" option
+    };
+</script>
+
 </body>
 </html>
