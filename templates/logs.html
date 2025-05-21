@@ -100,7 +100,11 @@
         <div class="controls-container">
             <label for="timeRangeSelect">Show Last:</label>
             <select id="timeRangeSelect" onchange="updateCharts()">
-                <option value="288" selected>24 hours</option> <option value="576">48 hours</option>   <option value="864">72 hours</option>   <option value="1152">96 hours</option>  </select>
+                <option value="24" selected>24 hours</option>
+                <option value="48">48 hours</option>
+                <option value="72">72 hours</option>
+                <option value="96">96 hours</option>
+            </select>
         </div>
 
         <div class="chart-container" id="acInputChart"></div>
@@ -109,82 +113,104 @@
         <div class="chart-container" id="batteryChart"></div>
     </div>
 
-@app.route("/logs")
-def charts_view():
-    parsed_data = []
-    if os.path.exists(data_file):
-        try:
-            # Read and parse the saved data from saved_data.json
-            with open(data_file, "r") as file:
-                # Assuming saved_data.json has one JSON object per line,
-                # like the dummy data we've been using.
-                saved_data_lines = file.readlines()
-            parsed_data = [json.loads(line.strip()) for line in saved_data_lines]
-        except Exception as e:
-            log_message(f"❌ Error reading saved data for charts from {data_file}: {e}")
-            # If there's an error, parsed_data remains empty
-    else:
-        log_message(f"⚠️ Data file not found: {data_file}. Charts will be empty.")
-        # Create an empty file if it doesn't exist, to prevent future errors
-        try:
-            with open(data_file, "w") as f:
-                f.write("")
-            log_message(f"Created empty data file: {data_file}")
-        except Exception as e:
-            log_message(f"❌ Error creating empty data file: {e}")
+    <script>
+        // These global variables will hold the full dataset received from Flask
+        // Timestamps will be converted to Date objects for easier manipulation
+        const allTimestampsAsDates = {{ timestamps | tojson }}.map(ts => new Date(ts));
+        const allAcInput = {{ ac_input | tojson }};
+        const allAcOutput = {{ ac_output | tojson }};
+        const allActivePower = {{ active_power | tojson }};
+        const allBatteryCapacity = {{ battery_capacity | tojson }};
 
+        // Function to draw a single chart, now taking 'hoursToShow' as an argument
+        function drawChart(id, title, data, color, hoursToShow) {
+            // Determine the reference time: use the latest timestamp in the data
+            // This ensures "last X hours" is relative to the end of the loaded data.
+            const referenceTime = allTimestampsAsDates.length > 0 ? 
+                                  allTimestampsAsDates[allTimestampsAsDates.length - 1] : 
+                                  new Date(); // Fallback to current time if no data
 
-    # Prepare timestamps as datetime objects for sorting and filtering
-    processed_data = []
-    for entry in parsed_data:
-        # Ensure timestamp exists and is a string before attempting conversion
-        if 'timestamp' in entry and isinstance(entry['timestamp'], str):
-            try:
-                entry['dt_timestamp'] = datetime.strptime(entry['timestamp'], "%Y-%m-%d %H:%M:%S")
-                processed_data.append(entry)
-            except ValueError:
-                log_message(f"Skipping entry with invalid timestamp format: {entry.get('timestamp')}")
-        else:
-            log_message(f"Skipping entry with missing or non-string timestamp: {entry}")
+            const cutoffTime = new Date(referenceTime.getTime() - (hoursToShow * 60 * 60 * 1000)); // hours * minutes * seconds * milliseconds
 
+            // Filter data based on timestamps
+            const filteredIndices = [];
+            for (let i = 0; i < allTimestampsAsDates.length; i++) {
+                if (allTimestampsAsDates[i] >= cutoffTime) {
+                    filteredIndices.push(i);
+                }
+            }
 
-    # Sort data by timestamp (important for consistent slicing in JS)
-    processed_data.sort(key=lambda x: x['dt_timestamp'])
+            // If no data found for the period, or data is invalid, display empty chart
+            if (filteredIndices.length === 0) {
+                console.warn(`No data found for the last ${hoursToShow} hours for chart: ${title}`);
+                Highcharts.chart(id, {
+                    title: { text: title + ' (No Data Available)' },
+                    series: []
+                });
+                return; // Exit function if no data
+            }
 
-    # Filter data to send a maximum of 96 hours to the frontend
-    # This prevents sending excessively large datasets
-    max_duration_hours_to_send = 96
-    
-    # Use the latest timestamp in the processed_data as 'now' for filtering,
-    # if data exists. Otherwise, use actual current time.
-    if processed_data:
-        # Get the timestamp of the very last entry in your data
-        # This makes the "last 24 hours" relative to your actual data, not the server's current time.
-        reference_time = processed_data[-1]['dt_timestamp']
-    else:
-        # If no data is available, use the current time
-        reference_time = datetime.now() 
+            // Get the actual data and labels for the filtered indices
+            const displayedLabels = filteredIndices.map(index => allTimestampsAsDates[index]);
+            const displayedData = filteredIndices.map(index => data[index]);
 
-    cutoff_time = reference_time - timedelta(hours=max_duration_hours_to_send)
+            // Generate time labels for x-axis categories from the displayedLabels
+            const timeLabels = displayedLabels.map(date => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 
-    # Filter data to only include entries within the last `max_duration_hours_to_send`
-    filtered_data_for_frontend = [
-        entry for entry in processed_data
-        if entry['dt_timestamp'] >= cutoff_time
-    ]
+            Highcharts.chart(id, {
+                chart: {
+                    type: 'area',
+                    spacingTop: 10,
+                    spacingBottom: 10
+                },
+                title: { text: title },
+                xAxis: {
+                    categories: timeLabels,
+                    title: { text: 'Time' },
+                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))),
+                    labels: {
+                        rotation: -45,
+                        align: 'right',
+                    }
+                },
+                yAxis: {
+                    title: { text: 'Value' },
+                    min: 0
+                },
+                tooltip: {
+                    formatter: function () {
+                        const originalTime = displayedLabels[this.point.index];
+                        const timeStr = originalTime.toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                        return `Time: ${timeStr}<br>Value: ${this.y}`;
+                    }
+                },
+                series: [{
+                    name: title,
+                    data: displayedData,
+                    color: color,
+                    fillOpacity: 0.2
+                }]
+            });
+        }
 
-    # Extract data - send original string timestamp for Highcharts
-    timestamps = [entry['timestamp'] for entry in filtered_data_for_frontend]
-    ac_input = [float(entry['vGrid']) for entry in filtered_data_for_frontend]
-    ac_output = [float(entry['outPutVolt']) for entry in filtered_data_for_frontend]
-    active_power = [int(entry['activePower']) for entry in filtered_data_for_frontend]
-    battery_capacity = [int(entry['capacity']) for entry in filtered_data_for_frontend]
+        // Function to update all charts based on the selected time range
+        function updateCharts() {
+            const selectElement = document.getElementById('timeRangeSelect');
+            const hoursToShow = parseInt(selectElement.value);
 
-    return render_template("logs.html",
-        timestamps=timestamps,
-        ac_input=ac_input,
-        ac_output=ac_output,
-        active_power=active_power,
-        battery_capacity=battery_capacity)
+            drawChart("acInputChart", "AC Input Voltage", allAcInput, "blue", hoursToShow);
+            drawChart("acOutputChart", "AC Output Voltage", allAcOutput, "green", hoursToShow);
+            drawChart("activePowerChart", "Active Power", allActivePower, "red", hoursToShow);
+            drawChart("batteryChart", "Battery Capacity", allBatteryCapacity, "orange", hoursToShow);
+        }
+
+        // Initial chart drawing on page load
+        window.onload = function() {
+            updateCharts();
+        };
+    </script>
 </body>
 </html>
