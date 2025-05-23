@@ -422,30 +422,7 @@ GIT_PUSH_INTERVAL_MINS = 30 # Sync every 30 minutes
 LOCAL_REPO_PATH = "." # Current directory where main.py and saved_data.json reside
 
 def init_and_add_remote(repo_path, remote_url, username, token):
-    """Initializes a git repo if not exists and sets up remote."""
-    repo = None
-    try:
-        try:
-            repo = git.Repo(repo_path)
-            log_message("✅ Local directory is already a Git repository.")
-        except git.InvalidGitRepositoryError:
-            log_message("🔄 Initializing new Git repository...")
-            repo = git.Repo.init(repo_path)
-            log_message("✅ Git repository initialized.")
-
-        if repo is None:
-            raise Exception("Failed to initialize or get Git repository object during init_and_add_remote.")
-
-        remote_name = "origin"
-        configured_remote_url = f"https://{username}:{token}@{remote_url}"
-
-        if remote_name in repo.remotes:
-            log_message(f"🔄 Updating existing remote '{remote_name}' URL with PAT.")
-            with repo.remotes[remote_name].config_writer as cw:
-                cw.set("url", configured_remote_url)
-        else:
-            log_message(f"🔄 Adding new remote '{remote_name}' with URL: {configured_remote_url.replace(token, '************')}")
-            repo.create_remote(remote_name, configured_remote_url)
+    # ... (previous code) ...
 
         repo.git.fetch() # Ensure we have fresh remote refs
 
@@ -461,11 +438,12 @@ def init_and_add_remote(repo_path, remote_url, username, token):
                 repo.git.checkout('main')
 
             # More robust way to check if a branch is tracking, using Git itself
-            # Check if 'main' is tracking 'origin/main'
             try:
-                tracking_info = repo.git.rev_parse('--abbrev-ref', '--symbolic-full-name', 'main@{u}', with_extended_output=True)
-                # tracking_info.stdout will be 'origin/main' if it's tracking
-                if tracking_info.stdout.strip() != 'origin/main':
+                # CORRECTED LINE: Unpack the tuple returned by with_extended_output
+                stdout_str, stderr_str = repo.git.rev_parse('--abbrev-ref', '--symbolic-full-name', 'main@{u}', with_extended_output=True)
+
+                # Now use stdout_str
+                if stdout_str.strip() != 'origin/main':
                     log_message("🔄 Local 'main' branch exists but not tracking 'origin/main', setting tracking branch.")
                     repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
                     log_message("✅ Set local 'main' branch to track 'origin/main'.")
@@ -482,12 +460,7 @@ def init_and_add_remote(repo_path, remote_url, username, token):
                 except Exception as set_e:
                     log_message(f"❌ Failed to set tracking branch for 'main' even with fallback: {set_e}")
 
-
-    except Exception as e:
-        log_message(f"⚠️ Error in init_and_add_remote: {e}")
-        return None # Return None if any error occurs
-
-    return repo
+    # ... (rest of the function remains the same) ...
 
 def _perform_single_github_sync_operation():
     """Helper function to perform a single Git add, commit, and push operation."""
