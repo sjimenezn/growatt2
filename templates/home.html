@@ -9,7 +9,9 @@
                     margin: 0;
                     padding: 0;
                     font-size: 80%;
-                    text-align: center;
+                    text-align: center; /* Centered content */
+                    background-color: #f4f4f4; /* Light gray background */
+                    color: #333; /* Darker text */
                 }
                 nav {
                     background-color: #333;
@@ -43,9 +45,83 @@
                 }
                 table {
                     border-collapse: collapse;
+                    margin-top: 20px; /* Space above table */
+                    width: auto; /* Allow table to size naturally */
                 }
                 th, td {
                     padding: 8px 12px;
+                    border: 1px solid #ddd; /* Add borders for clarity */
+                    text-align: left; /* Align text left in cells */
+                }
+                th {
+                    background-color: #f2f2f2; /* Light background for headers */
+                }
+
+                /* New styles for Telegram controls */
+                .telegram-section {
+                    margin: 30px auto; /* Centered with margin */
+                    padding: 20px;
+                    background-color: #e9ecef; /* Light blue-gray background */
+                    border-radius: 8px; /* Rounded corners */
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Subtle shadow */
+                    max-width: 600px; /* Max width for the section */
+                }
+
+                .telegram-section h2 {
+                    color: #0056b3; /* Blue heading */
+                    margin-bottom: 15px;
+                }
+
+                .telegram-section button {
+                    padding: 10px 20px;
+                    font-size: 16px;
+                    margin: 5px;
+                    cursor: pointer;
+                    border: none;
+                    border-radius: 5px;
+                    color: white;
+                }
+
+                .telegram-section button.start {
+                    background-color: #28a745; /* Green for start */
+                }
+                .telegram-section button.stop {
+                    background-color: #dc3545; /* Red for stop */
+                }
+                .telegram-section button.update-token {
+                    background-color: #007bff; /* Blue for update token */
+                }
+
+                .telegram-section input[type="text"] {
+                    width: calc(100% - 22px); /* Full width minus padding/border */
+                    padding: 10px;
+                    margin-bottom: 10px;
+                    border: 1px solid #ced4da;
+                    border-radius: 4px;
+                    font-size: 1em;
+                    box-sizing: border-box; /* Include padding/border in width */
+                }
+
+                .telegram-status {
+                    font-weight: bold;
+                    margin-bottom: 15px;
+                    font-size: 1.1em;
+                }
+                .telegram-status.running {
+                    color: #28a745; /* Green for running status */
+                }
+                .telegram-status.stopped {
+                    color: #dc3545; /* Red for stopped status */
+                }
+
+                /* General container for main content if needed */
+                .main-content {
+                    max-width: 800px;
+                    margin: 20px auto;
+                    padding: 20px;
+                    background-color: #fff;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 }
             </style>
         </head>
@@ -60,22 +136,46 @@
                     <li><a href="/battery-chart">Battery Chart</a></li>
                 </ul>
             </nav>
-            <h1>✅ Growatt Monitor is Running!</h1>
-            <h2>Detalles del Inversor</h2>
-            <h3>Información constante</h3>
-            <p>Plant ID: {{ plant_id }}</p>
-            <p>User ID: {{ user_id }}</p>
-            <p>Inverter SN: {{ inverter_sn }}</p>
-            <p>Datalogger SN: {{ datalog_sn }}</p>
-            <h2>Datos en tiempo real</h2>
-            <table border="1">
-                <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }}</td></tr>
-                <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }}</td></tr>
-                <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }}</td></tr>
-                <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }}</td></tr>
-                <tr><th>Load Power</th><td>{{ d['load_power'] }}</td></tr>
-                <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}</td></tr>
-            </table>
-            <p><b>Última actualización:</b> {{ last }}</p>
+
+            <div class="main-content">
+                <h1>✅ Growatt Monitor is Running!</h1>
+                
+                ---
+                <div class="telegram-section">
+                    <h2>Telegram Bot Control</h2>
+                    <p class="telegram-status">Status: <span class="{{ 'running' if telegram_status == 'Running' else 'stopped' }}">{{ telegram_status }}</span></p>
+                    <form action="{{ url_for('toggle_telegram') }}" method="post" style="display: inline-block; margin-right: 10px;">
+                        <button type="submit" name="action" value="start" class="start" {% if telegram_status == 'Running' %}disabled{% endif %}>Start Telegram Bot</button>
+                    </form>
+                    <form action="{{ url_for('toggle_telegram') }}" method="post" style="display: inline-block;">
+                        <button type="submit" name="action" value="stop" class="stop" {% if telegram_status == 'Stopped' %}disabled{% endif %}>Stop Telegram Bot</button>
+                    </form>
+
+                    <h3>Update Telegram Bot Token</h3>
+                    <p>Current Token (Masked): <strong>{{ current_telegram_token }}</strong></p>
+                    <form action="{{ url_for('update_telegram_token') }}" method="post">
+                        <input type="text" name="new_telegram_token" placeholder="Paste new Telegram Bot Token here" required>
+                        <button type="submit" class="update-token">Update Token & Restart Bot</button>
+                    </form>
+                </div>
+                ---
+
+                <h2>Detalles del Inversor</h2>
+                <h3>Información constante</h3>
+                <p>Plant ID: {{ plant_id }}</p>
+                <p>User ID: {{ user_id }}</p>
+                <p>Inverter SN: {{ inverter_sn }}</p>
+                <p>Datalogger SN: {{ datalog_sn }}</p>
+                <h2>Datos en tiempo real</h2>
+                <table border="1">
+                    <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }} V</td></tr>
+                    <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }} Hz</td></tr>
+                    <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }} V</td></tr>
+                    <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }} Hz</td></tr>
+                    <tr><th>Load Power</th><td>{{ d['load_power'] }} W</td></tr>
+                    <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}%</td></tr>
+                </table>
+                <p><b>Última actualización:</b> {{ last }}</p>
+            </div>
         </body>
-        </html>
+</html>
