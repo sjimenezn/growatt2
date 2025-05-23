@@ -422,29 +422,60 @@ GIT_PUSH_INTERVAL_MINS = 30 # Sync every 30 minutes
 LOCAL_REPO_PATH = "." # Current directory where main.py and saved_data.json reside
 
 def init_and_add_remote(repo_path, remote_url, username, token):
-    # ... (previous code remains the same) ...
-
-    # Set up origin/main tracking if not already done
+    """Initializes a git repo if not exists and sets up remote."""
+    repo = None # Initialize repo to None
     try:
-        # Fetch to ensure origin/main exists locally
-        repo.git.fetch()
-        if 'main' not in repo.heads:
-            log_message("🔄 Local 'main' branch not found, attempting to checkout 'origin/main'.")
-            # CORRECTED LINE: Create and checkout local 'main' tracking origin/main
-            # Use -b to create the branch, and then specify the remote branch to track
-            repo.git.checkout('-b', 'main', 'origin/main') # This creates 'main' and tracks 'origin/main'
-            log_message("✅ Checked out and tracking 'origin/main'.")
-        elif not repo.heads.main.is_tracking():
-            log_message("🔄 Local 'main' branch exists but not tracking, setting tracking branch.")
-            repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
-            log_message("✅ Set local 'main' branch to track 'origin/main'.")
+        try:
+            repo = git.Repo(repo_path)
+            log_message("✅ Local directory is already a Git repository.")
+        except git.InvalidGitRepositoryError:
+            log_message("🔄 Initializing new Git repository...")
+            repo = git.Repo.init(repo_path)
+            log_message("✅ Git repository initialized.")
+
+        # Ensure repo object was successfully obtained/initialized
+        if repo is None:
+            raise Exception("Failed to initialize or get Git repository object.")
+
+        # Ensure the remote exists and is correctly configured with PAT
+        remote_name = "origin"
+        configured_remote_url = f"https://{username}:{token}@{remote_url}"
+
+        if remote_name in repo.remotes:
+            log_message(f"🔄 Updating existing remote '{remote_name}' URL with PAT.")
+            with repo.remotes[remote_name].config_writer as cw:
+                cw.set("url", configured_remote_url)
         else:
-            log_message("✅ Local 'main' branch exists and is tracking 'origin/main'.")
+            log_message(f"🔄 Adding new remote '{remote_name}' with URL: {configured_remote_url.replace(token, '************')}")
+            repo.create_remote(remote_name, configured_remote_url)
+
+        # Set up origin/main tracking if not already done
+        # This is where the 'track' error previously was, now using -b
+        # Ensure the 'main' branch exists on the remote before trying to track it.
+        repo.git.fetch() # Ensure we have fresh remote refs
+
+        if 'main' not in repo.heads:
+            log_message("🔄 Local 'main' branch not found, attempting to create and checkout 'origin/main'.")
+            # Create a local 'main' branch and set it to track 'origin/main'
+            repo.git.checkout('-b', 'main', 'origin/main')
+            log_message("✅ Created and checked out 'main' tracking 'origin/main'.")
+        else:
+            # If 'main' exists locally, ensure it's checked out and tracking origin/main
+            if repo.active_branch.name != 'main':
+                log_message("🔄 Local 'main' branch exists, switching to it.")
+                repo.git.checkout('main')
+            if not repo.heads.main.is_tracking():
+                log_message("🔄 Local 'main' branch exists but not tracking, setting tracking branch.")
+                repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
+                log_message("✅ Set local 'main' branch to track 'origin/main'.")
+            else:
+                log_message("✅ Local 'main' branch exists and is tracking 'origin/main'.")
 
     except Exception as e:
-        log_message(f"⚠️ Error setting up tracking branch: {e}")
+        log_message(f"⚠️ Error in init_and_add_remote: {e}")
+        return None # Return None if any error occurs
 
-    return repo
+    return repo # Return the repo object if successful
 
 def _perform_single_github_sync_operation():
     """Helper function to perform a single Git add, commit, and push operation."""
@@ -521,7 +552,7 @@ def sync_github_repo():
         log_message("⚠️ GitHub credentials not fully set for scheduled sync. Thread will not run.")
         return
 
-    repo = None # Initialize repo to None outside the try block
+    repo = None # Initialize repo to None
 
     try:
         # Check if .git directory exists
@@ -530,23 +561,25 @@ def sync_github_repo():
             authenticated_clone_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
             git.Repo.clone_from(authenticated_clone_url, LOCAL_REPO_PATH, branch='main')
             log_message("✅ Repository cloned successfully during startup.")
-            # IMPORTANT: After cloning, you must get the Repo object
+            # After cloning, get the Repo object
             repo = git.Repo(LOCAL_REPO_PATH)
         else:
             log_message("Git repository already exists. Ensuring remote is set and pulling latest.")
-            # The init_and_add_remote function should return a Repo object.
-            # If it fails internally and doesn't return one, an error occurs.
+            # Call init_and_add_remote. It now explicitly returns None on error.
             repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
 
-        # Now, check if repo was successfully assigned. If not, something went wrong above.
+        # CRITICAL CHECK: If repo is still None at this point, initial setup failed.
         if repo is None:
-            raise Exception("Failed to obtain Git repository object (it's None after clone/init_and_add_remote).")
+            raise Exception("Initial Git repository setup failed: 'repo' object could not be obtained.")
 
-        # These operations should only proceed if 'repo' is a valid object
+        # If we reach here, 'repo' is guaranteed to be a valid Repo object.
+        # Ensure we are on the main branch and pull the latest changes.
+        # This part should be safe now.
         log_message("Ensuring main branch is checked out and pulling latest changes.")
         # Ensure we are on main branch
-        repo.git.checkout('main') # This should now be safe to call
-        # Pull latest changes on startup
+        if repo.active_branch.name != 'main':
+             log_message("Switching to 'main' branch for initial pull.")
+             repo.git.checkout('main')
         repo.git.pull('--rebase', 'origin', 'main')
         log_message("✅ Git repository updated with latest changes during startup.")
 
