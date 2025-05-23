@@ -517,47 +517,44 @@ def sync_github_repo():
     """Scheduled thread to perform Git add, commit, and push operation."""
     log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
 
-    # On startup, ensure the local repo reflects the remote, including data_file
     if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
         log_message("⚠️ GitHub credentials not fully set for scheduled sync. Thread will not run.")
         return
 
-    # Initialize repo variable outside the try-except to ensure scope
-    repo = None
+    repo = None # Initialize repo to None outside the try block
 
     try:
         # Check if .git directory exists
         if not os.path.exists(os.path.join(LOCAL_REPO_PATH, '.git')):
             log_message(f"No .git directory found. Attempting to clone {GITHUB_REPO_URL}...")
-            # Use PAT directly in clone URL
             authenticated_clone_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
-            git.Repo.clone_from(authenticated_clone_url, LOCAL_REPO_PATH, branch='main') # Clone main branch
+            git.Repo.clone_from(authenticated_clone_url, LOCAL_REPO_PATH, branch='main')
             log_message("✅ Repository cloned successfully during startup.")
-            # IMPORTANT: After cloning, you need to re-initialize the Repo object
-            repo = git.Repo(LOCAL_REPO_PATH) # Assign 'repo' here after a fresh clone
+            # IMPORTANT: After cloning, you must get the Repo object
+            repo = git.Repo(LOCAL_REPO_PATH)
         else:
             log_message("Git repository already exists. Ensuring remote is set and pulling latest.")
-            # This handles cases where Koyeb might re-use a container but not a fresh clone
+            # The init_and_add_remote function should return a Repo object.
+            # If it fails internally and doesn't return one, an error occurs.
             repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
 
-        # These operations now happen AFTER 'repo' is guaranteed to be assigned
-        # and are moved outside the if/else to apply in both clone and existing repo scenarios.
-        if repo: # Ensure repo object exists before trying to use it
-            log_message("Ensuring main branch is checked out and pulling latest changes.")
-            # Ensure we are on main branch
-            # This handles both cases: if it was just cloned, or if it already existed
-            repo.git.checkout('main')
-            # Pull latest changes on startup
-            repo.git.pull('--rebase', 'origin', 'main')
-            log_message("✅ Git repository updated with latest changes during startup.")
-        else:
-            raise Exception("Failed to initialize Git repository object after clone/init.")
+        # Now, check if repo was successfully assigned. If not, something went wrong above.
+        if repo is None:
+            raise Exception("Failed to obtain Git repository object (it's None after clone/init_and_add_remote).")
+
+        # These operations should only proceed if 'repo' is a valid object
+        log_message("Ensuring main branch is checked out and pulling latest changes.")
+        # Ensure we are on main branch
+        repo.git.checkout('main') # This should now be safe to call
+        # Pull latest changes on startup
+        repo.git.pull('--rebase', 'origin', 'main')
+        log_message("✅ Git repository updated with latest changes during startup.")
 
     except Exception as e:
         log_message(f"❌ FATAL: Initial Git clone/pull setup for scheduled sync failed: {e}. Thread disabled.")
         return # Stop the thread if initial setup fails
 
-
+    # The rest of the function (the while True loop)
     while True:
         time.sleep(GIT_PUSH_INTERVAL_MINS * 60) # Wait for the interval
         log_message("Scheduled GitHub sync triggered.")
