@@ -414,15 +414,50 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
         time.sleep(40) # Wait for 40 seconds before next API call
 
 # --- GitHub Sync Config ---
-GITHUB_REPO_URL = "github.com/sjimenezn/growatt2.git" # Your GitHub repository URL (without https://)
-GITHUB_USERNAME = "sjimenezn" # Your GitHub username
-# Retrieve PAT from environment variable for security
-GITHUB_TOKEN = os.getenv("GITHUB_PAT", "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") # Fallback for local testing, but use ENV VAR!
-GIT_PUSH_INTERVAL_MINS = 30 # Sync every 30 minutes
-LOCAL_REPO_PATH = "." # Current directory where main.py and saved_data.json reside
+GITHUB_REPO_URL = os.getenv("GITHUB_REPO_URL", "github.com/sjimenezn/growatt2.git")
+GITHUB_USERNAME = os.getenv("GITHUB_USERNAME", "sjimenezn")
+# Retrieve PAT from environment variable for security.
+# IMPORTANT: Ensure GITHUB_PAT is set in your Koyeb environment variables.
+# The fallback 'ghp_...' is for local testing ONLY and should be removed in production.
+GITHUB_TOKEN = os.getenv("GITHUB_PAT") # Removed the hardcoded fallback from here
+
+GIT_PUSH_INTERVAL_MINS = int(os.getenv("GIT_PUSH_INTERVAL_MINS", "30")) # Sync every 30 minutes
+LOCAL_REPO_PATH = os.getenv("LOCAL_REPO_PATH", ".") # Current directory where main.py and saved_data.json reside
+
+# --- Global variable for the Git Repo object ---
+g_repo = None # This is crucial for passing the repo object around safely
+
+# --- Data file path (assuming it's relative to LOCAL_REPO_PATH) ---
+data_file = os.path.join(LOCAL_REPO_PATH, 'saved_data.json')
+
 
 def init_and_add_remote(repo_path, remote_url, username, token):
-    # ... (previous code) ...
+    """Initializes a git repo if not exists and sets up remote."""
+    repo = None # Initialize repo to None right at the start of the function
+    try:
+        try:
+            repo = git.Repo(repo_path)
+            log_message("✅ Local directory is already a Git repository.")
+        except git.InvalidGitRepositoryError:
+            log_message("🔄 Initializing new Git repository...")
+            repo = git.Repo.init(repo_path)
+            log_message("✅ Git repository initialized.")
+
+        # Ensure repo object was successfully obtained/initialized
+        if repo is None:
+            raise Exception("Failed to initialize or get Git repository object during init_and_add_remote.")
+
+        # Ensure the remote exists and is correctly configured with PAT
+        remote_name = "origin"
+        configured_remote_url = f"https://{username}:{token}@{remote_url}"
+
+        if remote_name in repo.remotes:
+            log_message(f"🔄 Updating existing remote '{remote_name}' URL with PAT.")
+            with repo.remotes[remote_name].config_writer as cw:
+                cw.set("url", configured_remote_url)
+        else:
+            log_message(f"🔄 Adding new remote '{remote_name}' with URL: {configured_remote_url.replace(token, '************')}")
+            repo.create_remote(remote_name, configured_remote_url)
 
         repo.git.fetch() # Ensure we have fresh remote refs
 
@@ -439,10 +474,8 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 
             # More robust way to check if a branch is tracking, using Git itself
             try:
-                # CORRECTED LINE: Unpack the tuple returned by with_extended_output
                 stdout_str, stderr_str = repo.git.rev_parse('--abbrev-ref', '--symbolic-full-name', 'main@{u}', with_extended_output=True)
 
-                # Now use stdout_str
                 if stdout_str.strip() != 'origin/main':
                     log_message("🔄 Local 'main' branch exists but not tracking 'origin/main', setting tracking branch.")
                     repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
@@ -450,8 +483,6 @@ def init_and_add_remote(repo_path, remote_url, username, token):
                 else:
                     log_message("✅ Local 'main' branch exists and is tracking 'origin/main'.")
             except git.exc.GitCommandError as e:
-                # This could happen if it's not tracking any remote, or 'origin/main' doesn't exist etc.
-                # In this case, just try to set it.
                 log_message(f"⚠️ Could not determine tracking status for 'main': {e.stderr.strip() if e.stderr else str(e)}")
                 log_message("🔄 Attempting to set local 'main' branch to track 'origin/main' as fallback.")
                 try:
@@ -460,38 +491,43 @@ def init_and_add_remote(repo_path, remote_url, username, token):
                 except Exception as set_e:
                     log_message(f"❌ Failed to set tracking branch for 'main' even with fallback: {set_e}")
 
-    # ... (rest of the function remains the same) ...
+    except Exception as e:
+        log_message(f"⚠️ Error in init_and_add_remote: {e}")
+        return None # Explicitly return None if any error occurs
 
-def _perform_single_github_sync_operation():
+    return repo # Return the repo object if successful
+
+
+def _perform_single_github_sync_operation(repo_obj_param=None):
     """Helper function to perform a single Git add, commit, and push operation."""
     log_message("🔄 Attempting GitHub sync operation...")
+
+    repo = None
+    if repo_obj_param is not None:
+        repo = repo_obj_param
+    else:
+        global g_repo
+        repo = g_repo
+
+    if repo is None:
+        log_message("❌ Git repository object is not initialized (repo is None). Cannot perform sync.")
+        return False, "Git repository not initialized."
 
     if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
         log_message("⚠️ GitHub credentials (URL, username, token) are not fully set. Skipping Git operation.")
         return False, "GitHub credentials not fully set."
 
-    repo = None # Initialize repo here to handle potential None from init_and_add_remote
     try:
-        repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
-
-        if repo is None:
-            # If init_and_add_remote returned None, it already logged the error
-            raise Exception("Git repository object is None after init_and_add_remote.")
-
-        # Ensure we are on the correct branch and pull latest changes
-        # This part assumes 'repo' is now a valid object.
-        current_branch = repo.active_branch.name # This line should now be safe
-        if current_branch != 'main': # Or 'master', depending on your default branch
+        current_branch = repo.active_branch.name
+        if current_branch != 'main':
             log_message(f"Switching from '{current_branch}' to 'main' branch.")
             repo.git.checkout('main')
             log_message("✅ Switched to 'main' branch.")
 
-        # Pull the latest changes from the remote to avoid conflicts
         log_message("🔄 Pulling latest changes from GitHub...")
         pull_result = repo.git.pull('--rebase', 'origin', 'main')
         log_message(f"✅ Git pull result: {pull_result}")
 
-        # Check for changes in saved_data.json
         if not os.path.exists(data_file):
             log_message(f"⚠️ Data file '{data_file}' not found, cannot sync.")
             return False, "Data file not found."
@@ -525,6 +561,7 @@ def _perform_single_github_sync_operation():
         log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
         return False, f"Unexpected error: {e}"
 
+
 def sync_github_repo():
     """Scheduled thread to perform Git add, commit, and push operation."""
     log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
@@ -533,46 +570,41 @@ def sync_github_repo():
         log_message("⚠️ GitHub credentials not fully set for scheduled sync. Thread will not run.")
         return
 
-    repo = None # Initialize repo to None
+    global g_repo # Declare g_repo as global
+    repo = None # Initialize local 'repo' variable
 
     try:
-        # Check if .git directory exists
         if not os.path.exists(os.path.join(LOCAL_REPO_PATH, '.git')):
             log_message(f"No .git directory found. Attempting to clone {GITHUB_REPO_URL}...")
             authenticated_clone_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
             git.Repo.clone_from(authenticated_clone_url, LOCAL_REPO_PATH, branch='main')
             log_message("✅ Repository cloned successfully during startup.")
-            # After cloning, get the Repo object
             repo = git.Repo(LOCAL_REPO_PATH)
         else:
             log_message("Git repository already exists. Ensuring remote is set and pulling latest.")
-            # Call init_and_add_remote. It now explicitly returns None on error.
             repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
 
-        # CRITICAL CHECK: If repo is still None at this point, initial setup failed.
         if repo is None:
-            raise Exception("Initial Git repository setup failed: 'repo' object could not be obtained.")
+            raise Exception("Git repository object is None after initial setup (init_and_add_remote or git.Repo failed).")
 
-        # If we reach here, 'repo' is guaranteed to be a valid Repo object.
-        # Ensure we are on the main branch and pull the latest changes.
-        # This part should be safe now.
         log_message("Ensuring main branch is checked out and pulling latest changes.")
-        # Ensure we are on main branch
         if repo.active_branch.name != 'main':
              log_message("Switching to 'main' branch for initial pull.")
              repo.git.checkout('main')
+
         repo.git.pull('--rebase', 'origin', 'main')
         log_message("✅ Git repository updated with latest changes during startup.")
 
     except Exception as e:
         log_message(f"❌ FATAL: Initial Git clone/pull setup for scheduled sync failed: {e}. Thread disabled.")
-        return # Stop the thread if initial setup fails
+        return
 
-    # The rest of the function (the while True loop)
+    g_repo = repo # Store the successfully initialized repo object in the global variable
+
     while True:
-        time.sleep(GIT_PUSH_INTERVAL_MINS * 60) # Wait for the interval
+        time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
         log_message("Scheduled GitHub sync triggered.")
-        _perform_single_github_sync_operation() # Call the helper for the scheduled sync
+        _perform_single_github_sync_operation(g_repo)
         
 # Telegram Handlers (unchanged)
 def start(update: Update, context: CallbackContext):
