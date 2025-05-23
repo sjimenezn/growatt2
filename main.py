@@ -423,7 +423,7 @@ LOCAL_REPO_PATH = "." # Current directory where main.py and saved_data.json resi
 
 def init_and_add_remote(repo_path, remote_url, username, token):
     """Initializes a git repo if not exists and sets up remote."""
-    repo = None # Initialize repo to None
+    repo = None
     try:
         try:
             repo = git.Repo(repo_path)
@@ -433,11 +433,9 @@ def init_and_add_remote(repo_path, remote_url, username, token):
             repo = git.Repo.init(repo_path)
             log_message("✅ Git repository initialized.")
 
-        # Ensure repo object was successfully obtained/initialized
         if repo is None:
-            raise Exception("Failed to initialize or get Git repository object.")
+            raise Exception("Failed to initialize or get Git repository object during init_and_add_remote.")
 
-        # Ensure the remote exists and is correctly configured with PAT
         remote_name = "origin"
         configured_remote_url = f"https://{username}:{token}@{remote_url}"
 
@@ -449,48 +447,67 @@ def init_and_add_remote(repo_path, remote_url, username, token):
             log_message(f"🔄 Adding new remote '{remote_name}' with URL: {configured_remote_url.replace(token, '************')}")
             repo.create_remote(remote_name, configured_remote_url)
 
-        # Set up origin/main tracking if not already done
-        # This is where the 'track' error previously was, now using -b
-        # Ensure the 'main' branch exists on the remote before trying to track it.
         repo.git.fetch() # Ensure we have fresh remote refs
 
+        # --- REVISED BRANCH TRACKING LOGIC ---
         if 'main' not in repo.heads:
             log_message("🔄 Local 'main' branch not found, attempting to create and checkout 'origin/main'.")
-            # Create a local 'main' branch and set it to track 'origin/main'
             repo.git.checkout('-b', 'main', 'origin/main')
             log_message("✅ Created and checked out 'main' tracking 'origin/main'.")
         else:
-            # If 'main' exists locally, ensure it's checked out and tracking origin/main
+            # Ensure 'main' is checked out
             if repo.active_branch.name != 'main':
                 log_message("🔄 Local 'main' branch exists, switching to it.")
                 repo.git.checkout('main')
-            if not repo.heads.main.is_tracking():
-                log_message("🔄 Local 'main' branch exists but not tracking, setting tracking branch.")
-                repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
-                log_message("✅ Set local 'main' branch to track 'origin/main'.")
-            else:
-                log_message("✅ Local 'main' branch exists and is tracking 'origin/main'.")
+
+            # More robust way to check if a branch is tracking, using Git itself
+            # Check if 'main' is tracking 'origin/main'
+            try:
+                tracking_info = repo.git.rev_parse('--abbrev-ref', '--symbolic-full-name', 'main@{u}', with_extended_output=True)
+                # tracking_info.stdout will be 'origin/main' if it's tracking
+                if tracking_info.stdout.strip() != 'origin/main':
+                    log_message("🔄 Local 'main' branch exists but not tracking 'origin/main', setting tracking branch.")
+                    repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
+                    log_message("✅ Set local 'main' branch to track 'origin/main'.")
+                else:
+                    log_message("✅ Local 'main' branch exists and is tracking 'origin/main'.")
+            except git.exc.GitCommandError as e:
+                # This could happen if it's not tracking any remote, or 'origin/main' doesn't exist etc.
+                # In this case, just try to set it.
+                log_message(f"⚠️ Could not determine tracking status for 'main': {e.stderr.strip() if e.stderr else str(e)}")
+                log_message("🔄 Attempting to set local 'main' branch to track 'origin/main' as fallback.")
+                try:
+                    repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
+                    log_message("✅ Set local 'main' branch to track 'origin/main' (fallback).")
+                except Exception as set_e:
+                    log_message(f"❌ Failed to set tracking branch for 'main' even with fallback: {set_e}")
+
 
     except Exception as e:
         log_message(f"⚠️ Error in init_and_add_remote: {e}")
         return None # Return None if any error occurs
 
-    return repo # Return the repo object if successful
+    return repo
 
 def _perform_single_github_sync_operation():
     """Helper function to perform a single Git add, commit, and push operation."""
     log_message("🔄 Attempting GitHub sync operation...")
 
-    # Check if essential GitHub credentials are provided
     if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
         log_message("⚠️ GitHub credentials (URL, username, token) are not fully set. Skipping Git operation.")
         return False, "GitHub credentials not fully set."
 
+    repo = None # Initialize repo here to handle potential None from init_and_add_remote
     try:
         repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
 
+        if repo is None:
+            # If init_and_add_remote returned None, it already logged the error
+            raise Exception("Git repository object is None after init_and_add_remote.")
+
         # Ensure we are on the correct branch and pull latest changes
-        current_branch = repo.active_branch.name
+        # This part assumes 'repo' is now a valid object.
+        current_branch = repo.active_branch.name # This line should now be safe
         if current_branch != 'main': # Or 'master', depending on your default branch
             log_message(f"Switching from '{current_branch}' to 'main' branch.")
             repo.git.checkout('main')
@@ -498,7 +515,6 @@ def _perform_single_github_sync_operation():
 
         # Pull the latest changes from the remote to avoid conflicts
         log_message("🔄 Pulling latest changes from GitHub...")
-        # Use --rebase to apply local changes on top of fetched remote changes
         pull_result = repo.git.pull('--rebase', 'origin', 'main')
         log_message(f"✅ Git pull result: {pull_result}")
 
@@ -507,17 +523,14 @@ def _perform_single_github_sync_operation():
             log_message(f"⚠️ Data file '{data_file}' not found, cannot sync.")
             return False, "Data file not found."
 
-        # Check if there are uncommitted changes to saved_data.json
-        # Check both staged and unstaged changes
-        if not repo.is_dirty(untracked_files=True): # Checks for modified files including untracked
+        if not repo.is_dirty(untracked_files=True):
             log_message(f"⚙️ No changes detected in '{data_file}' or other files, skipping Git commit/push.")
             return True, "No changes detected."
 
         log_message(f"🔄 Committing and pushing '{data_file}' to GitHub...")
-        repo.index.add([data_file]) # Add only the specific data file
+        repo.index.add([data_file])
 
-        # Check if there's actually something to commit after adding
-        if not repo.index.diff("HEAD"): # Check if index differs from HEAD (i.e., new changes to commit)
+        if not repo.index.diff("HEAD"):
             log_message("⚙️ No changes detected in index after add, skipping commit.")
             return True, "No new changes to commit after add."
 
@@ -526,12 +539,7 @@ def _perform_single_github_sync_operation():
         repo.index.commit(commit_message)
         log_message(f"✅ Committed changes: '{commit_message}'")
 
-        # Explicitly use the PAT for authentication during the push.
-        # This is the most reliable way when operating with PAT in git.
         push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
-
-        # Push to 'main' branch (adjust to 'master' if your repo uses it)
-        # Use --force-with-lease to avoid overwriting changes if remote has diverged
         repo.git.push(push_remote_url, 'main', '--force-with-lease')
 
         log_message("✅ Successfully pushed to GitHub.")
