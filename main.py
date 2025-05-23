@@ -498,6 +498,12 @@ def init_and_add_remote(repo_path, remote_url, username, token):
     return repo # Return the repo object if successful
 
 
+import os
+import git
+from datetime import datetime
+# Assuming 'log_message' function, 'GITHUB_REPO_URL', 'GITHUB_USERNAME',
+# 'GITHUB_TOKEN', 'LOCAL_REPO_PATH', 'data_file', and 'g_repo' are defined elsewhere in your script.
+
 def _perform_single_github_sync_operation(repo_obj_param=None):
     """Helper function to perform a single Git add, commit, and push operation."""
     log_message("🔄 Attempting GitHub sync operation...")
@@ -517,65 +523,115 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         log_message("⚠️ GitHub credentials (URL, username, token) are not fully set. Skipping Git operation.")
         return False, "GitHub credentials not fully set."
 
+    stashed_changes = False # Flag to track if we stashed anything
+
     try:
+        # Ensure we are on the main branch
         current_branch = repo.active_branch.name
         if current_branch != 'main':
             log_message(f"Switching from '{current_branch}' to 'main' branch.")
             repo.git.checkout('main')
             log_message("✅ Switched to 'main' branch.")
 
-        # --- NEW LOGIC: Stage and commit BEFORE pull if data_file has changes ---
-        if os.path.exists(data_file):
-            if repo.is_dirty(untracked_files=True): # Check for any changes including untracked
-                log_message(f"🔄 Detected uncommitted changes in repo. Staging '{data_file}' before pull.")
-                repo.index.add([data_file])
-                if repo.index.diff("HEAD"): # If there are staged changes to commit
-                    commit_message = f"Pre-pull commit of Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-                    repo.index.commit(commit_message)
-                    log_message(f"✅ Pre-pull committed changes: '{commit_message}'")
-                else:
-                    log_message("⚙️ No new changes to commit before pull, but files were detected as dirty.")
-            else:
-                log_message("⚙️ No uncommitted changes detected before pull.")
-        else:
-            log_message(f"⚠️ Data file '{data_file}' not found before pull, skipping pre-pull commit check.")
+        # Ensure the data file exists. If not, create it as an empty array for tracking.
+        if not os.path.exists(data_file):
+            log_message(f"⚠️ Data file '{data_file}' not found. Creating empty file for tracking.")
+            try:
+                with open(data_file, 'w') as f:
+                    f.write("[]") # Assuming saved_data.json is a JSON array
+                repo.index.add([data_file]) # Stage it immediately after creation
+                log_message(f"✅ Created and staged empty '{data_file}'.")
+            except Exception as e:
+                log_message(f"❌ Failed to create/stage empty '{data_file}': {e}")
+                return False, f"Failed to handle data file: {e}"
 
+        # --- Crucial step: Stash any existing unstaged changes before pull/rebase ---
+        # This ensures the working directory is clean for the 'pull --rebase'.
+        # '--include-untracked' ensures untracked files are also stashed.
+        if repo.is_dirty(untracked_files=True): # Check for any dirty state (tracked or untracked)
+            log_message("🔄 Detected unstaged changes. Stashing them before pull to ensure clean working directory.")
+            try:
+                repo.git.stash('save', '--include-untracked', 'Auto-stash by Growatt monitor before pull')
+                stashed_changes = True
+                log_message("✅ Changes stashed successfully.")
+            except git.exc.GitCommandError as stash_e:
+                log_message(f"❌ Error stashing changes: {stash_e.stderr.strip()}. Proceeding, but pull might fail.")
+                # We log the error but attempt to proceed, as the rebase will likely fail if stashing failed.
+                pass # Do not return False here, try to proceed
 
+        # --- Now, pull the latest changes from GitHub ---
         log_message("🔄 Pulling latest changes from GitHub...")
         pull_result = repo.git.pull('--rebase', 'origin', 'main')
         log_message(f"✅ Git pull result: {pull_result}")
 
-        if not os.path.exists(data_file):
-            log_message(f"⚠️ Data file '{data_file}' not found, cannot sync after pull.")
-            return False, "Data file not found."
+        # --- Pop the stash if changes were stashed earlier ---
+        if stashed_changes:
+            log_message("🔄 Popping stash after successful pull.")
+            try:
+                repo.git.stash('pop')
+                log_message("✅ Stash popped successfully.")
+            except git.exc.GitCommandError as pop_e:
+                log_message(f"❌ Error popping stash (might indicate conflicts): {pop_e.stderr.strip()}")
+                log_message("⚠️ Manual intervention might be required to resolve stash conflicts. Local changes are preserved in stash list.")
+                # If pop fails, the stashed changes are usually still in the stash list.
+                # For automation, this is a tricky situation. We proceed, but flag.
+                pass # Proceed, but log the warning.
 
-        # Now, check for new changes to commit (after the pull)
-        if not repo.is_dirty(untracked_files=True):
-            log_message(f"⚙️ No further changes detected in '{data_file}' or other files after pull, skipping Git commit/push.")
-            return True, "No changes detected after pull."
+        # --- Stage and commit ONLY saved_data.json for final push ---
+        # This will capture any new data saved since the last commit/pull,
+        # or changes from the stash pop if saved_data.json was part of it.
+        
+        # Check if saved_data.json has changes relative to HEAD or if it's untracked
+        # (after stash pop and pull, the file might still be dirty if it changed after the stash or pop caused conflict)
+        
+        repo.index.add([data_file]) # Stage only this specific file
 
-        log_message(f"🔄 Committing and pushing '{data_file}' to GitHub...")
-        repo.index.add([data_file])
+        # Check if there are actual differences in the index for data_file compared to HEAD
+        diff_has_data_file = False
+        for item in repo.index.diff("HEAD"): # Check staged changes vs. last commit
+            if item.a_path == data_file or item.b_path == data_file:
+                diff_has_data_file = True
+                break
+        
+        if diff_has_data_file:
+            commit_message = f"Auto-update Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+            repo.index.commit(commit_message)
+            log_message(f"✅ Committed changes to '{data_file}': '{commit_message}'")
+        else:
+            log_message(f"⚙️ No new changes detected in '{data_file}' to commit after pull and stash pop.")
 
-        if not repo.index.diff("HEAD"):
-            log_message("⚙️ No changes detected in index after add (post-pull), skipping commit.")
-            return True, "No new changes to commit after post-pull add."
+        # --- Final push check ---
+        # Check if the local 'main' branch is ahead of 'origin/main'.
+        # This is the most reliable way to know if there's something to push.
+        is_ahead = False
+        try:
+            local_main_commit = repo.head.commit
+            origin_main_commit = repo.remotes.origin.refs.main.commit
+            if local_main_commit != origin_main_commit:
+                is_ahead = True
+        except Exception as ahead_e:
+            log_message(f"WARNING: Could not determine if local branch is ahead of remote: {ahead_e}. Assuming push needed.")
+            # If this check fails (e.g., remote ref not found), assume we should try to push if a commit was made.
+            # A more robust solution might re-fetch here if needed.
+            is_ahead = True # Default to pushing if the check fails
 
-        commit_message = f"Auto-update Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+        # If there are no new commits to push and the *tracked* working directory is clean
+        # (ignoring untracked files as per your requirement), then skip push.
+        if not is_ahead and not repo.is_dirty(untracked_files=False):
+             log_message("⚙️ No new commits to push to remote and working tree is clean. Skipping Git push.")
+             return True, "No changes to push."
 
-        repo.index.commit(commit_message)
-        log_message(f"✅ Committed changes: '{commit_message}'")
-
+        # The push itself
         push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
-        # You can keep --force-with-lease. It's generally safer than plain --force.
-        # It ensures you only force if your local branch is what you last pulled.
+        # Keep --force-with-lease. It's generally safe and recommended over a plain --force
+        # for automated scripts, as it prevents overwriting remote changes you haven't seen.
         repo.git.push(push_remote_url, 'main', '--force-with-lease')
 
         log_message("✅ Successfully pushed to GitHub.")
         return True, "Successfully pushed."
 
     except git.exc.GitCommandError as e:
-        # --- CORRECTED LOGGING FOR GitCommandError ---
+        # Robust error logging for GitCommandError
         error_message = e.stderr.strip() if isinstance(e.stderr, str) else \
                         e.stderr.decode('utf-8').strip() if isinstance(e.stderr, bytes) else \
                         str(e)
