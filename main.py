@@ -438,8 +438,9 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 
     if remote_name in repo.remotes:
         log_message(f"🔄 Updating existing remote '{remote_name}' URL with PAT.")
-        with repo.remotes[remote_name].config_writer:
-            repo.remotes[remote_name].url = configured_remote_url
+        # CORRECTED LINE: Use set() method of RemoteConfigWriter
+        with repo.remotes[remote_name].config_writer as cw:
+            cw.set("url", configured_remote_url)
     else:
         log_message(f"🔄 Adding new remote '{remote_name}' with URL: {configured_remote_url.replace(token, '************')}")
         repo.create_remote(remote_name, configured_remote_url)
@@ -464,6 +465,7 @@ def init_and_add_remote(repo_path, remote_url, username, token):
         log_message(f"⚠️ Error setting up tracking branch: {e}")
 
     return repo
+
 
 def _perform_single_github_sync_operation():
     """Helper function to perform a single Git add, commit, and push operation."""
