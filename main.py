@@ -522,7 +522,9 @@ def sync_github_repo():
         log_message("⚠️ GitHub credentials not fully set for scheduled sync. Thread will not run.")
         return
 
-    # Initial setup and clone/pull
+    # Initialize repo variable outside the try-except to ensure scope
+    repo = None
+
     try:
         # Check if .git directory exists
         if not os.path.exists(os.path.join(LOCAL_REPO_PATH, '.git')):
@@ -531,13 +533,25 @@ def sync_github_repo():
             authenticated_clone_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
             git.Repo.clone_from(authenticated_clone_url, LOCAL_REPO_PATH, branch='main') # Clone main branch
             log_message("✅ Repository cloned successfully during startup.")
+            # IMPORTANT: After cloning, you need to re-initialize the Repo object
+            repo = git.Repo(LOCAL_REPO_PATH) # Assign 'repo' here after a fresh clone
         else:
             log_message("Git repository already exists. Ensuring remote is set and pulling latest.")
             # This handles cases where Koyeb might re-use a container but not a fresh clone
             repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
-            repo.git.checkout('main') # Ensure we are on main branch
-            repo.git.pull('--rebase', 'origin', 'main') # Pull latest changes on startup
+
+        # These operations now happen AFTER 'repo' is guaranteed to be assigned
+        # and are moved outside the if/else to apply in both clone and existing repo scenarios.
+        if repo: # Ensure repo object exists before trying to use it
+            log_message("Ensuring main branch is checked out and pulling latest changes.")
+            # Ensure we are on main branch
+            # This handles both cases: if it was just cloned, or if it already existed
+            repo.git.checkout('main')
+            # Pull latest changes on startup
+            repo.git.pull('--rebase', 'origin', 'main')
             log_message("✅ Git repository updated with latest changes during startup.")
+        else:
+            raise Exception("Failed to initialize Git repository object after clone/init.")
 
     except Exception as e:
         log_message(f"❌ FATAL: Initial Git clone/pull setup for scheduled sync failed: {e}. Thread disabled.")
@@ -548,8 +562,7 @@ def sync_github_repo():
         time.sleep(GIT_PUSH_INTERVAL_MINS * 60) # Wait for the interval
         log_message("Scheduled GitHub sync triggered.")
         _perform_single_github_sync_operation() # Call the helper for the scheduled sync
-
-
+        
 # Telegram Handlers (unchanged)
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
