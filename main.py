@@ -654,7 +654,7 @@ def toggle_telegram():
             log_message("Telegram bot stopped.")
         else:
             log_message("Telegram bot not running to be stopped.")
-    
+
     return redirect(url_for('home'))
 
 
@@ -682,7 +682,7 @@ def update_telegram_token():
             dp = None
 
     TELEGRAM_TOKEN = new_token
-    log_message(f"Telegram token updated to: {new_token[:5]}...{new_token[-5:]}") 
+    log_message(f"Telegram token updated to: {new_token[:5]}...{new_token[-5:]}")
 
     if initialize_telegram_bot():
         telegram_enabled = True
@@ -696,8 +696,9 @@ def update_telegram_token():
 
 @app.route("/logs")
 def charts_view():
+    global last_successful_growatt_update_time
     parsed_data = []
-    if os.path.exists(data_file) and os.path.getsize(data_file) > 0: 
+    if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
         try:
             with open(data_file, "r") as file:
                 parsed_data = json.load(file)
@@ -734,11 +735,11 @@ def charts_view():
     processed_data.sort(key=lambda x: x['dt_timestamp'])
 
     max_duration_hours_to_send = 96
-    
+
     if processed_data:
         reference_time = processed_data[-1]['dt_timestamp']
     else:
-        reference_time = datetime.now() 
+        reference_time = datetime.now()
 
     cutoff_time = reference_time - timedelta(hours=max_duration_hours_to_send)
 
@@ -760,7 +761,8 @@ def charts_view():
         ac_input=ac_input,
         ac_output=ac_output,
         active_power=active_power,
-        battery_capacity=battery_capacity)     
+        battery_capacity=battery_capacity,
+        last_growatt_update=last_successful_growatt_update_time)
 
 @app.route("/chatlog")
 def chatlog_view():
@@ -879,12 +881,13 @@ def console_view():
             <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ data }}</pre>
         </body>
         </html>
-    """, 
+    """,
     logs="\n\n".join(m for _, m in console_logs),
     data=pprint.pformat(fetched_data, indent=2))
 
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
+    global last_successful_growatt_update_time
     if request.method == "POST":
         selected_date = request.form.get("date")
     else:
@@ -968,7 +971,8 @@ def battery_chart():
         soc_data=soc_data,
         raw_json=battery_data,
         energy_titles=energy_titles,
-        energy_series=energy_series
+        energy_series=energy_series,
+        last_growatt_update=last_successful_growatt_update_time
     )
 
 @app.route('/dn')
@@ -979,20 +983,52 @@ def download_logs():
         log_message(f"❌ Error downloading file: {e}")
         return f"❌ Error downloading file: {e}", 500
 
+
 @app.route("/trigger_github_sync", methods=["POST"])
 def trigger_github_sync():
     log_message("Received request to manually trigger GitHub sync.")
-    
+
     # Start the sync operation in a new daemon thread
     sync_thread = threading.Thread(target=_perform_single_github_sync_operation, daemon=True)
     sync_thread.start()
-    
+
     # Redirect back to the logs page
     return redirect(url_for('logs'))
+
+def _perform_single_github_sync_operation():
+    try:
+        repo_path = '.'  # Assuming your Flask app's root directory is the Git repository
+        repo = git.Repo(repo_path)
+        origin = repo.remotes.origin
+
+        log_message("Initiating Git sync...")
+
+        # Add all changes
+        repo.git.add('.')
+        log_message("✅ Git add complete.")
+
+        # Commit changes with a timestamp
+        commit_message = f"Automatic data update - {datetime.now() - timedelta(hours=5)}"
+        repo.index.commit(commit_message)
+        log_message(f"✅ Git commit complete: {commit_message}")
+
+        # Push changes to the remote repository
+        try:
+            origin.push()
+            log_message("✅ Git push complete.")
+        except git.GitCommandError as e:
+            log_message(f"❌ Git push failed: {e}")
+
+    except git.InvalidGitRepositoryError:
+        log_message("❌ Error: Not a valid Git repository.")
+    except git.GitCommandError as e:
+        log_message(f"❌ Git command error during sync: {e}")
+    except Exception as e:
+        log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
 
 # Start the GitHub sync thread after Flask app is defined and before it runs
 github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
 github_sync_thread.start()
-        
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
