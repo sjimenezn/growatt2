@@ -11,16 +11,27 @@ from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 import git # New import for GitPython
+import shutil # Import for file copying
 
 # --- File for saving data ---
+# This is your primary runtime data file, which might be lost on Koyeb redeployments.
 data_file = "saved_data.json"
+# This is the file that will be copied from data_file and committed to GitHub.
+test_data_file = "saved_data_test.json"
 
-# Ensure the file exists and is initialized as an empty JSON array
-# This will be overridden by git clone/pull for persistence
+# Ensure the runtime data_file exists and is initialized as an empty JSON array
 if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
     with open(data_file, "w") as f:
         f.write("[]")  # Initialize with an empty JSON array
-    print(f"Initialized empty data file: {data_file}")
+    print(f"Initialized empty runtime data file: {data_file}")
+
+# Ensure the Git-tracked test_data_file exists and is initialized as an empty JSON array
+# This ensures it's ready to be copied into and then tracked by Git.
+if not os.path.exists(test_data_file) or os.path.getsize(test_data_file) == 0:
+    with open(test_data_file, "w") as f:
+        f.write("[]")  # Initialize with an empty JSON array
+    print(f"Initialized empty Git-tracked data file: {test_data_file}")
+
 
 # --- Credentials ---
 username1 = "vospina"
@@ -207,7 +218,7 @@ def save_data_to_file(data):
         with open(data_file, "w") as f:
             json.dump(existing_data, f, indent=None, separators=(',', ':'))
 
-        log_message("✅ Saved data to file as a JSON array.")
+        log_message(f"✅ Saved data to file: {data_file} as a JSON array.")
 
         # After successful save, update last_saved_sensor_values
         # Filter out 'timestamp' for comparison purposes for the next cycle
@@ -215,15 +226,13 @@ def save_data_to_file(data):
         last_saved_sensor_values.update(comparable_data)
 
     except Exception as e:
-        log_message(f"❌ Error saving data to file: {e}")
+        log_message(f"❌ Error saving data to file {data_file}: {e}")
 
 def monitor_growatt():
     global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values
     threshold = 80
     sent_lights_off = False
     sent_lights_on = False
-
-    loop_counter = 0
 
     user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
@@ -266,7 +275,7 @@ def monitor_growatt():
             raw_growatt_data = api.storage_detail(inverter_sn) # Use a different var name to differentiate from processed data
             log_message(f"Raw Growatt API data received: {raw_growatt_data}")
 
-            # Extract new values for comparison and current_data update
+            # Extract new values for current_data update
             new_ac_input_v = raw_growatt_data.get("vGrid", "N/A")
             new_ac_input_f = raw_growatt_data.get("freqGrid", "N/A")
             new_ac_output_v = raw_growatt_data.get("outPutVolt", "N/A")
@@ -274,56 +283,19 @@ def monitor_growatt():
             new_load_w = raw_growatt_data.get("activePower", "N/A")
             new_battery_pct = raw_growatt_data.get("capacity", "N/A")
 
-            # Create a dictionary of current sensor values for comparison with `last_saved_sensor_values`
-            # Convert to appropriate types for consistent comparison if possible, or keep as strings.
-            # Using str for consistency if "N/A" is possible.
-            current_sensor_values_for_comparison = {
-                "vGrid": str(new_ac_input_v),
-                "outPutVolt": str(new_ac_output_v),
-                "activePower": str(new_load_w),
-                "capacity": str(new_battery_pct),
-                "freqOutPut": str(new_ac_output_f)
+            last_successful_growatt_update_time = current_loop_time_str # Always update with the current time
+
+            # Prepare data to be saved to file with actual values
+            data_to_save_for_file = {
+                "timestamp": last_successful_growatt_update_time,
+                "vGrid": new_ac_input_v,
+                "outPutVolt": new_ac_output_v,
+                "activePower": new_load_w,
+                "capacity": new_battery_pct,
+                "freqOutPut": new_ac_output_f,
             }
-            # Note: freqGrid is not typically saved to file, so excluded from comparison if not needed for file saving.
-
-            data_to_save_for_file = {}
-            growatt_data_is_stale = False
-
-            # Check if the fetched sensor values are IDENTICAL to the last saved ones
-            # Ensure last_saved_sensor_values is not empty before comparison
-            if last_saved_sensor_values and current_sensor_values_for_comparison == last_saved_sensor_values:
-                growatt_data_is_stale = True
-                log_message("⚠️ Detected Growatt data is identical to last saved values (stale). Saving NULLs for charts.")
-
-                # If data is stale, prepare data_to_save with None for numerical values
-                data_to_save_for_file = {
-                    "timestamp": current_loop_time_str,
-                    "vGrid": None, # Will become null in JSON
-                    "outPutVolt": None,
-                    "activePower": None,
-                    "capacity": None,
-                    "freqOutPut": None,
-                }
-                # last_successful_growatt_update_time should NOT be updated here.
-                # It should reflect when *fresh* data was last received.
-            else:
-                log_message("✅ New Growatt data received.")
-                last_successful_growatt_update_time = current_loop_time_str # Update only on fresh data
-
-                # Prepare data to be saved to file with actual values
-                data_to_save_for_file = {
-                    "timestamp": last_successful_growatt_update_time, # Use the time when fresh data was received
-                    "vGrid": new_ac_input_v,
-                    "outPutVolt": new_ac_output_v,
-                    "activePower": new_load_w,
-                    "capacity": new_battery_pct,
-                    "freqOutPut": new_ac_output_f,
-                }
-
-                # `last_saved_sensor_values` will be updated by `save_data_to_file` if this data is saved.
 
             # Always update `current_data` with the most recently *received* values
-            # (even if they are stale), for immediate display on the Flask home page.
             current_data.update({
                 "ac_input_voltage": new_ac_input_v,
                 "ac_input_frequency": new_ac_input_f,
@@ -340,8 +312,6 @@ def monitor_growatt():
             last_processed_time = current_loop_time_str # This always updates as the loop processed.
 
             # --- Telegram Alerts ---
-            # Telegram alerts should still use the *latest* available data from current_data,
-            # even if stale, but their timestamp should reflect the last time *fresh* data arrived.
             if telegram_enabled:
                 if current_data.get("ac_input_voltage") != "N/A":
                     try: # Convert to float for comparison if possible
@@ -393,20 +363,13 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                             sent_lights_on = True
                             sent_lights_off = False
 
-            # Save data to file every 7 cycles (or approximately every 4.6 minutes)
-            # regardless if it's new data or nulls due to staleness.
-            # This ensures consistent timestamps in the historical data.
-            if loop_counter >= 1:
-                save_data_to_file(data_to_save_for_file)
-                loop_counter = 0
-            else:
-                loop_counter += 1 # Increment counter for non-save cycles
+            # Save data to file (saved_data.json)
+            save_data_to_file(data_to_save_for_file)
 
         except Exception as e_inner:
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
             # If there's an API error, we do NOT update last_successful_growatt_update_time.
             # We also do NOT save a data point for this cycle to the file.
-            # This will result in a real "gap" in the historical data, distinct from "stale data" (which logs nulls).
 
             # Reset IDs to force re-login attempt in next loop
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
@@ -418,17 +381,13 @@ GITHUB_REPO_URL = os.getenv("GITHUB_REPO_URL", "github.com/sjimenezn/growatt2.gi
 GITHUB_USERNAME = os.getenv("GITHUB_USERNAME", "sjimenezn")
 # Retrieve PAT from environment variable for security.
 # IMPORTANT: Ensure GITHUB_PAT is set in your Koyeb environment variables.
-# The fallback 'ghp_...' is for local testing ONLY and should be removed in production.
-GITHUB_TOKEN = os.getenv("GITHUB_PAT") # Removed the hardcoded fallback from here
+GITHUB_TOKEN = os.getenv("GITHUB_PAT")
 
 GIT_PUSH_INTERVAL_MINS = int(os.getenv("GIT_PUSH_INTERVAL_MINS", "30")) # Sync every 30 minutes
 LOCAL_REPO_PATH = os.getenv("LOCAL_REPO_PATH", ".") # Current directory where main.py and saved_data.json reside
 
 # --- Global variable for the Git Repo object ---
 g_repo = None # This is crucial for passing the repo object around safely
-
-# --- Data file path (assuming it's relative to LOCAL_REPO_PATH) ---
-data_file = os.path.join(LOCAL_REPO_PATH, 'saved_data.json')
 
 
 def init_and_add_remote(repo_path, remote_url, username, token):
@@ -499,7 +458,10 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 
 
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """Helper function to perform a single Git add, commit, and push operation."""
+    """
+    Helper function to perform a single Git add, commit, and push operation.
+    This now includes copying data_file to test_data_file before syncing.
+    """
     log_message("🔄 Attempting GitHub sync operation...")
 
     repo = None
@@ -524,13 +486,27 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             repo.git.checkout('main')
             log_message("✅ Switched to 'main' branch.")
 
-        # --- NEW LOGIC: Stage and commit BEFORE pull if data_file has changes ---
+        # --- NEW LOGIC: Copy saved_data.json to saved_data_test.json ---
         if os.path.exists(data_file):
+            try:
+                shutil.copyfile(data_file, test_data_file)
+                log_message(f"✅ Successfully copied '{data_file}' to '{test_data_file}'.")
+            except Exception as e:
+                log_message(f"❌ Error copying {data_file} to {test_data_file}: {e}")
+                return False, f"Error copying data file: {e}"
+        else:
+            log_message(f"⚠️ Source data file '{data_file}' not found. Cannot copy to '{test_data_file}'.")
+            # If data_file doesn't exist, we can't update test_data_file.
+            # We should still try to pull to get the latest, but we won't push new data.
+            pass
+
+        # --- Stage and commit `test_data_file` BEFORE pull if it has changes ---
+        if os.path.exists(test_data_file):
             if repo.is_dirty(untracked_files=True): # Check for any changes including untracked
-                log_message(f"🔄 Detected uncommitted changes in repo. Staging '{data_file}' before pull.")
-                repo.index.add([data_file])
+                log_message(f"🔄 Detected uncommitted changes in repo. Staging '{test_data_file}' before pull.")
+                repo.index.add([test_data_file])
                 if repo.index.diff("HEAD"): # If there are staged changes to commit
-                    commit_message = f"Pre-pull commit of Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+                    commit_message = f"Pre-pull commit of Growatt test data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
                     repo.index.commit(commit_message)
                     log_message(f"✅ Pre-pull committed changes: '{commit_message}'")
                 else:
@@ -538,30 +514,30 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             else:
                 log_message("⚙️ No uncommitted changes detected before pull.")
         else:
-            log_message(f"⚠️ Data file '{data_file}' not found before pull, skipping pre-pull commit check.")
+            log_message(f"⚠️ Git-tracked data file '{test_data_file}' not found before pull, skipping pre-pull commit check.")
 
 
         log_message("🔄 Pulling latest changes from GitHub...")
         pull_result = repo.git.pull('--rebase', 'origin', 'main')
         log_message(f"✅ Git pull result: {pull_result}")
 
-        if not os.path.exists(data_file):
-            log_message(f"⚠️ Data file '{data_file}' not found, cannot sync after pull.")
-            return False, "Data file not found."
+        if not os.path.exists(test_data_file):
+            log_message(f"⚠️ Git-tracked data file '{test_data_file}' not found, cannot sync after pull.")
+            return False, "Git-tracked data file not found."
 
         # Now, check for new changes to commit (after the pull)
         if not repo.is_dirty(untracked_files=True):
-            log_message(f"⚙️ No further changes detected in '{data_file}' or other files after pull, skipping Git commit/push.")
+            log_message(f"⚙️ No further changes detected in '{test_data_file}' or other files after pull, skipping Git commit/push.")
             return True, "No changes detected after pull."
 
-        log_message(f"🔄 Committing and pushing '{data_file}' to GitHub...")
-        repo.index.add([data_file])
+        log_message(f"🔄 Committing and pushing '{test_data_file}' to GitHub...")
+        repo.index.add([test_data_file])
 
         if not repo.index.diff("HEAD"):
             log_message("⚙️ No changes detected in index after add (post-pull), skipping commit.")
             return True, "No new changes to commit after post-pull add."
 
-        commit_message = f"Auto-update Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+        commit_message = f"Auto-update Growatt test data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
 
         repo.index.commit(commit_message)
         log_message(f"✅ Committed changes: '{commit_message}'")
@@ -783,29 +759,31 @@ def update_telegram_token():
 @app.route("/logs")
 def charts_view():
     global last_successful_growatt_update_time
+    # Load data from the Git-tracked test_data_file
     parsed_data = []
-    if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
+    if os.path.exists(test_data_file) and os.path.getsize(test_data_file) > 0:
         try:
-            with open(data_file, "r") as file:
+            with open(test_data_file, "r") as file:
                 parsed_data = json.load(file)
             if not isinstance(parsed_data, list):
-                log_message(f"❌ Data file {data_file} does not contain a JSON list. Resetting.")
+                log_message(f"❌ Data file {test_data_file} does not contain a JSON list. Resetting.")
                 parsed_data = []
         except json.JSONDecodeError as e:
-            log_message(f"❌ Error decoding JSON from {data_file}: {e}. File might be corrupted.")
+            log_message(f"❌ Error decoding JSON from {test_data_file}: {e}. File might be corrupted.")
             parsed_data = []
         except Exception as e:
-            log_message(f"❌ General error reading data for charts from {data_file}: {e}")
+            log_message(f"❌ General error reading data for charts from {test_data_file}: {e}")
             parsed_data = []
     else:
-        log_message(f"⚠️ Data file not found or empty: {data_file}. Charts will be empty.")
-        if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
+        log_message(f"⚠️ Data file not found or empty: {test_data_file}. Charts will be empty.")
+        # Ensure test_data_file exists even if empty, so it can be tracked by Git
+        if not os.path.exists(test_data_file) or os.path.getsize(test_data_file) == 0:
             try:
-                with open(data_file, "w") as f:
+                with open(test_data_file, "w") as f:
                     f.write("[]")
-                log_message(f"Initialized empty data file: {data_file}")
+                log_message(f"Initialized empty test data file: {test_data_file}")
             except Exception as e:
-                log_message(f"❌ Error initializing empty data file: {e}")
+                log_message(f"❌ Error initializing empty test data file: {e}")
 
     processed_data = []
     for entry in parsed_data:
@@ -1064,7 +1042,8 @@ def battery_chart():
 @app.route('/dn')
 def download_logs():
     try:
-        return send_file(data_file, as_attachment=True, download_name="saved_data.json", mimetype="application/json")
+        # Now downloads saved_data_test.json (the one pushed to Git)
+        return send_file(test_data_file, as_attachment=True, download_name="saved_data_test.json", mimetype="application/json")
     except Exception as e:
         log_message(f"❌ Error downloading file: {e}")
         return f"❌ Error downloading file: {e}", 500
