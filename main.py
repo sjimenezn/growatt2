@@ -346,7 +346,7 @@ def monitor_growatt():
                     try: # Convert to float for comparison if possible
                         current_ac_input_v_float = float(current_data.get("ac_input_voltage"))
                     except ValueError:
-                        current_ac_input_v_float = 0.0 # Default if N/A
+                            current_ac_input_v_float = 0.0 # Default if N/A
 
                     alert_timestamp = last_successful_growatt_update_time # Use the time of last *fresh* data
                     
@@ -462,67 +462,86 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 
     return repo
 
-def sync_github_repo():
-    """Performs Git add, commit, and push operation."""
-    log_message(f"Starting GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
+def _perform_single_github_sync_operation():
+    """Helper function to perform a single Git add, commit, and push operation."""
+    log_message("🔄 Attempting GitHub sync operation...")
     
     # Check if essential GitHub credentials are provided
     if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
-        log_message("⚠️ GitHub credentials (URL, username, token) are not fully set. Skipping GitHub sync.")
-        return
+        log_message("⚠️ GitHub credentials (URL, username, token) are not fully set. Skipping Git operation.")
+        return False, "GitHub credentials not fully set."
 
-    # Perform initial setup outside the loop to avoid repeating it
     try:
+        # Re-initialize repo for each operation to ensure fresh state, or use a cached repo if available
+        # For simplicity, we'll re-init and ensure remote is set with PAT each time.
         repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
+        
+        # Check for changes in saved_data.json
+        if not os.path.exists(data_file):
+            log_message(f"⚠️ Data file '{data_file}' not found, cannot sync.")
+            return False, "Data file not found."
+
+        # Check if there are uncommitted changes to saved_data.json
+        changed_files = [item.a_path for item in repo.index.diff(None)]
+        unstaged_files = repo.untracked_files 
+        
+        file_changed = data_file in changed_files or data_file in unstaged_files
+        
+        if not file_changed:
+            log_message(f"⚙️ No changes detected in '{data_file}', skipping Git commit/push.")
+            return True, "No changes detected."
+
+        log_message(f"🔄 Committing and pushing '{data_file}' to GitHub...")
+        repo.index.add([data_file])
+        commit_message = f"Auto-update Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+        
+        try:
+            repo.index.commit(commit_message)
+            log_message(f"✅ Committed changes: '{commit_message}'")
+        except git.exc.GitCommandError as e:
+            if "nothing to commit, working tree clean" in str(e):
+                log_message("⚙️ Git: Nothing new to commit (already clean or committed by previous run).")
+                return True, "No new changes to commit."
+            else:
+                log_message(f"❌ Git commit failed: {e}")
+                return False, f"Commit failed: {e}"
+
+        # Explicitly use the PAT for authentication during the push.
+        push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('//')[-1]}"
+        
+        # Push to 'main' branch (adjust to 'master' if your repo uses it)
+        repo.git.push(push_remote_url, 'main', '--force-with-lease')
+
+        log_message("✅ Successfully pushed to GitHub.")
+        return True, "Successfully pushed."
+
+    except git.exc.GitCommandError as e:
+        log_message(f"❌ Git command error during sync: {e}")
+        return False, f"Git command error: {e}"
     except Exception as e:
-        log_message(f"❌ FATAL: Initial Git setup failed: {e}. GitHub sync disabled.")
+        log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
+        return False, f"Unexpected error: {e}"
+
+def sync_github_repo():
+    """Scheduled thread to perform Git add, commit, and push operation."""
+    log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
+    
+    # Run initial setup once at the start of the scheduled thread
+    # The helper `_perform_single_github_sync_operation` will also do setup, but this ensures
+    # the remote is established early.
+    if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
+        log_message("⚠️ GitHub credentials not fully set for scheduled sync. Thread will not run.")
+        return
+    try:
+        # We don't need the `repo` object returned here, as the helper re-initializes or uses the path.
+        init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
+    except Exception as e:
+        log_message(f"❌ FATAL: Initial Git setup for scheduled sync failed: {e}. Thread disabled.")
         return # Stop the thread if initial setup fails
 
     while True:
         time.sleep(GIT_PUSH_INTERVAL_MINS * 60) # Wait for the interval
-
-        try:
-            # Check for changes in saved_data.json
-            if not os.path.exists(data_file):
-                log_message(f"⚠️ Data file '{data_file}' not found, skipping Git sync.")
-                continue
-
-            # Check if there are uncommitted changes to saved_data.json
-            changed_files = [item.a_path for item in repo.index.diff(None)]
-            unstaged_files = repo.untracked_files 
-            
-            file_changed = data_file in changed_files or data_file in unstaged_files
-            
-            if not file_changed:
-                log_message(f"⚙️ No changes detected in '{data_file}', skipping Git commit/push.")
-                continue
-
-            log_message(f"🔄 Committing and pushing '{data_file}' to GitHub...")
-            repo.index.add([data_file])
-            commit_message = f"Auto-update Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-            
-            try:
-                repo.index.commit(commit_message)
-                log_message(f"✅ Committed changes: '{commit_message}'")
-            except git.exc.GitCommandError as e:
-                if "nothing to commit, working tree clean" in str(e):
-                    log_message("⚙️ Git: Nothing new to commit (might have been committed by previous run).")
-                else:
-                    log_message(f"❌ Git commit failed: {e}")
-                    continue # Skip push if commit failed
-
-            # Explicitly use the PAT for authentication during the push.
-            push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('//')[-1]}"
-            
-            # Push to 'main' branch (adjust to 'master' if your repo uses it)
-            repo.git.push(push_remote_url, 'main', '--force-with-lease')
-
-            log_message("✅ Successfully pushed to GitHub.")
-
-        except git.exc.GitCommandError as e:
-            log_message(f"❌ Git command error during sync: {e}")
-        except Exception as e:
-            log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
+        _perform_single_github_sync_operation() # Call the helper for the scheduled sync
 
 
 # Telegram Handlers (unchanged)
@@ -959,6 +978,17 @@ def download_logs():
     except Exception as e:
         log_message(f"❌ Error downloading file: {e}")
         return f"❌ Error downloading file: {e}", 500
+
+@app.route("/trigger_github_sync", methods=["POST"])
+def trigger_github_sync():
+    log_message("Received request to manually trigger GitHub sync.")
+    
+    # Start the sync operation in a new daemon thread
+    sync_thread = threading.Thread(target=_perform_single_github_sync_operation, daemon=True)
+    sync_thread.start()
+    
+    # Redirect back to the logs page
+    return redirect(url_for('logs'))
 
 # Start the GitHub sync thread after Flask app is defined and before it runs
 github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
