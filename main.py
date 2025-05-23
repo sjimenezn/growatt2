@@ -35,6 +35,8 @@ chat_log = set()
 telegram_enabled = False
 updater = None  # Global reference for the Updater object
 dp = None       # Global reference for the Dispatcher object
+# --- Git Test File Config ---
+TEST_DATA_FILE = os.path.join(LOCAL_REPO_PATH, 'saved_data_test.json')
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -497,86 +499,50 @@ def init_and_add_remote(repo_path, remote_url, username, token):
     return repo # Return the repo object if successful
 
 
-import os
-import git
-from datetime import datetime
-import time # Ensure 'time' is imported for sleep
+
 
 
 # --- Helper Function for Robust Git Pull ---
 # --- Helper Function for Robust Git Pull ---
-def _robust_git_pull(repo, branch='main', remote='origin'):
-    """
-    Performs a Git pull operation, stashing any uncommitted changes first
-    and popping them afterwards to ensure a clean working directory for the pull.
-    Includes aggressive error handling for Git internal "BUG" errors during stash.
-    """
-    log_message(f"🔄 Performing robust pull on branch '{branch}' from '{remote}'.")
-    stashed_changes = False # Flag to track if we stashed anything
-    
+
+
+# Assuming log_message, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN,
+# LOCAL_REPO_PATH, data_file, TEST_DATA_FILE, and g_repo are defined globally.
+
+# Also, ensure _robust_git_pull is defined like this (from previous corrections):
+def _robust_git_pull(repo_obj):
+    """Performs a git pull --rebase with error handling."""
+    log_message("🔄 Performing robust pull on branch 'main' from 'origin'.")
     try:
-        # Check if dirty and stash all changes (tracked and untracked)
-        if repo.is_dirty(untracked_files=True):
-            log_message("🔄 Detected unstaged changes. Stashing them before pull to ensure clean working directory.")
-            try:
-                repo.git.stash('save', '--include-untracked', 'Auto-stash for robust pull')
-                stashed_changes = True
-                log_message("✅ Changes stashed successfully.")
-            except git.exc.GitCommandError as stash_e:
-                error_message = stash_e.stderr.strip()
-                log_message(f"❌ Error stashing changes: {error_message}")
-                
-                # Specific handling for Git internal "BUG" or "invalid path" errors during stash
-                if "BUG: unpack-trees.c" in error_message or "invalid path" in error_message:
-                    log_message("⚠️ Detected critical Git internal error during stash. Attempting a hard reset and clean-up to recover.")
-                    try:
-                        # Attempt to fix the broken state by hard resetting and cleaning untracked files
-                        repo.git.reset('--hard') # Resets HEAD and index to last commit
-                        repo.git.clean('-fdx')   # Removes untracked files and directories
-                        log_message("✅ Git state reset to clean. (WARNING: Uncommitted changes were lost, saved_data.json will revert to last committed state).")
-                        # After this, the file saved_data.json will revert to its last committed state.
-                        # It will be crucial that the next data fetch re-writes the latest state.
-                        
-                        # Since we reset, we can't pop a stash that never happened or failed.
-                        stashed_changes = False # Mark as not stashed because the stash attempt failed catastrophically
-
-                    except git.exc.GitCommandError as reset_e:
-                        log_message(f"❌ FATAL: Error during Git state reset after stash failure: {reset_e.stderr.strip()}. Repository might be unrecoverable.")
-                        return False, f"FATAL: Git state unrecoverable: {reset_e.stderr.strip()}"
-                    except Exception as reset_e:
-                        log_message(f"❌ FATAL: Unexpected error during Git state reset: {reset_e}. Repository might be unrecoverable.")
-                        return False, f"FATAL: Unexpected error during Git state reset: {reset_e}"
-                else:
-                    # For non-BUG errors, we log and proceed, letting the pull attempt and likely fail.
-                    log_message("Proceeding to pull, but it might fail due to unstashed changes (non-BUG error).")
-
-        # Perform the pull
-        pull_result = repo.git.pull('--rebase', remote, branch)
-        log_message(f"✅ Git pull result: {pull_result}")
-        return True, pull_result # Success
-
+        # Fetch all remote branches and then rebase the current branch onto origin/main
+        # This resolves divergence and prevents "stale info" on push
+        repo_obj.git.fetch('origin')
+        repo_obj.git.rebase('origin/main')
+        log_message("✅ Git pull result: Current branch main is up to date (via rebase).")
+        return True, "Success"
     except git.exc.GitCommandError as e:
-        # Robust error logging for GitCommandError
-        error_message = e.stderr.strip() if isinstance(e.stderr, str) else \
-                        e.stderr.decode('utf-8').strip() if isinstance(e.stderr, bytes) else \
-                        str(e)
-        log_message(f"❌ Git pull failed: {error_message}")
-        return False, error_message # Failure
-    finally:
-        # Always attempt to pop the stash if it was created and was successful
-        if stashed_changes: # Only pop if stash was truly successful
+        error_output = e.stderr.strip() if e.stderr else str(e)
+        log_message(f"❌ Git pull --rebase failed: {error_output}")
+        # Specific handling for rebase conflicts, if needed
+        if "conflict" in error_output.lower():
+            log_message("⚠️ Rebase conflict detected. Attempting to abort rebase.")
             try:
-                log_message("🔄 Popping stash after robust pull attempt.")
-                repo.git.stash('pop')
-                log_message("✅ Stash popped successfully.")
-            except git.exc.GitCommandError as pop_e:
-                log_message(f"❌ Error popping stash: {pop_e.stderr.strip()}")
-                log_message("⚠️ Manual intervention might be required to resolve stash conflicts. Local changes are preserved in stash list.")
-                pass # Log and proceed
-                
+                repo_obj.git.rebase('--abort')
+                log_message("✅ Rebase aborted. Please resolve conflicts manually or try again.")
+            except Exception as abort_e:
+                log_message(f"❌ Failed to abort rebase: {abort_e}")
+        return False, error_output
+    except Exception as e:
+        log_message(f"❌ An unexpected error occurred during robust Git pull: {e}")
+        return False, str(e)
+
+
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """Helper function to perform a single Git add, commit, and push operation."""
-    log_message("🔄 Attempting GitHub sync operation...")
+    """
+    Helper function for GitHub synchronization for the manual trigger button.
+    This version creates/updates 'saved_data_test.json' and commits/pushes ONLY that file.
+    """
+    log_message("🔄 Attempting GitHub TEST sync operation (via manual trigger button)...")
 
     repo = g_repo if repo_obj_param is None else repo_obj_param
 
@@ -588,6 +554,8 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         log_message("⚠️ GitHub credentials (URL, username, token) are not fully set. Skipping Git operation.")
         return False, "GitHub credentials not fully set."
 
+    stashed_changes = False # Flag to track if we stashed anything
+
     try:
         # Ensure we are on the main branch
         current_branch = repo.active_branch.name
@@ -596,94 +564,119 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             repo.git.checkout('main')
             log_message("✅ Switched to 'main' branch.")
 
-        # Ensure the data file exists. If not, create it as an empty array.
-        if not os.path.exists(data_file):
-            log_message(f"⚠️ Data file '{data_file}' not found. Creating empty file for tracking.")
+        # --- STEP 1: Create or Update saved_data_test.json ---
+        if os.path.exists(data_file):
+            with open(data_file, 'r') as f_src:
+                source_content = f_src.read()
+            with open(TEST_DATA_FILE, 'w') as f_dest:
+                f_dest.write(source_content)
+            log_message(f"✅ Created copy of '{data_file}' as '{TEST_DATA_FILE}'.")
+        else:
+            log_message(f"⚠️ Source data file '{data_file}' not found. Creating empty '{TEST_DATA_FILE}'.")
+            with open(TEST_DATA_FILE, 'w') as f_dest:
+                f_dest.write("[]") # Default to empty JSON array
+        
+        # --- STEP 2: Stash any existing dirty changes BEFORE pull ---
+        # This includes changes to saved_data.json from the monitoring loop,
+        # and the newly created saved_data_test.json (if untracked)
+        if repo.is_dirty(untracked_files=True):
+            log_message("🔄 Detected unstaged/untracked changes. Stashing them before pull.")
             try:
-                with open(data_file, 'w') as f:
-                    f.write("[]") # Assuming saved_data.json is a JSON array
-                repo.index.add([data_file]) # Stage it immediately after creation
-                log_message(f"✅ Created and staged empty '{data_file}'.")
-            except Exception as e:
-                log_message(f"❌ Failed to create/stage empty '{data_file}': {e}")
-                return False, f"Failed to handle data file: {e}"
+                repo.git.stash('save', '--include-untracked', 'Auto-stash for manual test sync')
+                stashed_changes = True
+                log_message("✅ Changes stashed successfully.")
+            except git.exc.GitCommandError as stash_e:
+                error_message = stash_e.stderr.strip()
+                log_message(f"❌ Error stashing changes: {error_message}")
+                if "BUG: unpack-trees.c" in error_message or "invalid path" in error_message:
+                    log_message("⚠️ Detected critical Git internal error during stash. Attempting a hard reset and clean-up to recover.")
+                    try:
+                        repo.git.reset('--hard')
+                        repo.git.clean('-fdx')
+                        log_message("✅ Git state reset to clean. (WARNING: Uncommitted changes were lost).")
+                        stashed_changes = False # No stash was successfully created
+                    except Exception as reset_e:
+                        log_message(f"❌ FATAL: Error during Git state reset after stash failure: {reset_e}. Repository might be unrecoverable.")
+                        return False, f"FATAL: Git state unrecoverable: {reset_e}"
+                else:
+                    log_message("Proceeding to pull, but it might fail due to unstashed changes (non-BUG error).")
 
-        # --- Initial Pull using the robust helper ---
+
+        # --- STEP 3: Pull the latest changes from GitHub ---
         pull_success, pull_msg = _robust_git_pull(repo)
         if not pull_success:
-            return False, f"Initial Git pull failed: {pull_msg}"
+            return False, f"Git pull failed during manual test sync: {pull_msg}"
 
-        # --- Stage and commit ONLY saved_data.json for final push ---
-        # This will capture any new data saved since the last commit/pull,
-        # or changes from the stash pop if saved_data.json was part of it.
+        # --- STEP 4: Pop the stash if changes were stashed ---
+        if stashed_changes:
+            log_message("🔄 Popping stash after successful pull during manual test sync.")
+            try:
+                repo.git.stash('pop')
+                log_message("✅ Stash popped successfully.")
+            except git.exc.GitCommandError as pop_e:
+                log_message(f"❌ Error popping stash during manual test sync: {pop_e.stderr.strip()}")
+                log_message("⚠️ Manual intervention might be required to resolve stash conflicts. Local changes are preserved in stash list.")
+                # We can still proceed with committing TEST_DATA_FILE, as it should be there.
+                pass # Continue even if pop fails, the file should still be in working dir
+
+        # --- STEP 5: Unstage ALL changes, then stage ONLY saved_data_test.json ---
+        # This is CRITICAL to ensure we only commit the test file.
+        log_message("🔄 Resetting index to unstage all changes...")
+        repo.git.reset() # This is 'git reset --mixed HEAD', which unstages all changes
+        log_message("✅ Index reset. Staging only 'saved_data_test.json'.")
         
-        repo.index.add([data_file]) # Stage only this specific file
+        repo.index.add([TEST_DATA_FILE]) # Stage only the test file
+        log_message(f"✅ Staged '{TEST_DATA_FILE}'.")
 
-        # Check if there are actual differences in the index for data_file compared to HEAD
-        diff_has_data_file = False
-        for item in repo.index.diff("HEAD"): # Check staged changes vs. last commit
-            if item.a_path == data_file or item.b_path == data_file:
-                diff_has_data_file = True
+        # Check if there are actual differences in the index for TEST_DATA_FILE compared to HEAD
+        diff_has_test_file = False
+        for item in repo.index.diff("HEAD"):
+            if item.a_path == TEST_DATA_FILE or item.b_path == TEST_DATA_FILE:
+                diff_has_test_file = True
                 break
         
-        if diff_has_data_file:
-            commit_message = f"Auto-update Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-            repo.index.commit(commit_message)
-            log_message(f"✅ Committed changes to '{data_file}': '{commit_message}'")
-        else:
-            log_message(f"⚙️ No new changes detected in '{data_file}' to commit after pull and stash pop.")
+        if not diff_has_test_file:
+            log_message(f"⚙️ No new changes detected in '{TEST_DATA_FILE}' to commit. Skipping commit and push.")
+            return True, "No changes to push for test file."
 
-        # --- Push with retries ---
+        # --- STEP 6: Commit ONLY saved_data_test.json ---
+        commit_message = f"Manual TEST sync of saved_data_test.json: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+        repo.index.commit(commit_message)
+        log_message(f"✅ Committed changes to '{TEST_DATA_FILE}': '{commit_message}'")
+
+        # --- STEP 7: Push with retries ---
         max_retries = 3
         retry_delay = 2
         for i in range(max_retries):
-            # Check if there are any commits *ahead* of the remote to push.
-            # This handles cases where no changes were detected, so no push is needed.
-            is_ahead = False
-            try:
-                # Compare current HEAD to origin/main's HEAD
-                if repo.head.commit != repo.remotes.origin.refs.main.commit:
-                    is_ahead = True
-            except Exception as e:
-                log_message(f"WARNING: Could not determine if local branch is ahead of remote: {e}. Assuming push needed for retry.")
-                is_ahead = True # If check fails, assume we should try to push.
-
-            # If no new commits to push and the tracked working tree is clean, skip push.
-            if not is_ahead and not repo.is_dirty(untracked_files=False):
-                 log_message("⚙️ No new commits to push to remote and working tree is clean. Skipping Git push.")
-                 return True, "No changes to push."
-
-            log_message(f"🔄 Attempting push to GitHub (Attempt {i+1}/{max_retries})...")
             push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
+            log_message(f"🔄 Attempting TEST push to GitHub (Attempt {i+1}/{max_retries})...")
             try:
-                # The push operation itself
                 repo.git.push(push_remote_url, 'main', '--force-with-lease')
-                log_message("✅ Successfully pushed to GitHub.")
-                return True, "Successfully pushed." # Push successful, exit
+                log_message("✅ Successfully pushed TEST file to GitHub.")
+                return True, "Successfully pushed TEST file."
 
             except git.exc.GitCommandError as push_e:
                 error_message = push_e.stderr.strip() if isinstance(push_e.stderr, str) else \
                                 push_e.stderr.decode('utf-8').strip() if isinstance(push_e.stderr, bytes) else \
                                 str(push_e)
-                log_message(f"⚠️ Push rejected on attempt {i+1}. Error: {error_message}")
+                log_message(f"⚠️ TEST push rejected on attempt {i+1}. Error: {error_message}")
 
                 if i < max_retries - 1:
-                    log_message(f"🔄 Pulling again to resolve issues and retrying push in {retry_delay} seconds...")
+                    log_message(f"🔄 Pulling again to resolve issues and retrying TEST push in {retry_delay} seconds...")
                     time.sleep(retry_delay)
-                    
-                    # --- Call the robust pull helper for the retry pull! ---
                     pull_success_retry, pull_msg_retry = _robust_git_pull(repo)
                     if not pull_success_retry:
-                        log_message(f"❌ Failed to re-pull during push retry: {pull_msg_retry}. Cannot continue retries.")
-                        break # Exit retry loop if re-pull fails
-                    # If re-pull succeeds, the loop continues to the next push attempt
+                        log_message(f"❌ Failed to re-pull during TEST push retry: {pull_msg_retry}. Cannot continue retries.")
+                        break
                 else:
-                    log_message(f"❌ Max retries reached for push. Last error: {error_message}")
-                    return False, f"Failed to push after {max_retries} retries: {error_message}"
+                    log_message(f"❌ Max retries reached for TEST push. Last error: {error_message}")
+                    return False, f"Failed to push TEST file after {max_retries} retries: {error_message}"
 
     except Exception as e:
-        log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
-        return False, f"Unexpected error: {e}"
+        log_message(f"❌ An unexpected error occurred during GitHub TEST sync: {e}")
+        return False, f"Unexpected error during TEST sync: {e}"
+        
+
 def sync_github_repo():
     """Scheduled thread to perform Git add, commit, and push operation."""
     log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
