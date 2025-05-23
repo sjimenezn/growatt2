@@ -1,5 +1,5 @@
 import pytz
-from flask import Flask, render_template, render_template_string, jsonify, request, send_file
+from flask import Flask, render_template, render_template_string, jsonify, request, send_file, redirect, url_for
 import threading
 import pprint
 import json
@@ -18,16 +18,22 @@ data_file = "saved_data.json"
 if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
     with open(data_file, "w") as f:
         f.write("[]")  # Initialize with an empty JSON array
-    print(f"Initialized empty data file: {data_file}") # Added for clarity on startup
+    print(f"Initialized empty data file: {data_file}")
 
 # --- Credentials ---
 username1 = "vospina"
 password1 = "Vospina.2025"
 
 # --- Telegram Config ---
-TELEGRAM_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo"
+# Make TELEGRAM_TOKEN mutable by defining it here
+TELEGRAM_TOKEN = "7653969082:AAGJ_8TL2-MA0uCLgtx8UAyfEBRwCmFWyzG" # <--- YOUR CURRENT TOKEN
 CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
+
+# Global variable to control Telegram bot state
+telegram_enabled = False
+updater = None  # Global reference for the Updater object
+dp = None       # Global reference for the Dispatcher object
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -38,7 +44,7 @@ STORAGE_SN = "BNG7CH806N"
 PLANT_ID = "2817170"
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.5', # Updated user agent slightly
+    'User-Agent': 'Mozilla/5.5',
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     'X-Requested-With': 'XMLHttpRequest'
 }
@@ -70,7 +76,7 @@ api.session.headers.update({
 current_data = {}
 last_update_time = "Never"
 console_logs = []
-updater = None  # Global reference
+# updater is now initialized as None globally, and managed by a Flask route
 
 def log_message(message):
     # Apply a 5-hour reduction to the timestamp
@@ -82,20 +88,23 @@ def log_message(message):
 
 
 def send_telegram_message(message):
-    for chat_id in CHAT_IDS:
-        for attempt in range(3):  # Retry up to 3 times
-            try:
-                url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-                payload = {"chat_id": chat_id, "text": message}
-                response = requests.post(url, data=payload, timeout=10)
-                response.raise_for_status()  # Raise exception for HTTP errors
-                log_message(f"✅ Message sent to {chat_id}")
-                break  # Exit retry loop if successful
-            except requests.exceptions.RequestException as e:
-                log_message(f"❌ Attempt {attempt + 1} failed to send message to {chat_id}: {e}")
-                time.sleep(5)  # Wait before retrying
-                if attempt == 2:  # Final attempt failed
-                    log_message(f"❌ Failed to send message to {chat_id} after 3 attempts")
+    # Only send message if Telegram is enabled AND updater is running
+    global updater # Ensure we can access the global updater
+    if telegram_enabled and updater and updater.running:
+        for chat_id in CHAT_IDS:
+            for attempt in range(3):  # Retry up to 3 times
+                try:
+                    # Access the bot object from the updater
+                    updater.bot.send_message(chat_id=chat_id, text=message)
+                    log_message(f"✅ Message sent to {chat_id}")
+                    break  # Exit retry loop if successful
+                except Exception as e: # Catch broader exception for Telegram sending
+                    log_message(f"❌ Attempt {attempt + 1} failed to send message to {chat_id}: {e}")
+                    time.sleep(5)  # Wait before retrying
+                    if attempt == 2:  # Final attempt failed
+                        log_message(f"❌ Failed to send message to {chat_id} after 3 attempts")
+    else:
+        log_message(f"Telegram not enabled or updater not running. Message not sent: {message}")
 
 # Global variable to hold the fetched data
 fetched_data = {}
@@ -222,10 +231,20 @@ def monitor_growatt():
 
     try:
         user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
-        log_message("✅ Growatt login and initialization successful!")
+        if user_id is None: # If login failed, try again in next loop
+            log_message("Initial Growatt login failed. Retrying in background.")
+        else:
+            log_message("✅ Growatt login and initialization successful!")
 
         while True:
             try:
+                # Re-login if any essential ID is missing (e.g., after an error or initial failure)
+                if user_id is None or plant_id is None or inverter_sn is None or datalog_sn is None:
+                    user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
+                    if user_id is None: # If re-login fails, wait and try again
+                        time.sleep(60) # Longer wait if login continues to fail
+                        continue
+
                 data = api.storage_detail(inverter_sn)
                 log_message(f"Growatt API data: {data}")
 
@@ -265,48 +284,66 @@ def monitor_growatt():
                     save_data_to_file(data_to_save)
                     loop_counter = 0
 
-                if ac_input_v != "N/A":
-                    if float(ac_input_v) < threshold and not sent_lights_off:
-                        time.sleep(110) # Wait a bit to confirm
-                        data = api.storage_detail(inverter_sn) # Re-fetch to confirm
-                        ac_input_v = data.get("vGrid", "N/A")
-                        if float(ac_input_v) < threshold: # Confirm again
-                            msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
-        🕒 Hora--> {last_update_time}
-Nivel de batería      : {battery_pct} %
-Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
-Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
-Consumo actual     : {load_w} W"""
-                            send_telegram_message(msg)
-                            sent_lights_off = True
-                            sent_lights_on = False
+                # Only send Telegram alerts if telegram_enabled is True
+                if telegram_enabled:
+                    if ac_input_v != "N/A":
+                        try: # Convert to float for comparison
+                            current_ac_input_v = float(ac_input_v)
+                        except ValueError:
+                            current_ac_input_v = 0.0 # Treat as 0 if not a number for comparison
 
-                    elif float(ac_input_v) >= threshold and not sent_lights_on:
-                        time.sleep(110) # Wait a bit to confirm
-                        data = api.storage_detail(inverter_sn) # Re-fetch to confirm
-                        ac_input_v = data.get("vGrid", "N/A")
-                        if float(ac_input_v) >= threshold: # Confirm again
-                            msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
+                        if current_ac_input_v < threshold and not sent_lights_off:
+                            time.sleep(110) # Wait a bit to confirm
+                            data_confirm = api.storage_detail(inverter_sn) # Re-fetch to confirm
+                            ac_input_v_confirm = data_confirm.get("vGrid", "0") # Default to "0"
+                            try:
+                                current_ac_input_v_confirm = float(ac_input_v_confirm)
+                            except ValueError:
+                                current_ac_input_v_confirm = 0.0
+
+                            if current_ac_input_v_confirm < threshold: # Confirm again
+                                msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
         🕒 Hora--> {last_update_time}
 Nivel de batería      : {battery_pct} %
-Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
+Voltaje de la red     : {current_ac_input_v_confirm} V / {ac_input_f} Hz
 Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
 Consumo actual     : {load_w} W"""
-                            send_telegram_message(msg)
-                            sent_lights_on = True
-                            sent_lights_off = False
+                                send_telegram_message(msg)
+                                sent_lights_off = True
+                                sent_lights_on = False
+
+                        elif current_ac_input_v >= threshold and not sent_lights_on:
+                            time.sleep(110) # Wait a bit to confirm
+                            data_confirm = api.storage_detail(inverter_sn) # Re-fetch to confirm
+                            ac_input_v_confirm = data_confirm.get("vGrid", "0") # Default to "0"
+                            try:
+                                current_ac_input_v_confirm = float(ac_input_v_confirm)
+                            except ValueError:
+                                current_ac_input_v_confirm = 0.0
+
+                            if current_ac_input_v_confirm >= threshold: # Confirm again
+                                msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
+        🕒 Hora--> {last_update_time}
+Nivel de batería      : {battery_pct} %
+Voltaje de la red     : {current_ac_input_v_confirm} V / {ac_input_f} Hz
+Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
+Consumo actual     : {load_w} W"""
+                                send_telegram_message(msg)
+                                sent_lights_on = True
+                                sent_lights_off = False
 
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
                 # Attempt to re-login on error to recover
+                # This ensures the IDs are fresh for the next loop iteration
                 user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
 
             time.sleep(40) # Wait for 40 seconds before next API call
 
     except Exception as e_outer:
-        log_message(f"❌ Fatal error in monitor_growatt, restarting login: {e_outer}")
-        # If login fails, try to re-login in the next loop iteration
-        login_growatt() # This might be recursive, consider a simple return and let the outer loop restart
+        log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
+        # The thread might exit here. The app will continue, but monitoring might stop.
+        # Consider re-starting the thread if this is a critical background process.
 
 # --- Telegram Handlers ---
 def start(update: Update, context: CallbackContext):
@@ -330,40 +367,145 @@ Batería                 : {current_data.get('battery_capacity', 'N/A')}%
         log_message(f"✅ Status sent to {update.effective_chat.id}")
     except Exception as e:
         log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
+
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     ids = "\n".join(str(cid) for cid in chat_log)
     update.message.reply_text(f"IDs registrados:\n{ids}")
 
-def stop_bot(update: Update, context: CallbackContext):
+def stop_bot_telegram_command(update: Update, context: CallbackContext):
     update.message.reply_text("Bot detenido.")
     log_message("Bot detenido por comando /stop")
-    updater.stop()
+    global telegram_enabled, updater
+    if updater and updater.running:
+        updater.stop()
+        telegram_enabled = False
+        log_message("Telegram bot stopped via /stop command.")
+    else:
+        log_message("Telegram bot not running to be stopped.")
 
-updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
-dp = updater.dispatcher
-dp.add_handler(CommandHandler("start", start))
-dp.add_handler(CommandHandler("status", send_status))
-dp.add_handler(CommandHandler("chatlog", send_chatlog))
-dp.add_handler(CommandHandler("stop", stop_bot))
+# Updater and Dispatcher setup - now conditional initialization/start
+def initialize_telegram_bot():
+    global updater, dp, TELEGRAM_TOKEN, telegram_enabled # Need access to global TELEGRAM_TOKEN
+    if not TELEGRAM_TOKEN:
+        log_message("❌ Cannot start Telegram bot: TELEGRAM_TOKEN is empty.")
+        return False
 
-# Start background monitoring thread
+    if updater and updater.running:
+        log_message("Telegram bot is already running. No re-initialization needed unless token changed.")
+        return True # Already running
+
+    try:
+        log_message("Initializing Telegram bot...")
+        updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+        dp = updater.dispatcher
+        dp.add_handler(CommandHandler("start", start))
+        dp.add_handler(CommandHandler("status", send_status))
+        dp.add_handler(CommandHandler("chatlog", send_chatlog))
+        dp.add_handler(CommandHandler("stop", stop_bot_telegram_command))
+        updater.start_polling()
+        log_message("Telegram bot polling started.")
+        return True
+    except Exception as e:
+        log_message(f"❌ Error starting Telegram bot (check token): {e}")
+        updater = None # Reset updater if failed to start
+        dp = None
+        telegram_enabled = False # If it failed, ensure it's marked as disabled
+        return False
+
+# Start background monitoring thread (always runs)
 monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
 monitor_thread.start()
-
-# Start Telegram bot polling
-updater.start_polling()
 
 # --- Flask Routes ---
 @app.route("/")
 def home():
+    global TELEGRAM_TOKEN # Access the global token
+    # Mask the token for display purposes in the UI
+    displayed_token = TELEGRAM_TOKEN
+    if TELEGRAM_TOKEN and len(TELEGRAM_TOKEN) > 10:
+        displayed_token = TELEGRAM_TOKEN[:5] + "..." + TELEGRAM_TOKEN[-5:]
+
     return render_template("home.html",
         d=current_data,
         last=last_update_time,
         plant_id=current_data.get("plant_id", "N/A"),
         user_id=current_data.get("user_id", "N/A"),
         inverter_sn=current_data.get("inverter_sn", "N/A"),
-        datalog_sn=current_data.get("datalog_sn", "N/A"))
+        datalog_sn=current_data.get("datalog_sn", "N/A"),
+        telegram_status="Running" if telegram_enabled and updater and updater.running else "Stopped",
+        current_telegram_token=displayed_token # Pass the token to the template
+        )
+
+@app.route("/toggle_telegram", methods=["POST"])
+def toggle_telegram():
+    global telegram_enabled, updater
+    action = request.form.get('action')
+
+    if action == 'start' and not telegram_enabled:
+        log_message("Attempting to start Telegram bot via Flask.")
+        if initialize_telegram_bot(): # This will attempt to start
+            telegram_enabled = True
+            log_message("Telegram bot enabled.")
+        else:
+            log_message("Failed to enable Telegram bot (check logs for token error).")
+            telegram_enabled = False # Ensure flag is false if start failed
+    elif action == 'stop' and telegram_enabled:
+        log_message("Attempting to stop Telegram bot via Flask.")
+        if updater and updater.running:
+            updater.stop()
+            telegram_enabled = False
+            log_message("Telegram bot stopped.")
+        else:
+            log_message("Telegram bot not running to be stopped.")
+    
+    return redirect(url_for('home')) # Redirect back to home page
+
+
+@app.route("/update_telegram_token", methods=["POST"])
+def update_telegram_token():
+    global TELEGRAM_TOKEN, telegram_enabled, updater, dp # Need access to these globals
+    new_token = request.form.get('new_telegram_token')
+
+    if not new_token:
+        log_message("❌ No new Telegram token provided.")
+        # Optionally, you could flash a message to the user here
+        return redirect(url_for('home'))
+
+    log_message(f"Attempting to update Telegram token...")
+
+    # 1. Stop existing bot if running
+    if updater and updater.running:
+        log_message("Stopping existing Telegram bot for token update.")
+        try:
+            updater.stop()
+            # Give the thread a moment to shut down cleanly
+            time.sleep(1)
+            log_message("Existing Telegram bot stopped.")
+        except Exception as e:
+            log_message(f"⚠️ Error stopping existing Telegram bot: {e}")
+        finally:
+            updater = None # Clear old updater reference
+            dp = None
+
+    # 2. Update the global token
+    TELEGRAM_TOKEN = new_token
+    # Mask token in logs for security
+    log_message(f"Telegram token updated to: {new_token[:5]}...{new_token[-5:]}") 
+
+    # 3. If Telegram was previously enabled, or if we want to immediately activate it,
+    # try to restart it with the new token.
+    # We force `telegram_enabled` to be true if we got a new token and want to try starting.
+    # If it fails, initialize_telegram_bot will set it back to False.
+    if initialize_telegram_bot(): # This will create a new updater and start polling
+        telegram_enabled = True # Mark as enabled if successfully started
+        log_message("Telegram bot restarted successfully with new token.")
+    else:
+        telegram_enabled = False # Mark as disabled if failed to start
+        log_message("❌ Failed to restart Telegram bot with new token. It remains disabled. Check logs for details.")
+
+    return redirect(url_for('home'))
+
 
 # --- MODIFIED: /logs route to read JSON array ---
 @app.route("/logs")
@@ -575,7 +717,7 @@ def battery_chart():
         selected_date = request.form.get("date")
     else:
         selected_date = get_today_date_utc_minus_5()
-        print(f"Selected date on GET: {selected_date}")  # Add this line for debugging
+        print(f"Selected date on GET: {selected_date}")
 
     growatt_login2()
 
@@ -671,4 +813,6 @@ def download_logs():
 
         
 if __name__ == '__main__':
+    # Initial start of monitoring thread - it always runs.
+    # Telegram updater start is now controlled by Flask route.
     app.run(host='0.0.0.0', port=8000)
