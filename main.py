@@ -35,8 +35,24 @@ chat_log = set()
 telegram_enabled = False
 updater = None  # Global reference for the Updater object
 dp = None       # Global reference for the Dispatcher object
-# --- Git Test File Config ---
-TEST_DATA_FILE = os.path.join(LOCAL_REPO_PATH, 'saved_data_test.json')
+
+# --- GitHub Sync Config ---
+GITHUB_REPO_URL = os.getenv("GITHUB_REPO_URL", "github.com/sjimenezn/growatt2.git")
+GITHUB_USERNAME = os.getenv("GITHUB_USERNAME", "sjimenezn")
+# Retrieve PAT from environment variable for security.
+# IMPORTANT: Ensure GITHUB_PAT is set in your Koyeb environment variables.
+GITHUB_TOKEN = os.getenv("GITHUB_PAT")
+
+GIT_PUSH_INTERVAL_MINS = int(os.getenv("GIT_PUSH_INTERVAL_MINS", "30")) # Sync every 30 minutes
+LOCAL_REPO_PATH = os.getenv("LOCAL_REPO_PATH", ".") # Current directory where main.py and saved_data.json reside
+
+# --- Data file path (assuming it's relative to LOCAL_REPO_PATH) ---
+# Define data_file and TEST_DATA_FILE AFTER LOCAL_REPO_PATH is defined
+data_file = os.path.join(LOCAL_REPO_PATH, 'saved_data.json') # Ensure this path is correct if not already
+TEST_DATA_FILE = os.path.join(LOCAL_REPO_PATH, 'saved_data_test.json') # THIS LINE MOVED
+
+# --- Global variable for the Git Repo object ---
+g_repo = None # This is crucial for passing the repo object around safely
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -176,16 +192,16 @@ def login_growatt():
 
     return user_id, plant_id, inverter_sn, datalog_sn
 
-def save_data_to_file(data):
-    global last_saved_sensor_values # Make global so we can update it after saving
+def save_data_to_file(data, filename): # Modified to accept filename
+    global last_saved_sensor_values
     try:
         existing_data = []
-        if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
-            with open(data_file, "r") as f:
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            with open(filename, "r") as f:
                 try:
                     existing_data = json.load(f)
                     if not isinstance(existing_data, list):
-                        log_message(f"⚠️ Warning: {data_file} did not contain a JSON list. Attempting to convert.")
+                        log_message(f"⚠️ Warning: {filename} did not contain a JSON list. Attempting to convert.")
                         existing_data = [existing_data]
                 except json.JSONDecodeError:
                     f.seek(0)
@@ -197,7 +213,7 @@ def save_data_to_file(data):
                             try:
                                 existing_data.append(json.loads(stripped_line))
                             except json.JSONDecodeError as e:
-                                log_message(f"❌ Error decoding existing JSON line in {data_file}: {stripped_line} - {e}")
+                                log_message(f"❌ Error decoding existing JSON line in {filename}: {stripped_line} - {e}")
 
         # Add the new data point
         existing_data.append(data)
@@ -206,18 +222,19 @@ def save_data_to_file(data):
         existing_data = existing_data[-1200:]
 
         # Write the entire list back as a single JSON array
-        with open(data_file, "w") as f:
+        with open(filename, "w") as f:
             json.dump(existing_data, f, indent=None, separators=(',', ':'))
 
-        log_message("✅ Saved data to file as a JSON array.")
+        log_message(f"✅ Saved data to file: {filename} as a JSON array.")
 
         # After successful save, update last_saved_sensor_values
-        # Filter out 'timestamp' for comparison purposes for the next cycle
-        comparable_data = {k: v for k, v in data.items() if k != 'timestamp'}
-        last_saved_sensor_values.update(comparable_data)
+        # Only if saving to the main data_file
+        if filename == data_file:
+            comparable_data = {k: v for k, v in data.items() if k != 'timestamp'}
+            last_saved_sensor_values.update(comparable_data)
 
     except Exception as e:
-        log_message(f"❌ Error saving data to file: {e}")
+        log_message(f"❌ Error saving data to file {filename}: {e}")
 
 def monitor_growatt():
     global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values
@@ -239,7 +256,7 @@ def monitor_growatt():
                     # Filter out 'timestamp' and other non-sensor keys and store
                     last_saved_sensor_values.update({
                         'vGrid': last_entry.get('vGrid'),
-                        'freqGrid': last_entry.get('freqGrid'), # Added freqGrid here
+                        'freqGrid': last_entry.get('freqGrid'),
                         'outPutVolt': last_entry.get('outPutVolt'),
                         'activePower': last_entry.get('activePower'),
                         'capacity': last_entry.get('capacity'),
@@ -282,7 +299,7 @@ def monitor_growatt():
             # Using str for consistency if "N/A" is possible.
             current_sensor_values_for_comparison = {
                 "vGrid": str(new_ac_input_v),
-                "freqGrid": str(new_ac_input_f),    # <--- ADDED THIS FOR COMPARISON
+                "freqGrid": str(new_ac_input_f),
                 "outPutVolt": str(new_ac_output_v),
                 "activePower": str(new_load_w),
                 "capacity": str(new_battery_pct),
@@ -302,7 +319,7 @@ def monitor_growatt():
                 data_to_save_for_file = {
                     "timestamp": current_loop_time_str,
                     "vGrid": None, # Will become null in JSON
-                    "freqGrid": None, # <--- ADDED THIS FOR STALE DATA SAVE
+                    "freqGrid": None,
                     "outPutVolt": None,
                     "activePower": None,
                     "capacity": None,
@@ -318,7 +335,7 @@ def monitor_growatt():
                 data_to_save_for_file = {
                     "timestamp": last_successful_growatt_update_time, # Use the time when fresh data was received
                     "vGrid": new_ac_input_v,
-                    "freqGrid": new_ac_input_f, # <--- ADDED THIS FOR FRESH DATA SAVE
+                    "freqGrid": new_ac_input_f,
                     "outPutVolt": new_ac_output_v,
                     "activePower": new_load_w,
                     "capacity": new_battery_pct,
@@ -414,102 +431,8 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
             # Only one sleep at the end of each loop iteration
             time.sleep(40) # Wait for 40 seconds before next API call
 
-# --- GitHub Sync Config ---
-GITHUB_REPO_URL = os.getenv("GITHUB_REPO_URL", "github.com/sjimenezn/growatt2.git")
-GITHUB_USERNAME = os.getenv("GITHUB_USERNAME", "sjimenezn")
-# Retrieve PAT from environment variable for security.
-# IMPORTANT: Ensure GITHUB_PAT is set in your Koyeb environment variables.
-# The fallback 'ghp_...' is for local testing ONLY and should be removed in production.
-GITHUB_TOKEN = os.getenv("GITHUB_PAT") # Removed the hardcoded fallback from here
-
-GIT_PUSH_INTERVAL_MINS = int(os.getenv("GIT_PUSH_INTERVAL_MINS", "30")) # Sync every 30 minutes
-LOCAL_REPO_PATH = os.getenv("LOCAL_REPO_PATH", ".") # Current directory where main.py and saved_data.json reside
-
-# --- Global variable for the Git Repo object ---
-g_repo = None # This is crucial for passing the repo object around safely
-
-# --- Data file path (assuming it's relative to LOCAL_REPO_PATH) ---
-data_file = os.path.join(LOCAL_REPO_PATH, 'saved_data.json')
-
-
-def init_and_add_remote(repo_path, remote_url, username, token):
-    """Initializes a git repo if not exists and sets up remote."""
-    repo = None # Initialize repo to None right at the start of the function
-    try:
-        try:
-            repo = git.Repo(repo_path)
-            log_message("✅ Local directory is already a Git repository.")
-        except git.InvalidGitRepositoryError:
-            log_message("🔄 Initializing new Git repository...")
-            repo = git.Repo.init(repo_path)
-            log_message("✅ Git repository initialized.")
-
-        # Ensure repo object was successfully obtained/initialized
-        if repo is None:
-            raise Exception("Failed to initialize or get Git repository object during init_and_add_remote.")
-
-        # Ensure the remote exists and is correctly configured with PAT
-        remote_name = "origin"
-        configured_remote_url = f"https://{username}:{token}@{remote_url}"
-
-        if remote_name in repo.remotes:
-            log_message(f"🔄 Updating existing remote '{remote_name}' URL with PAT.")
-            with repo.remotes[remote_name].config_writer as cw:
-                cw.set("url", configured_remote_url)
-        else:
-            log_message(f"🔄 Adding new remote '{remote_name}' with URL: {configured_remote_url.replace(token, '************')}")
-            repo.create_remote(remote_name, configured_remote_url)
-
-        repo.git.fetch() # Ensure we have fresh remote refs
-
-        # --- REVISED BRANCH TRACKING LOGIC ---
-        if 'main' not in repo.heads:
-            log_message("🔄 Local 'main' branch not found, attempting to create and checkout 'origin/main'.")
-            repo.git.checkout('-b', 'main', 'origin/main')
-            log_message("✅ Created and checked out 'main' tracking 'origin/main'.")
-        else:
-            # Ensure 'main' is checked out
-            if repo.active_branch.name != 'main':
-                log_message("🔄 Local 'main' branch exists, switching to it.")
-                repo.git.checkout('main')
-
-            # More robust way to check if a branch is tracking, using Git itself
-            try:
-                stdout_str, stderr_str = repo.git.rev_parse('--abbrev-ref', '--symbolic-full-name', 'main@{u}', with_extended_output=True)
-
-                if stdout_str.strip() != 'origin/main':
-                    log_message("🔄 Local 'main' branch exists but not tracking 'origin/main', setting tracking branch.")
-                    repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
-                    log_message("✅ Set local 'main' branch to track 'origin/main'.")
-                else:
-                    log_message("✅ Local 'main' branch exists and is tracking 'origin/main'.")
-            except git.exc.GitCommandError as e:
-                log_message(f"⚠️ Could not determine tracking status for 'main': {e.stderr.strip() if e.stderr else str(e)}")
-                log_message("🔄 Attempting to set local 'main' branch to track 'origin/main' as fallback.")
-                try:
-                    repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
-                    log_message("✅ Set local 'main' branch to track 'origin/main' (fallback).")
-                except Exception as set_e:
-                    log_message(f"❌ Failed to set tracking branch for 'main' even with fallback: {set_e}")
-
-    except Exception as e:
-        log_message(f"⚠️ Error in init_and_add_remote: {e}")
-        return None # Explicitly return None if any error occurs
-
-    return repo # Return the repo object if successful
-
-
-
-
 
 # --- Helper Function for Robust Git Pull ---
-# --- Helper Function for Robust Git Pull ---
-
-
-# Assuming log_message, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN,
-# LOCAL_REPO_PATH, data_file, TEST_DATA_FILE, and g_repo are defined globally.
-
-# Also, ensure _robust_git_pull is defined like this (from previous corrections):
 def _robust_git_pull(repo_obj):
     """Performs a git pull --rebase with error handling."""
     log_message("🔄 Performing robust pull on branch 'main' from 'origin'.")
@@ -616,7 +539,6 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             except git.exc.GitCommandError as pop_e:
                 log_message(f"❌ Error popping stash during manual test sync: {pop_e.stderr.strip()}")
                 log_message("⚠️ Manual intervention might be required to resolve stash conflicts. Local changes are preserved in stash list.")
-                # We can still proceed with committing TEST_DATA_FILE, as it should be there.
                 pass # Continue even if pop fails, the file should still be in working dir
 
         # --- STEP 5: Unstage ALL changes, then stage ONLY saved_data_test.json ---
@@ -676,7 +598,6 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         log_message(f"❌ An unexpected error occurred during GitHub TEST sync: {e}")
         return False, f"Unexpected error during TEST sync: {e}"
         
-
 def sync_github_repo():
     """Scheduled thread to perform Git add, commit, and push operation."""
     log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
@@ -719,8 +640,195 @@ def sync_github_repo():
     while True:
         time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
         log_message("Scheduled GitHub sync triggered.")
-        _perform_single_github_sync_operation(g_repo)
-        
+        # This will now sync only saved_data.json as originally intended for the SCHEDULED sync.
+        # Make sure the scheduled sync function doesn't call _perform_single_github_sync_operation
+        # if _perform_single_github_sync_operation is now dedicated to TEST sync.
+        # It should call a separate _perform_regular_github_sync_operation if you want both behaviors.
+        # For now, I'll assume you want the scheduled sync to continue doing the original behavior (saving saved_data.json)
+        # For that, you'd need a new function name for scheduled sync.
+        # But if you want the scheduled sync to ALSO only push TEST_DATA_FILE, then _perform_single_github_sync_operation is fine here.
+        # Given the previous context, it seems you want the *manual* button to do the test,
+        # and the *scheduled* sync to continue syncing the original `saved_data.json`.
+        # So, we need to create a new `_perform_regular_github_sync_operation` for the scheduled one.
+
+        # I will assume for now you want the SCHEDULED one to sync the ORIGINAL saved_data.json
+        # and the MANUAL button to sync TEST_DATA_FILE.
+        # So, this `sync_github_repo` needs its own specific push logic or a call to a separate function.
+
+        # If `_perform_single_github_sync_operation` is now solely for TEST,
+        # then the scheduled sync needs its own function, let's call it `_perform_regular_github_sync_operation`.
+        _perform_regular_github_sync_operation(g_repo) # <-- Call the regular sync for scheduled
+
+
+# --- NEW: Helper Function for Regular GitHub Sync (for scheduled updates) ---
+# This function is designed to sync the original `saved_data.json` file.
+def _perform_regular_github_sync_operation(repo_obj_param=None):
+    """
+    Helper function to perform regular GitHub synchronization for the main `saved_data.json`.
+    This is intended for the scheduled sync.
+    """
+    log_message("🔄 Attempting GitHub REGULAR sync operation...")
+
+    repo = g_repo if repo_obj_param is None else repo_obj_param
+
+    if repo is None:
+        log_message("❌ Git repository object is not initialized (repo is None). Cannot perform REGULAR sync.")
+        return False, "Git repository not initialized."
+
+    if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
+        log_message("⚠️ GitHub credentials (URL, username, token) are not fully set. Skipping REGULAR Git operation.")
+        return False, "GitHub credentials not fully set."
+
+    stashed_changes = False
+
+    try:
+        # Ensure we are on the main branch
+        current_branch = repo.active_branch.name
+        if current_branch != 'main':
+            log_message(f"Switching from '{current_branch}' to 'main' branch for REGULAR sync.")
+            repo.git.checkout('main')
+            log_message("✅ Switched to 'main' branch.")
+
+        # --- Stash any existing dirty changes BEFORE pull ---
+        if repo.is_dirty(untracked_files=True):
+            log_message("🔄 Detected unstaged/untracked changes. Stashing them before pull for REGULAR sync.")
+            try:
+                repo.git.stash('save', '--include-untracked', 'Auto-stash for regular sync before pull')
+                stashed_changes = True
+                log_message("✅ Changes stashed successfully.")
+            except git.exc.GitCommandError as stash_e:
+                error_message = stash_e.stderr.strip()
+                log_message(f"❌ Error stashing changes for REGULAR sync: {error_message}")
+                if "BUG: unpack-trees.c" in error_message or "invalid path" in error_message:
+                    log_message("⚠️ Detected critical Git internal error during stash. Attempting a hard reset and clean-up to recover.")
+                    try:
+                        repo.git.reset('--hard')
+                        repo.git.clean('-fdx')
+                        log_message("✅ Git state reset to clean. (WARNING: Uncommitted changes were lost).")
+                        stashed_changes = False
+                    except Exception as reset_e:
+                        log_message(f"❌ FATAL: Error during Git state reset after stash failure for REGULAR sync: {reset_e}. Repository might be unrecoverable.")
+                        return False, f"FATAL: Git state unrecoverable for REGULAR sync: {reset_e}"
+                else:
+                    log_message("Proceeding to pull for REGULAR sync, but it might fail due to unstashed changes.")
+
+        # --- Pull the latest changes from GitHub ---
+        pull_success, pull_msg = _robust_git_pull(repo)
+        if not pull_success:
+            return False, f"Git pull failed during REGULAR sync: {pull_msg}"
+
+        # --- Pop the stash if changes were stashed ---
+        if stashed_changes:
+            log_message("🔄 Popping stash after successful pull during REGULAR sync.")
+            try:
+                repo.git.stash('pop')
+                log_message("✅ Stash popped successfully.")
+            except git.exc.GitCommandError as pop_e:
+                log_message(f"❌ Error popping stash during REGULAR sync: {pop_e.stderr.strip()}")
+                log_message("⚠️ Manual intervention might be required to resolve stash conflicts. Local changes are preserved in stash list.")
+                pass
+
+        # --- Add/Commit ONLY saved_data.json for REGULAR sync ---
+        # Ensure saved_data.json is added to index and committed.
+        # This will include the updates made by the monitor loop.
+        if os.path.exists(data_file):
+            # Check if saved_data.json has changes.
+            # Using `git status --porcelain` is a more robust way to check for changes than `repo.is_dirty()`
+            # because `is_dirty` can sometimes be too broad.
+            status_output = repo.git.status('--porcelain', data_file).strip()
+            # M = modified, ?? = untracked, A = added
+            if status_output and (status_output.startswith('M ') or status_output.startswith('?? ') or status_output.startswith('A ')):
+                repo.index.add([data_file])
+                log_message(f"✅ Staged '{data_file}' for REGULAR sync.")
+                
+                commit_message = f"Auto-update Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+                repo.index.commit(commit_message)
+                log_message(f"✅ Committed changes to '{data_file}': '{commit_message}'")
+            else:
+                log_message(f"⚙️ No new changes detected in '{data_file}' for REGULAR sync. Skipping commit.")
+                return True, "No changes to push for regular sync."
+        else:
+            log_message(f"⚠️ {data_file} not found for REGULAR sync. Cannot commit.")
+            return False, "Data file not found for regular sync."
+
+        # --- Push with retries (similar to original sync) ---
+        max_retries = 3
+        retry_delay = 2
+        for i in range(max_retries):
+            push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
+            log_message(f"🔄 Attempting REGULAR push to GitHub (Attempt {i+1}/{max_retries})...")
+            try:
+                repo.git.push(push_remote_url, 'main', '--force-with-lease')
+                log_message("✅ Successfully pushed REGULAR changes to GitHub.")
+                return True, "Successfully pushed REGULAR changes."
+
+            except git.exc.GitCommandError as push_e:
+                error_message = push_e.stderr.strip() if isinstance(push_e.stderr, str) else \
+                                push_e.stderr.decode('utf-8').strip() if isinstance(push_e.stderr, bytes) else \
+                                str(push_e)
+                log_message(f"⚠️ REGULAR push rejected on attempt {i+1}. Error: {error_message}")
+
+                if i < max_retries - 1:
+                    log_message(f"🔄 Pulling again to resolve issues and retrying REGULAR push in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    pull_success_retry, pull_msg_retry = _robust_git_pull(repo)
+                    if not pull_success_retry:
+                        log_message(f"❌ Failed to re-pull during REGULAR push retry: {pull_msg_retry}. Cannot continue retries.")
+                        break
+                else:
+                    log_message(f"❌ Max retries reached for REGULAR push. Last error: {error_message}")
+                    return False, f"Failed to push REGULAR changes after {max_retries} retries: {error_message}"
+
+    except Exception as e:
+        log_message(f"❌ An unexpected error occurred during GitHub REGULAR sync: {e}")
+        return False, f"Unexpected error during REGULAR sync: {e}"
+
+# Update the `sync_github_repo` thread target to call the new regular sync function
+def sync_github_repo():
+    """Scheduled thread to perform Git add, commit, and push operation."""
+    log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
+
+    if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
+        log_message("⚠️ GitHub credentials not fully set for scheduled sync. Thread will not run.")
+        return
+
+    global g_repo # Declare g_repo as global
+    repo = None # Initialize local 'repo' variable
+
+    try:
+        if not os.path.exists(os.path.join(LOCAL_REPO_PATH, '.git')):
+            log_message(f"No .git directory found. Attempting to clone {GITHUB_REPO_URL}...")
+            authenticated_clone_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
+            git.Repo.clone_from(authenticated_clone_url, LOCAL_REPO_PATH, branch='main')
+            log_message("✅ Repository cloned successfully during startup.")
+            repo = git.Repo(LOCAL_REPO_PATH)
+        else:
+            log_message("Git repository already exists. Ensuring remote is set and pulling latest.")
+            repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
+
+        if repo is None:
+            raise Exception("Git repository object is None after initial setup (init_and_add_remote or git.Repo failed).")
+
+        log_message("Ensuring main branch is checked out and pulling latest changes.")
+        if repo.active_branch.name != 'main':
+             log_message("Switching to 'main' branch for initial pull.")
+             repo.git.checkout('main')
+
+        repo.git.pull('--rebase', 'origin', 'main')
+        log_message("✅ Git repository updated with latest changes during startup.")
+
+    except Exception as e:
+        log_message(f"❌ FATAL: Initial Git clone/pull setup for scheduled sync failed: {e}. Thread disabled.")
+        return
+
+    g_repo = repo # Store the successfully initialized repo object in the global variable
+
+    while True:
+        time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
+        log_message("Scheduled GitHub sync triggered.")
+        _perform_regular_github_sync_operation(g_repo) # Call the REGULAR sync for scheduled updates
+
+
 # Telegram Handlers (unchanged)
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
@@ -1166,6 +1274,7 @@ def trigger_github_sync():
     log_message("Received request to manually trigger GitHub sync.")
 
     # Start the sync operation in a new daemon thread
+    # This now calls the modified _perform_single_github_sync_operation which targets saved_data_test.json
     sync_thread = threading.Thread(target=_perform_single_github_sync_operation, daemon=True)
     sync_thread.start()
 
@@ -1183,4 +1292,3 @@ if __name__ == '__main__':
     # but if you want it to start automatically, uncomment this:
     # telegram_enabled = initialize_telegram_bot()
     app.run(host='0.0.0.0', port=8000)
-
