@@ -251,7 +251,7 @@ def monitor_growatt():
                     continue
 
             raw_growatt_data = api.storage_detail(inverter_sn)
-            log_message(f"Raw Growatt API data received: {raw_growatt_data}")
+            #log_message(f"Raw Growatt API data received: {raw_growatt_data}") # Can be very verbose
 
             new_ac_input_v = raw_growatt_data.get("vGrid", "N/A")
             new_ac_input_f = raw_growatt_data.get("freqGrid", "N/A")
@@ -370,33 +370,41 @@ def init_and_add_remote(repo_path, remote_url, username, token):
                 cw.set("url", configured_remote_url)
         else:
             repo.create_remote(remote_name, configured_remote_url)
-        repo.git.fetch()
+        
+        log_message("🔄 Fetching from origin in init_and_add_remote...")
+        repo.git.fetch('origin') # Ensure remote refs are known
+        log_message("✅ Fetched from origin.")
+
         if 'main' not in repo.heads:
-            repo.git.checkout('-b', 'main', 'origin/main')
+            log_message("Local 'main' branch not found. Attempting to create from 'origin/main'.")
+            if 'origin/main' in repo.remotes.origin.refs:
+                repo.create_head('main', repo.remotes.origin.refs.main).set_tracking_branch(repo.remotes.origin.refs.main)
+                repo.heads.main.checkout()
+                log_message("✅ Created and checked out 'main' tracking 'origin/main'.")
+            else:
+                log_message("❌ 'origin/main' not found. Cannot create local 'main' branch from it. Please ensure the remote repo has a 'main' branch.")
+                # If origin/main doesn't exist, we might need to create an empty main or push a new one.
+                # For now, this indicates a setup issue with the remote.
+                # repo.git.checkout('-b', 'main') # Create an orphaned main branch
+                # log_message("⚠️ Created an orphaned local 'main' branch. It's not tracking any remote branch.")
+                return None # Indicate failure if main branch setup is problematic
         else:
             if repo.active_branch.name != 'main':
                 repo.git.checkout('main')
-            try:
-                # stdout_str, _ = repo.git.rev_parse('--abbrev-ref', '--symbolic-full-name', 'main@{u}', with_extended_output=True) # This line can cause issues if main@{u} is not set
-                # Instead, just ensure tracking is set if possible
-                if repo.remotes.origin.refs.main:
-                     repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
-                     log_message("✅ Ensured local 'main' tracks 'origin/main'.")
-                else:
-                    log_message("⚠️ Could not find 'origin/main' to set tracking information.")
-
-            except git.exc.GitCommandError as e_track:
-                log_message(f"ℹ️ Note: Could not verify/set tracking for 'main': {e_track.stderr.strip() if e_track.stderr else str(e_track)}")
-                # Fallback if the above fails or if main@{u} logic is problematic
+            log_message("✅ Local 'main' branch exists and is checked out.")
+            # Ensure tracking is set if possible
+            if 'origin/main' in repo.remotes.origin.refs:
                 try:
-                    if repo.remotes.origin.refs.main:
-                        repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
-                        log_message("✅ Set local 'main' branch to track 'origin/main' (fallback).")
-                except Exception as set_e:
-                    log_message(f"❌ Failed to set tracking branch for 'main' even with fallback: {set_e}")
+                    repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
+                    log_message("✅ Ensured local 'main' tracks 'origin/main'.")
+                except Exception as e_set_track:
+                    log_message(f"ℹ️ Could not set tracking for main: {str(e_set_track)}")
+            else:
+                log_message("⚠️ 'origin/main' not found. Cannot set tracking for local 'main'.")
+
     except Exception as e:
         log_message(f"⚠️ Error in init_and_add_remote: {e}")
-        return None
+        return None # Return None on any failure
     return repo
 
 
@@ -423,98 +431,78 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             log_message(f"❌ Error copying '{data_file_name}' to '{data_file_test_name}': {e_copy}")
             return False, f"Error copying to {data_file_test_name}."
 
-        current_branch = repo.active_branch.name
-        if current_branch != 'main':
-            log_message(f"Switching from '{current_branch}' to 'main' branch.")
+        # Ensure we are on the main branch
+        if repo.active_branch.name != 'main':
+            log_message(f"Switching from '{repo.active_branch.name}' to 'main' branch.")
             repo.git.checkout('main')
             log_message("✅ Switched to 'main' branch.")
 
-        # --- MODIFIED PRE-PULL COMMIT LOGIC ---
-        if repo.is_dirty(untracked_files=True): # Check for ANY changes in the repo
+        # --- Pre-pull commit for any existing local changes ---
+        if repo.is_dirty(untracked_files=True):
             log_message(f"🔄 Detected uncommitted changes in the repository. Staging all changes before pull.")
-            try:
-                repo.git.add(A=True) # Stage all changes (modified, deleted, new)
-                log_message(f"✅ Staged all changes.")
-                if repo.index.diff("HEAD"): # If there are staged changes to commit
-                    commit_message = f"Pre-pull auto-commit of local changes: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-                    repo.index.commit(commit_message)
-                    log_message(f"✅ Pre-pull committed all detected local changes: '{commit_message}'")
-                else:
-                    log_message("⚙️ Repo was dirty, changes staged, but no new diff to HEAD for commit.")
-            except git.exc.GitCommandError as e_add_commit:
-                error_msg_add_commit = e_add_commit.stderr.strip() if isinstance(e_add_commit.stderr, str) else \
-                                       e_add_commit.stderr.decode('utf-8').strip() if isinstance(e_add_commit.stderr, bytes) else str(e_add_commit)
-                log_message(f"❌ Git command error during pre-pull add/commit: {error_msg_add_commit}")
-        else:
-            log_message("⚙️ No uncommitted changes detected in the repository before pull.")
-        # --- END OF MODIFIED PRE-PULL COMMIT LOGIC ---
-
-        log_message("🔄 Pulling latest changes from GitHub...")
-        pull_result = repo.git.pull('--rebase', 'origin', 'main')
-        log_message(f"✅ Git pull result: {pull_result}")
-
-        if not os.path.exists(data_file_test):
-            log_message(f"⚠️ Test data file '{data_file_test_name}' not found after pull. Sync aborted.")
-            return False, f"Test data file {data_file_test_name} not found after pull."
-
-        log_message(f"🔄 Staging '{data_file_test_name}' for main commit...")
-        repo.index.add([data_file_test]) # This stages the freshly copied version
-
-        staged_changes_for_test_file = False
-        for diff_item in repo.index.diff("HEAD"): # Check if the test file specifically has staged changes
-            if diff_item.a_path == data_file_test_name or diff_item.b_path == data_file_test_name:
-                staged_changes_for_test_file = True
-                break
-        
-        if not staged_changes_for_test_file:
-            log_message(f"⚙️ No new changes specifically in '{data_file_test_name}' to commit after pull/re-staging.")
-            if not repo.is_dirty(untracked_files=True):
-                 log_message(f"✅ Repository is clean. '{data_file_test_name}' is up-to-date or was handled by pre-pull/pull.")
-                 return True, f"'{data_file_test_name}' is up-to-date or handled."
+            repo.git.add(A=True)
+            if repo.index.diff("HEAD"):
+                commit_message_pre = f"Pre-pull auto-commit of local changes: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+                repo.index.commit(commit_message_pre)
+                log_message(f"✅ Pre-pull committed local changes: '{commit_message_pre}'")
             else:
-                 # This means other files might be dirty, but not our target file.
-                 # This is unexpected if pre-pull commit worked perfectly.
-                 log_message(f"⚠️ Repo is still dirty after pull, but '{data_file_test_name}' has no specific staged changes. Review state. Pushing current HEAD.")
-                 # We might still push if the HEAD is what we want for other reasons.
-                 # For now, let's assume if data_file_test is not changing, we don't push.
-                 # To force a push of current HEAD if repo is dirty, this logic would need adjustment.
-                 # For safety, if target file has no changes, and repo is dirty, we might avoid push to prevent pushing unintended changes.
-                 # However, the goal is to push the test file. If it has no changes, the objective might be met.
-                 # Let's proceed to commit if there's ANYTHING in the index, assuming the 'add' above was intentional.
-                 if not repo.index.diff("HEAD"): # If index is clean
-                    return True, f"No changes in {data_file_test_name} and index is clean."
+                log_message("⚙️ Repo was dirty, changes staged, but no new diff to HEAD for pre-pull commit.")
+        else:
+            log_message("⚙️ No uncommitted changes detected before pull.")
 
+        # --- Fetch and Pull with Rebase ---
+        log_message("🔄 Fetching latest updates from origin...")
+        repo.git.fetch('origin')
+        log_message("✅ Fetched from origin.")
 
-        # If we reached here, it means data_file_test was staged and had diffs, or other files were staged.
-        # The commit message should reflect what's being committed.
-        # If ONLY data_file_test has changes:
-        commit_message = f"Auto-update Growatt test data ({data_file_test_name}): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-        
-        # A more robust check: if there are any staged changes at all, commit them.
-        if not repo.index.diff("HEAD"):
-             log_message(f"⚙️ After all checks, no net changes staged for commit. Skipping push.")
-             return True, "No net changes to commit."
+        log_message("🔄 Pulling latest changes from GitHub with rebase (origin main)...")
+        pull_result = repo.git.pull('--rebase', 'origin', 'main')
+        log_message(f"✅ Git pull --rebase result: {pull_result}")
 
-        repo.index.commit(commit_message)
-        log_message(f"✅ Committed staged changes: '{commit_message}'")
+        # --- Prepare and Commit the target file ---
+        if not os.path.exists(data_file_test): # Should exist due to copy above
+            log_message(f"⚠️ Test data file '{data_file_test_name}' not found after pull (unexpected). Sync aborted.")
+            return False, f"Test data file {data_file_test_name} not found."
 
-        push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
-        repo.git.push(push_remote_url, 'main', '--force-with-lease') # Consider removing --force-with-lease if rebase works well
+        log_message(f"🔄 Staging '{data_file_test_name}' to ensure its current version is committed.")
+        repo.index.add([data_file_test])
+
+        if not repo.index.diff("HEAD"): # Check if there are ANY staged changes
+            log_message(f"⚙️ Index is clean after pull and re-staging '{data_file_test_name}'. No new changes to commit or push.")
+            return True, "Index clean, no new changes to push."
+
+        commit_message_main = f"Auto-update Growatt test data ({data_file_test_name}): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+        repo.index.commit(commit_message_main)
+        log_message(f"✅ Committed staged changes (including '{data_file_test_name}' if modified): '{commit_message_main}'")
+
+        # --- Push to GitHub ---
+        push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}" # Ensure PAT is in URL
+        log_message(f"🔄 Attempting to push to remote main using --force-with-lease")
+        repo.git.push(push_remote_url, 'main', '--force-with-lease')
         log_message(f"✅ Successfully pushed to GitHub.")
-        return True, f"Successfully pushed {data_file_test_name} (or current HEAD if it was the only change)."
+        return True, f"Successfully pushed changes including {data_file_test_name}."
 
     except git.exc.GitCommandError as e:
         error_message = e.stderr.strip() if isinstance(e.stderr, str) else \
                         e.stderr.decode('utf-8').strip() if isinstance(e.stderr, bytes) else str(e)
         log_message(f"❌ Git command error during sync: {error_message}")
-        if "Cannot pull with rebase" in error_message or "unstaged changes" in error_message or "fatal: Needed a single revision" in error_message:
+        if "stale info" in error_message or "[rejected]" in error_message or "non-fast-forward" in error_message:
+            log_message("Detected push rejection (stale info/non-fast-forward). Local branch might be behind remote or diverged.")
+            # Attempting a reset to origin/main to recover for the next cycle
             try:
-                log_message("🔄 Attempting to reset local changes to HEAD due to pull/rebase failure...")
-                repo.git.reset('--hard', 'HEAD') # Reset local modifications
-                # repo.git.clean('-fdx') # Optionally, clean untracked files too, but be CAREFUL
-                log_message("✅ Successfully reset local changes to HEAD.")
-            except Exception as e_reset:
-                log_message(f"❌ Failed to reset local changes: {e_reset}")
+                log_message("🔄 Attempting to fetch origin and reset --hard origin/main to resolve conflict for next run...")
+                repo.git.fetch('origin')
+                repo.git.reset('--hard', 'origin/main')
+                log_message("✅ Successfully fetched and reset to origin/main.")
+            except Exception as e_reset_hard:
+                log_message(f"❌ Failed to fetch and reset to origin/main: {e_reset_hard}")
+        elif "Cannot pull with rebase" in error_message or "unstaged changes" in error_message:
+             try:
+                log_message("🔄 Pull with rebase failed (unstaged changes or conflict). Attempting reset --hard HEAD.")
+                repo.git.reset('--hard', 'HEAD') # Discard local changes that caused rebase to fail
+                log_message("✅ Successfully reset --hard HEAD.")
+             except Exception as e_reset_rebase_fail:
+                log_message(f"❌ Failed to reset --hard HEAD after rebase failure: {e_reset_rebase_fail}")
         return False, f"Git command error: {error_message}"
     except Exception as e:
         log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
@@ -527,54 +515,72 @@ def sync_github_repo():
         log_message("⚠️ GitHub credentials not fully set for scheduled sync. Thread will not run.")
         return
     global g_repo
-    repo = None
-    try:
-        if not os.path.exists(os.path.join(LOCAL_REPO_PATH, '.git')):
-            authenticated_clone_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
-            git.Repo.clone_from(authenticated_clone_url, LOCAL_REPO_PATH, branch='main')
-            repo = git.Repo(LOCAL_REPO_PATH)
-        else:
-            repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN)
-        
-        if repo is None:
-            log_message("❌ FATAL: Git repository object is None after initial setup. Thread cannot proceed.")
-            return # Stop the thread if repo setup fails
+    repo = None # Initialize local repo variable
 
-        if repo.active_branch.name != 'main':
-             repo.git.checkout('main')
-        
-        # Initial pull to align with remote
-        log_message("🔄 Performing initial pull from origin main during startup.")
-        repo.git.pull('--rebase', 'origin', 'main') # Or just pull, if rebase is problematic at startup
-        log_message("✅ Initial pull completed.")
+    for attempt in range(3): # Retry initialization a few times
+        try:
+            if not os.path.exists(os.path.join(LOCAL_REPO_PATH, '.git')):
+                log_message(f"Attempt {attempt+1}: No .git directory found. Cloning {GITHUB_REPO_URL}...")
+                authenticated_clone_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
+                repo = git.Repo.clone_from(authenticated_clone_url, LOCAL_REPO_PATH, branch='main')
+                log_message("✅ Repository cloned successfully.")
+            else:
+                log_message(f"Attempt {attempt+1}: Git repository exists. Initializing remote and checking branch.")
+                repo = init_and_add_remote(LOCAL_REPO_PATH, GITHUB_REPO_URL.split('@')[-1], GITHUB_USERNAME, GITHUB_TOKEN)
 
-    except git.exc.GitCommandError as e_startup_pull:
-        error_msg_startup = e_startup_pull.stderr.strip() if isinstance(e_startup_pull.stderr, str) else str(e_startup_pull)
-        log_message(f"❌ Git command error during startup pull: {error_msg_startup}. Attempting reset.")
-        if repo: # If repo object exists
-            try:
-                repo.git.reset('--hard', f'origin/main') # Reset to remote state
-                log_message("✅ Successfully reset to origin/main after startup pull failure.")
-            except Exception as e_reset_startup:
-                log_message(f"❌ Failed to reset to origin/main: {e_reset_startup}. Scheduled sync may be unstable.")
-                # If reset fails, the repo might be in a bad state.
-                # Depending on severity, could return here to stop the thread.
-    except Exception as e:
-        log_message(f"❌ FATAL: Initial Git clone/pull setup for scheduled sync failed: {e}. Thread disabled.")
-        return # Stop the thread if any other critical error
-    
-    g_repo = repo # Assign to global only if successfully initialized
-    
+            if repo is None:
+                log_message(f"❌ Attempt {attempt+1}: Git repository object is None after init/clone. Retrying if attempts left.")
+                if attempt < 2: time.sleep(10); continue
+                else: raise Exception("Failed to initialize Git repository object after multiple attempts.")
+
+            if repo.active_branch.name != 'main':
+                log_message(f"Attempt {attempt+1}: Active branch is '{repo.active_branch.name}'. Checking out 'main'.")
+                repo.git.checkout('main')
+            
+            log_message(f"Attempt {attempt+1}: Performing initial fetch and pull from origin main.")
+            repo.git.fetch('origin')
+            repo.git.pull('--rebase', 'origin', 'main')
+            log_message("✅ Initial sync completed.")
+            g_repo = repo # Assign to global on success
+            break # Exit retry loop on success
+        
+        except git.exc.GitCommandError as e_startup:
+            error_msg_startup = e_startup.stderr.strip() if isinstance(e_startup.stderr, str) else str(e_startup)
+            log_message(f"❌ Attempt {attempt+1}: Git command error during startup: {error_msg_startup}.")
+            if repo and ("pull with rebase" in error_msg_startup or "lock file" in error_msg_startup.lower()):
+                try:
+                    log_message("Attempting to clean up lock file and reset.")
+                    lock_file = os.path.join(repo.git_dir, 'index.lock')
+                    if os.path.exists(lock_file): os.remove(lock_file)
+                    repo.git.reset('--hard', 'origin/main') # Reset to a known good state
+                    log_message("✅ Recovered from startup Git error by resetting.")
+                    g_repo = repo
+                    break 
+                except Exception as e_recovery:
+                    log_message(f"❌ Failed to recover from startup Git error: {e_recovery}")
+            if attempt == 2: # Last attempt failed
+                log_message("❌ FATAL: All startup attempts failed. Scheduled sync thread disabled.")
+                return
+            time.sleep(10 + (attempt * 5)) # Exponential backoff
+        except Exception as e_main_startup:
+            log_message(f"❌ Attempt {attempt+1}: General error during startup: {e_main_startup}.")
+            if attempt == 2:
+                log_message("❌ FATAL: All startup attempts failed (general error). Scheduled sync thread disabled.")
+                return
+            time.sleep(10 + (attempt * 5))
+
+    if g_repo is None:
+        log_message("❌ FATAL: g_repo is None after startup sequence. Scheduled sync thread will not run.")
+        return
+
     while True:
         time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
         log_message(f"Scheduled GitHub sync triggered for {data_file_test_name}.")
-        if g_repo: # Ensure g_repo is not None
+        if g_repo:
             _perform_single_github_sync_operation(g_repo)
         else:
-            log_message("❌ Scheduled sync skipped: Git repository (g_repo) is not available.")
-            # Attempt re-initialization or simply log and wait for next cycle
-            # For now, just log. A more robust solution might try to re-init g_repo.
-            break # Exiting loop if g_repo is None to prevent continuous errors
+            log_message("❌ Scheduled sync skipped: Git repository (g_repo) is not available. This should not happen if startup was successful.")
+            break # Stop thread if g_repo is unexpectedly None
 
 # Telegram Handlers
 def start(update: Update, context: CallbackContext):
@@ -755,7 +761,6 @@ def charts_view():
 
 @app.route("/chatlog")
 def chatlog_view():
-    # Basic HTML structure with nav bar
     return render_template_string("""
         <html><head><title>Growatt Monitor - Chatlog</title><meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes"><style>body{font-family:Arial,sans-serif;margin:0;padding:0}nav{background-color:#333;overflow:hidden;position:sticky;top:0;z-index:100}nav ul{list-style-type:none;margin:0;padding:0;display:flex;justify-content:center}nav ul li{padding:14px 20px}nav ul li a{color:white;text-decoration:none;font-size:18px}nav ul li a:hover{background-color:#ddd;color:black}</style></head><body><nav><ul><li><a href="/">Home</a></li><li><a href="/logs">Logs</a></li><li><a href="/chatlog">Chatlog</a></li><li><a href="/console">Console</a></li><li><a href="/details">Details</a></li><li><a href="/battery-chart">Battery Chart</a></li></ul></nav><h1>Chatlog</h1><pre>{{ chat_log_content }}</pre></body></html>
     """, chat_log_content="\n".join(str(cid) for cid in sorted(list(chat_log))))
@@ -763,7 +768,6 @@ def chatlog_view():
 
 @app.route("/console")
 def console_view():
-    # Basic HTML structure with nav bar
     return render_template_string("""
         <html><head><title>Console Logs</title><meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes"><style>body{font-family:Arial,sans-serif;margin:0;padding:0}nav{background-color:#333;overflow:hidden;position:sticky;top:0;z-index:100}nav ul{list-style-type:none;margin:0;padding:0;display:flex;justify-content:center}nav ul li{padding:14px 20px}nav ul li a{color:white;text-decoration:none;font-size:18px}nav ul li a:hover{background-color:#ddd;color:black}</style></head><body><nav><ul><li><a href="/">Home</a></li><li><a href="/logs">Logs</a></li><li><a href="/chatlog">Chatlog</a></li><li><a href="/console">Console</a></li><li><a href="/details">Details</a></li><li><a href="/battery-chart">Battery Chart</a></li></ul></nav><h2>Console Output (Recent)</h2><pre style="white-space:pre;font-family:monospace;overflow-x:auto;">{{ logs }}</pre><h2>📦 Fetched Growatt Data (Last Login Attempt)</h2><pre style="white-space:pre;font-family:monospace;overflow-x:auto;">{{ data }}</pre></body></html>
     """, logs="\n\n".join(m for _, m in console_logs), data=pprint.pformat(fetched_data, indent=2))
@@ -773,7 +777,7 @@ def console_view():
 def battery_chart():
     global last_successful_growatt_update_time
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
-    print(f"Battery chart: Selected date on {request.method}: {selected_date}") # More logging
+    #log_message(f"Battery chart: Selected date on {request.method}: {selected_date}")
 
     growatt_login2() # Ensure session is active
 
@@ -781,16 +785,16 @@ def battery_chart():
     battery_data = {}
     try:
         battery_response = session.post('https://server.growatt.com/panel/storage/getStorageBatChart', headers=HEADERS, data=battery_payload, timeout=10)
-        battery_response.raise_for_status() # Raises HTTPError for bad responses (4XX or 5XX)
+        battery_response.raise_for_status()
         battery_data = battery_response.json()
-        log_message(f"Battery chart data received for {selected_date}: {battery_data.get('msg')}")
+        #log_message(f"Battery chart data received for {selected_date}: {battery_data.get('msg')}")
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch battery data for {selected_date}: {e}")
-        battery_data = {} # Ensure it's an empty dict on error
+        battery_data = {}
 
     soc_data = battery_data.get("obj", {}).get("socChart", {}).get("capacity", [])
-    if not soc_data: log_message(f"⚠️ No SoC data received for {selected_date} from battery_data: {battery_data}")
-    soc_data = soc_data + [None] * (288 - len(soc_data)) # Pad to 288 points
+    if not soc_data: log_message(f"⚠️ No SoC data received for {selected_date} from battery_data object: {battery_data.get('obj', {})}")
+    soc_data = soc_data + [None] * (288 - len(soc_data))
 
     energy_payload = {"date": selected_date, "plantId": PLANT_ID, "storageSn": STORAGE_SN}
     energy_data = {}
@@ -798,7 +802,7 @@ def battery_chart():
         energy_response = session.post("https://server.growatt.com/panel/storage/getStorageEnergyDayChart", headers=HEADERS, data=energy_payload, timeout=10)
         energy_response.raise_for_status()
         energy_data = energy_response.json()
-        log_message(f"Energy chart data received for {selected_date}: {energy_data.get('msg')}")
+        #log_message(f"Energy chart data received for {selected_date}: {energy_data.get('msg')}")
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch energy chart data for {selected_date}: {e}")
         energy_data = {}
@@ -807,39 +811,31 @@ def battery_chart():
     energy_titles = energy_data.get("titles", [])
 
     def prepare_series(data_list, name, color):
-        # Convert to float and replace 'N/A' or non-numeric with None
         cleaned_data = []
         if isinstance(data_list, list):
             for x in data_list:
-                try:
-                    cleaned_data.append(float(x))
-                except (ValueError, TypeError):
-                    cleaned_data.append(None)
-        
+                try: cleaned_data.append(float(x))
+                except (ValueError, TypeError): cleaned_data.append(None)
         if not cleaned_data or all(x is None for x in cleaned_data):
-            log_message(f"Series '{name}' for {selected_date} has no valid data points.")
-            return None # No valid data
+            #log_message(f"Series '{name}' for {selected_date} has no valid data points.")
+            return None
         return {"name": name, "data": cleaned_data, "color": color, "fillOpacity": 0.2, "lineWidth": 1}
 
     energy_series_raw = [
         prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#FFEB3B"),
         prepare_series(energy_obj.get("userLoad"), "Load Consumption", "#9C27B0"),
         prepare_series(energy_obj.get("pacToUser"), "Imported from Grid", "#00BCD4"),
-        # prepare_series(energy_obj.get("pacToGrid"), "Exported to Grid", "#4CAF50"), # Example if you add it
     ]
-    energy_series = [s for s in energy_series_raw if s] # Filter out None series
+    energy_series = [s for s in energy_series_raw if s]
 
     if not energy_series: log_message(f"⚠️ No usable energy chart series data for {selected_date}")
 
-    for series in energy_series: # Pad existing series
-        if series and series["data"]:
-            series["data"] = series["data"] + [None] * (288 - len(series["data"]))
-        elif series: # Should not happen if filtered above, but as a safeguard
-            series["data"] = [None] * 288
+    for series in energy_series:
+        if series and series["data"]: series["data"] = series["data"] + [None] * (288 - len(series["data"]))
+        elif series: series["data"] = [None] * 288
 
     return render_template("battery-chart.html", selected_date=selected_date, soc_data=soc_data,
-        raw_json=battery_data, # For debugging if needed
-        energy_titles=energy_titles, energy_series=energy_series,
+        raw_json=battery_data, energy_titles=energy_titles, energy_series=energy_series,
         last_growatt_update=last_successful_growatt_update_time)
 
 @app.route('/dn')
@@ -856,22 +852,14 @@ def trigger_github_sync():
     log_message("Received request to manually trigger GitHub sync.")
     if g_repo is None:
         log_message("❌ Cannot trigger manual sync: Git repository (g_repo) is not initialized.")
-        # Optionally, redirect with a flash message
-        return redirect(url_for('charts_view')) # Or home, or wherever appropriate
+        return redirect(url_for('charts_view'))
 
-    # Start the sync operation in a new daemon thread, passing the global repo object
     sync_thread = threading.Thread(target=_perform_single_github_sync_operation, args=(g_repo,), daemon=True)
     sync_thread.start()
-
-    # Redirect back to the logs page (or home)
     return redirect(url_for('charts_view'))
 
-
-# Start the GitHub sync thread after Flask app is defined and before it runs
-# Ensure this thread starts only once and has access to the app context if needed (not directly here)
 github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
 github_sync_thread.start()
 
 if __name__ == '__main__':
-    # telegram_enabled = initialize_telegram_bot() # Optional: auto-start Telegram bot
     app.run(host='0.0.0.0', port=8000)
