@@ -70,9 +70,25 @@
         }
 
         .controls-container label,
-        .controls-container select {
+        .controls-container select,
+        .controls-container button {
             font-size: 1.1em;
-            padding: 5px;
+            padding: 5px 10px;
+            margin: 5px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .controls-container button:hover {
+            background-color: #ddd;
+        }
+
+        .timestamp-container {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: #777;
         }
 
         @media (max-width: 600px) {
@@ -97,6 +113,10 @@
     <div class="container">
         <h2>Growatt Monitoring Charts</h2>
 
+        <div class="timestamp-container">
+            Última actualización de Growatt: <span id="lastUpdateTime">{{ last_growatt_update }}</span>
+        </div>
+
         <div class="controls-container">
             <label for="timeRangeSelect">Show Last:</label>
             <select id="timeRangeSelect" onchange="updateCharts()">
@@ -105,6 +125,9 @@
                 <option value="72">72 hours</option>
                 <option value="96">96 hours</option>
             </select>
+            <form action="/trigger_github_sync" method="POST" style="display: inline;">
+                <button type="submit">Sync to GitHub</button>
+            </form>
         </div>
 
         <div class="chart-container" id="acInputChart"></div>
@@ -126,8 +149,8 @@
         function drawChart(id, title, data, color, hoursToShow) {
             // Determine the reference time: use the latest timestamp in the data
             // This ensures "last X hours" is relative to the end of the loaded data.
-            const referenceTime = allTimestampsAsDates.length > 0 ? 
-                                  allTimestampsAsDates[allTimestampsAsDates.length - 1] : 
+            const referenceTime = allTimestampsAsDates.length > 0 ?
+                                  allTimestampsAsDates[allTimestampsAsDates.length - 1] :
                                   new Date(); // Fallback to current time if no data
 
             const cutoffTime = new Date(referenceTime.getTime() - (hoursToShow * 60 * 60 * 1000)); // hours * minutes * seconds * milliseconds
