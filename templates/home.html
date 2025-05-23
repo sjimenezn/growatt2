@@ -140,6 +140,23 @@
             <div class="main-content">
                 <h1>✅ Growatt Monitor is Running!</h1>
                 
+                <h2>Detalles del Inversor</h2>
+                <h3>Información constante</h3>
+                <p>Plant ID: {{ plant_id }}</p>
+                <p>User ID: {{ user_id }}</p>
+                <p>Inverter SN: {{ inverter_sn }}</p>
+                <p>Datalogger SN: {{ datalog_sn }}</p>
+                <h2>Datos en tiempo real</h2>
+                <table border="1">
+                    <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }} V</td></tr>
+                    <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }} Hz</td></tr>
+                    <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }} V</td></tr>
+                    <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }} Hz</td></tr>
+                    <tr><th>Load Power</th><td>{{ d['load_power'] }} W</td></tr>
+                    <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}%</td></tr>
+                </table>
+                <p><b>Última actualización:</b> {{ last }}</p>
+
                 ---
                 <div class="telegram-section">
                     <h2>Telegram Bot Control</h2>
@@ -159,23 +176,6 @@
                     </form>
                 </div>
                 ---
-
-                <h2>Detalles del Inversor</h2>
-                <h3>Información constante</h3>
-                <p>Plant ID: {{ plant_id }}</p>
-                <p>User ID: {{ user_id }}</p>
-                <p>Inverter SN: {{ inverter_sn }}</p>
-                <p>Datalogger SN: {{ datalog_sn }}</p>
-                <h2>Datos en tiempo real</h2>
-                <table border="1">
-                    <tr><th>AC Input Voltage</th><td>{{ d['ac_input_voltage'] }} V</td></tr>
-                    <tr><th>AC Input Frequency</th><td>{{ d['ac_input_frequency'] }} Hz</td></tr>
-                    <tr><th>AC Output Voltage</th><td>{{ d['ac_output_voltage'] }} V</td></tr>
-                    <tr><th>AC Output Frequency</th><td>{{ d['ac_output_frequency'] }} Hz</td></tr>
-                    <tr><th>Load Power</th><td>{{ d['load_power'] }} W</td></tr>
-                    <tr><th>Battery Capacity</th><td>{{ d['battery_capacity'] }}%</td></tr>
-                </table>
-                <p><b>Última actualización:</b> {{ last }}</p>
             </div>
         </body>
 </html>
