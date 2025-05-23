@@ -501,22 +501,60 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 import os
 import git
 from datetime import datetime
-# Assuming 'log_message' function, 'GITHUB_REPO_URL', 'GITHUB_USERNAME',
-# 'GITHUB_TOKEN', 'LOCAL_REPO_PATH', 'data_file', and 'g_repo' are defined elsewhere in your script.
+import time # Ensure 'time' is imported for sleep
 
+
+# --- Helper Function for Robust Git Pull ---
+def _robust_git_pull(repo, branch='main', remote='origin'):
+    """
+    Performs a Git pull operation, stashing any uncommitted changes first
+    and popping them afterwards to ensure a clean working directory for the pull.
+    """
+    log_message(f"🔄 Performing robust pull on branch '{branch}' from '{remote}'.")
+    stashed_changes = False # Flag to track if we stashed anything
+
+    try:
+        # Check if dirty and stash all changes (tracked and untracked)
+        if repo.is_dirty(untracked_files=True):
+            log_message("🔄 Detected unstaged changes. Stashing them before pull to ensure clean working directory.")
+            try:
+                repo.git.stash('save', '--include-untracked', 'Auto-stash for robust pull')
+                stashed_changes = True
+                log_message("✅ Changes stashed successfully.")
+            except git.exc.GitCommandError as stash_e:
+                log_message(f"❌ Error stashing changes: {stash_e.stderr.strip()}. Proceeding, but pull might fail.")
+                pass # Don't return here, try to proceed
+
+        # Perform the pull operation
+        pull_result = repo.git.pull('--rebase', remote, branch)
+        log_message(f"✅ Git pull result: {pull_result}")
+        return True, pull_result # Success
+
+    except git.exc.GitCommandError as e:
+        # Robust error logging for GitCommandError
+        error_message = e.stderr.strip() if isinstance(e.stderr, str) else \
+                        e.stderr.decode('utf-8').strip() if isinstance(e.stderr, bytes) else \
+                        str(e)
+        log_message(f"❌ Git pull failed: {error_message}")
+        return False, error_message # Failure
+    finally:
+        # Always attempt to pop the stash if it was created
+        if stashed_changes:
+            try:
+                log_message("🔄 Popping stash after robust pull attempt.")
+                repo.git.stash('pop')
+                log_message("✅ Stash popped successfully.")
+            except git.exc.GitCommandError as pop_e:
+                log_message(f"❌ Error popping stash: {pop_e.stderr.strip()}")
+                log_message("⚠️ Manual intervention might be required to resolve stash conflicts. Local changes are preserved in stash list.")
+                pass # Log and proceed
+
+# --- Modified _perform_single_github_sync_operation ---
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """
-    Helper function to perform a single Git add, commit, and push operation.
-    It focuses on syncing only 'saved_data.json' and includes retry logic for push failures.
-    """
+    """Helper function to perform a single Git add, commit, and push operation."""
     log_message("🔄 Attempting GitHub sync operation...")
 
-    repo = None
-    if repo_obj_param is not None:
-        repo = repo_obj_param
-    else:
-        global g_repo
-        repo = g_repo
+    repo = g_repo if repo_obj_param is None else repo_obj_param
 
     if repo is None:
         log_message("❌ Git repository object is not initialized (repo is None). Cannot perform sync.")
@@ -526,8 +564,6 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         log_message("⚠️ GitHub credentials (URL, username, token) are not fully set. Skipping Git operation.")
         return False, "GitHub credentials not fully set."
 
-    stashed_changes = False # Flag to track if we stashed anything
-
     try:
         # Ensure we are on the main branch
         current_branch = repo.active_branch.name
@@ -536,7 +572,7 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             repo.git.checkout('main')
             log_message("✅ Switched to 'main' branch.")
 
-        # Ensure the data file exists. If not, create it as an empty array for tracking.
+        # Ensure the data file exists. If not, create it as an empty array.
         if not os.path.exists(data_file):
             log_message(f"⚠️ Data file '{data_file}' not found. Creating empty file for tracking.")
             try:
@@ -548,41 +584,15 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
                 log_message(f"❌ Failed to create/stage empty '{data_file}': {e}")
                 return False, f"Failed to handle data file: {e}"
 
-        # --- Crucial step: Stash any existing unstaged changes before pull/rebase ---
-        # This ensures the working directory is clean for the 'pull --rebase',
-        # regardless of other tracked/untracked files.
-        if repo.is_dirty(untracked_files=True): # Check for any dirty state (tracked or untracked)
-            log_message("🔄 Detected unstaged changes. Stashing them before pull to ensure clean working directory.")
-            try:
-                # Include untracked files in the stash
-                repo.git.stash('save', '--include-untracked', 'Auto-stash by Growatt monitor before pull')
-                stashed_changes = True
-                log_message("✅ Changes stashed successfully.")
-            except git.exc.GitCommandError as stash_e:
-                log_message(f"❌ Error stashing changes: {stash_e.stderr.strip()}. Proceeding, but pull might fail.")
-                pass # Log error but try to proceed; pull will likely fail if stashing failed.
-
-        # --- Now, pull the latest changes from GitHub ---
-        log_message("🔄 Pulling latest changes from GitHub...")
-        pull_result = repo.git.pull('--rebase', 'origin', 'main')
-        log_message(f"✅ Git pull result: {pull_result}")
-
-        # --- Pop the stash if changes were stashed earlier ---
-        if stashed_changes:
-            log_message("🔄 Popping stash after successful pull.")
-            try:
-                repo.git.stash('pop')
-                log_message("✅ Stash popped successfully.")
-            except git.exc.GitCommandError as pop_e:
-                log_message(f"❌ Error popping stash (might indicate conflicts): {pop_e.stderr.strip()}")
-                log_message("⚠️ Manual intervention might be required to resolve stash conflicts. Local changes are preserved in stash list.")
-                pass # Log warning, proceed, but user might need to intervene later.
+        # --- Initial Pull using the robust helper ---
+        pull_success, pull_msg = _robust_git_pull(repo)
+        if not pull_success:
+            return False, f"Initial Git pull failed: {pull_msg}"
 
         # --- Stage and commit ONLY saved_data.json for final push ---
         # This will capture any new data saved since the last commit/pull,
         # or changes from the stash pop if saved_data.json was part of it.
         
-        # Check if saved_data.json has changes relative to HEAD or if it's untracked
         repo.index.add([data_file]) # Stage only this specific file
 
         # Check if there are actual differences in the index for data_file compared to HEAD
@@ -599,96 +609,57 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         else:
             log_message(f"⚙️ No new changes detected in '{data_file}' to commit after pull and stash pop.")
 
-        # --- Final push logic - with retry mechanism for 'stale info' errors ---
-        max_push_retries = 3 # Define how many times to retry the push
-        for i in range(max_push_retries):
+        # --- Push with retries ---
+        max_retries = 3
+        retry_delay = 2
+        for i in range(max_retries):
+            # Check if there are any commits *ahead* of the remote to push.
+            # This handles cases where no changes were detected, so no push is needed.
+            is_ahead = False
             try:
-                # Check if there are new commits to push *before* attempting push on each retry
-                is_ahead = False
-                try:
-                    local_main_commit = repo.head.commit
-                    origin_main_commit = repo.remotes.origin.refs.main.commit
-                    if local_main_commit != origin_main_commit:
-                        is_ahead = True
-                except Exception as ahead_e:
-                    log_message(f"WARNING: Could not determine if local branch is ahead of remote: {ahead_e}. Assuming push needed for retry.")
-                    is_ahead = True # Default to pushing if the check fails
+                # Compare current HEAD to origin/main's HEAD
+                if repo.head.commit != repo.remotes.origin.refs.main.commit:
+                    is_ahead = True
+            except Exception as e:
+                log_message(f"WARNING: Could not determine if local branch is ahead of remote: {e}. Assuming push needed for retry.")
+                is_ahead = True # If check fails, assume we should try to push.
 
-                if not is_ahead and not repo.is_dirty(untracked_files=False):
-                    log_message(f"⚙️ No new commits to push on retry {i+1}. Skipping push attempt.")
-                    return True, "No changes to push." # Nothing to push, success
+            # If no new commits to push and the tracked working tree is clean, skip push.
+            if not is_ahead and not repo.is_dirty(untracked_files=False):
+                 log_message("⚙️ No new commits to push to remote and working tree is clean. Skipping Git push.")
+                 return True, "No changes to push."
 
-                push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
-                log_message(f"🔄 Attempting push to GitHub (Attempt {i+1}/{max_push_retries})...")
-                # Using --force-with-lease for safer rebase push
+            log_message(f"🔄 Attempting push to GitHub (Attempt {i+1}/{max_retries})...")
+            push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
+            try:
+                # The push operation itself
                 repo.git.push(push_remote_url, 'main', '--force-with-lease')
-
                 log_message("✅ Successfully pushed to GitHub.")
-                return True, "Successfully pushed." # Push successful, exit function
+                return True, "Successfully pushed." # Push successful, exit
 
             except git.exc.GitCommandError as push_e:
                 error_message = push_e.stderr.strip() if isinstance(push_e.stderr, str) else \
                                 push_e.stderr.decode('utf-8').strip() if isinstance(push_e.stderr, bytes) else \
                                 str(push_e)
+                log_message(f"⚠️ Push rejected on attempt {i+1}. Error: {error_message}")
 
-                # Check if the error is due to 'stale info' or a general rejection
-                if "stale info" in error_message or "rejected" in error_message:
-                    log_message(f"⚠️ Push rejected (stale info/remote change) on attempt {i+1}. Error: {error_message}")
-                    if i < max_push_retries - 1: # If not the last retry attempt
-                        log_message(f"🔄 Pulling again to resolve stale info and retrying push in 2 seconds...")
-                        time.sleep(2) # Small delay before retry
-                        try:
-                            # Re-pull and rebase to get the absolute latest remote state
-                            pull_result_retry = repo.git.pull('--rebase', 'origin', 'main')
-                            log_message(f"✅ Git pull (re-pull for retry) successful: {pull_result_retry}")
-
-                            # After re-pull, local HEAD might have moved. We need to ensure saved_data.json is still staged/committed.
-                            if os.path.exists(data_file):
-                                repo.index.add([data_file]) # Re-stage only data_file
-                                if repo.index.diff("HEAD"): # If there are actual changes to commit after re-pull
-                                    commit_message = f"Re-attempt commit of {data_file}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5) (Retry {i+1})"
-                                    repo.index.commit(commit_message)
-                                    log_message(f"✅ Re-committed '{data_file}' during retry.")
-                                else:
-                                    log_message(f"⚙️ No new changes to '{data_file}' to re-commit during retry.")
-                            else:
-                                log_message(f"⚠️ Data file '{data_file}' not found for re-commit during retry.")
-
-                        except git.exc.GitCommandError as retry_pull_e:
-                            log_message(f"❌ Failed to re-pull during push retry: {retry_pull_e.stderr.strip()}. Cannot continue retries.")
-                            return False, f"Git command error during re-pull for push retry: {retry_pull_e.stderr.strip()}"
-                        except Exception as retry_e:
-                            log_message(f"❌ An unexpected error during re-pull for push retry: {retry_e}. Cannot continue retries.")
-                            return False, f"Unexpected error during re-pull for push retry: {retry_e}"
-                    else:
-                        log_message("❌ Max push retries reached. Push failed.")
-                        return False, f"Git command error: {error_message}"
-                elif "Authentication failed" in error_message:
-                    # If authentication fails, there's no point in retrying.
-                    log_message(f"❌ Authentication failed. Please check GITHUB_USERNAME and GITHUB_PAT. Error: {error_message}")
-                    return False, f"Authentication failed: {error_message}"
+                if i < max_retries - 1:
+                    log_message(f"🔄 Pulling again to resolve issues and retrying push in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    
+                    # --- Call the robust pull helper for the retry pull! ---
+                    pull_success_retry, pull_msg_retry = _robust_git_pull(repo)
+                    if not pull_success_retry:
+                        log_message(f"❌ Failed to re-pull during push retry: {pull_msg_retry}. Cannot continue retries.")
+                        break # Exit retry loop if re-pull fails
+                    # If re-pull succeeds, the loop continues to the next push attempt
                 else:
-                    # Catch any other unhandled Git push errors
-                    log_message(f"❌ Unhandled Git push error: {error_message}")
-                    return False, f"Git command error: {error_message}"
+                    log_message(f"❌ Max retries reached for push. Last error: {error_message}")
+                    return False, f"Failed to push after {max_retries} retries: {error_message}"
 
-        # If the loop finishes without returning True, it means all attempts failed.
-        log_message("❌ All push attempts failed after exhausting retries.")
-        return False, "Failed to push after multiple retries."
-
-    except git.exc.GitCommandError as e:
-        # Catch any Git command errors that occur before the push loop
-        error_message = e.stderr.strip() if isinstance(e.stderr, str) else \
-                        e.stderr.decode('utf-8').strip() if isinstance(e.stderr, bytes) else \
-                        str(e)
-        log_message(f"❌ Git command error during sync (outside push loop): {error_message}")
-        return False, f"Git command error: {error_message}"
     except Exception as e:
-        # Catch any other unexpected errors
         log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
         return False, f"Unexpected error: {e}"
-
-
 def sync_github_repo():
     """Scheduled thread to perform Git add, commit, and push operation."""
     log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
