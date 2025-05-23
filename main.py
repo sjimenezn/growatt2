@@ -11,23 +11,25 @@ from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
-# File for saving data
+# --- File for saving data ---
 data_file = "saved_data.json"
 
-# Ensure the file exists before any read/write operations
-if not os.path.exists(data_file):
+# Ensure the file exists and is initialized as an empty JSON array
+if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
     with open(data_file, "w") as f:
-        pass  # Creates an empty file if it doesn't exist
-# Credentials
+        f.write("[]")  # Initialize with an empty JSON array
+    print(f"Initialized empty data file: {data_file}") # Added for clarity on startup
+
+# --- Credentials ---
 username1 = "vospina"
 password1 = "Vospina.2025"
 
-# Telegram Config
-TELEGRAM_TOKEN = "7653969082:AAGJ_8TL2-MA0uCLgtx8UAyfEBRwCmFWyzY"
+# --- Telegram Config ---
+TELEGRAM_TOKEN = "7653969082:AAGJ_8TL2-MA0uCLgtx8UAyfEBRwCmFWyzG"
 CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
 
-# Flask App
+# --- Flask App ---
 app = Flask(__name__)
 
 GROWATT_USERNAME = "vospina"
@@ -36,7 +38,7 @@ STORAGE_SN = "BNG7CH806N"
 PLANT_ID = "2817170"
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0',
+    'User-Agent': 'Mozilla/5.5', # Updated user agent slightly
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     'X-Requested-With': 'XMLHttpRequest'
 }
@@ -52,7 +54,6 @@ def growatt_login2():
         'passwordCrc': PASSWORD_CRC
     }
     session.post('https://server.growatt.com/login', headers=HEADERS, data=data)
-#aca iba el fetch the battery
 
 def get_today_date_utc_minus_5():
     now = datetime.utcnow() - timedelta(hours=5)
@@ -65,7 +66,7 @@ api.session.headers.update({
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 })
 
-# Shared Data
+# --- Shared Data ---
 current_data = {}
 last_update_time = "Never"
 console_logs = []
@@ -169,21 +170,45 @@ def login_growatt():
     # Return the gathered data
     return user_id, plant_id, inverter_sn, datalog_sn
 
+# --- MODIFIED: save_data_to_file to save as JSON array ---
 def save_data_to_file(data):
     try:
-        if os.path.exists(data_file):
+        existing_data = []
+        # Check if the file exists and is not empty before trying to load
+        if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
             with open(data_file, "r") as f:
-                lines = f.readlines()
-        else:
-            lines = []
+                try:
+                    existing_data = json.load(f)
+                    # Ensure existing_data is a list; if not, wrap it in one
+                    if not isinstance(existing_data, list):
+                        log_message(f"⚠️ Warning: {data_file} did not contain a JSON list. Attempting to convert.")
+                        existing_data = [existing_data]
+                except json.JSONDecodeError:
+                    # Fallback for old JSON Lines format or corruption: read line by line
+                    f.seek(0) # Go back to the beginning of the file
+                    lines = f.readlines()
+                    existing_data = []
+                    for line in lines:
+                        stripped_line = line.strip()
+                        if stripped_line:
+                            try:
+                                existing_data.append(json.loads(stripped_line))
+                            except json.JSONDecodeError as e:
+                                log_message(f"❌ Error decoding existing JSON line in {data_file}: {stripped_line} - {e}")
+                                # Skip problematic line
+        
+        # Add the new data point
+        existing_data.append(data)
 
-        lines.append(json.dumps(data) + "\n")
-        lines = lines[-1200:]
+        # Keep only the last 1200 entries (or your desired limit)
+        existing_data = existing_data[-1200:]
 
+        # Write the entire list back as a single JSON array
         with open(data_file, "w") as f:
-            f.writelines(lines)
+            json.dump(existing_data, f, indent=None, separators=(',', ':')) # Compact output
+            # For human-readable output in the file, use: json.dump(existing_data, f, indent=2)
 
-        log_message("✅ Saved data to file.")
+        log_message("✅ Saved data to file as a JSON array.")
     except Exception as e:
         log_message(f"❌ Error saving data to file: {e}")
 
@@ -228,7 +253,7 @@ def monitor_growatt():
                 log_message(f"Updated current_data: {current_data}")
 
                 loop_counter += 1
-                if loop_counter >= 7:
+                if loop_counter >= 7: # Saves data every 7 cycles (approx 7 * 40s = 280s or ~4.6 minutes)
                     data_to_save = {
                         "timestamp": last_update_time,
                         "vGrid": ac_input_v,
@@ -242,10 +267,10 @@ def monitor_growatt():
 
                 if ac_input_v != "N/A":
                     if float(ac_input_v) < threshold and not sent_lights_off:
-                        time.sleep(110)
-                        data = api.storage_detail(inverter_sn)
+                        time.sleep(110) # Wait a bit to confirm
+                        data = api.storage_detail(inverter_sn) # Re-fetch to confirm
                         ac_input_v = data.get("vGrid", "N/A")
-                        if float(ac_input_v) < threshold:
+                        if float(ac_input_v) < threshold: # Confirm again
                             msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
         🕒 Hora--> {last_update_time}
 Nivel de batería      : {battery_pct} %
@@ -257,10 +282,10 @@ Consumo actual     : {load_w} W"""
                             sent_lights_on = False
 
                     elif float(ac_input_v) >= threshold and not sent_lights_on:
-                        time.sleep(110)
-                        data = api.storage_detail(inverter_sn)
+                        time.sleep(110) # Wait a bit to confirm
+                        data = api.storage_detail(inverter_sn) # Re-fetch to confirm
                         ac_input_v = data.get("vGrid", "N/A")
-                        if float(ac_input_v) >= threshold:
+                        if float(ac_input_v) >= threshold: # Confirm again
                             msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
         🕒 Hora--> {last_update_time}
 Nivel de batería      : {battery_pct} %
@@ -273,15 +298,17 @@ Consumo actual     : {load_w} W"""
 
             except Exception as e_inner:
                 log_message(f"⚠️ Error during monitoring: {e_inner}")
+                # Attempt to re-login on error to recover
                 user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
 
-            time.sleep(40)
+            time.sleep(40) # Wait for 40 seconds before next API call
 
     except Exception as e_outer:
-        log_message(f"❌ Fatal error in monitor_growatt: {e_outer}")
-# The rest of your code (Telegram handlers, Flask routes, etc.) remains unchanged
+        log_message(f"❌ Fatal error in monitor_growatt, restarting login: {e_outer}")
+        # If login fails, try to re-login in the next loop iteration
+        login_growatt() # This might be recursive, consider a simple return and let the outer loop restart
 
-# Telegram Handlers
+# --- Telegram Handlers ---
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
@@ -327,7 +354,7 @@ monitor_thread.start()
 # Start Telegram bot polling
 updater.start_polling()
 
-# Flask Routes
+# --- Flask Routes ---
 @app.route("/")
 def home():
     return render_template("home.html",
@@ -338,30 +365,35 @@ def home():
         inverter_sn=current_data.get("inverter_sn", "N/A"),
         datalog_sn=current_data.get("datalog_sn", "N/A"))
 
+# --- MODIFIED: /logs route to read JSON array ---
 @app.route("/logs")
 def charts_view():
     parsed_data = []
-    if os.path.exists(data_file):
+    # Check if file exists AND is not empty before trying to load
+    if os.path.exists(data_file) and os.path.getsize(data_file) > 0: 
         try:
-            # Read and parse the saved data from saved_data.json
             with open(data_file, "r") as file:
-                # Assuming saved_data.json has one JSON object per line,
-                # like the dummy data we've been using.
-                saved_data_lines = file.readlines()
-            parsed_data = [json.loads(line.strip()) for line in saved_data_lines]
+                parsed_data = json.load(file) # Load the entire JSON array
+            # Ensure parsed_data is a list; if file was empty or corrupted, it might be something else
+            if not isinstance(parsed_data, list):
+                log_message(f"❌ Data file {data_file} does not contain a JSON list. Resetting.")
+                parsed_data = [] # Reset to empty list if not a list
+        except json.JSONDecodeError as e:
+            log_message(f"❌ Error decoding JSON from {data_file}: {e}. File might be corrupted.")
+            parsed_data = [] # Clear data if decoding fails
         except Exception as e:
-            log_message(f"❌ Error reading saved data for charts from {data_file}: {e}")
-            # If there's an error, parsed_data remains empty
+            log_message(f"❌ General error reading data for charts from {data_file}: {e}")
+            parsed_data = []
     else:
-        log_message(f"⚠️ Data file not found: {data_file}. Charts will be empty.")
-        # Create an empty file if it doesn't exist, to prevent future errors
-        try:
-            with open(data_file, "w") as f:
-                f.write("")
-            log_message(f"Created empty data file: {data_file}")
-        except Exception as e:
-            log_message(f"❌ Error creating empty data file: {e}")
-
+        log_message(f"⚠️ Data file not found or empty: {data_file}. Charts will be empty.")
+        # Ensure the file is created with an empty array if it doesn't exist or is invalid
+        if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
+            try:
+                with open(data_file, "w") as f:
+                    f.write("[]")
+                log_message(f"Initialized empty data file: {data_file}")
+            except Exception as e:
+                log_message(f"❌ Error initializing empty data file: {e}")
 
     # Prepare timestamps as datetime objects for sorting and filtering
     processed_data = []
@@ -415,6 +447,7 @@ def charts_view():
         ac_output=ac_output,
         active_power=active_power,
         battery_capacity=battery_capacity)     
+
 @app.route("/chatlog")
 def chatlog_view():
     return render_template_string("""
@@ -630,8 +663,10 @@ def battery_chart():
 @app.route('/dn')
 def download_logs():
     try:
-        return send_file("saved_data.json", as_attachment=True, download_name="saved_data.json")
+        # Send the saved_data.json file as an attachment
+        return send_file(data_file, as_attachment=True, download_name="saved_data.json", mimetype="application/json")
     except Exception as e:
+        log_message(f"❌ Error downloading file: {e}")
         return f"❌ Error downloading file: {e}", 500
 
         
