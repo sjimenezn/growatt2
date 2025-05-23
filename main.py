@@ -253,7 +253,7 @@ def monitor_growatt():
         current_loop_datetime_utc_minus_5 = datetime.now() - timedelta(hours=5)
         current_loop_time_str = current_loop_datetime_utc_minus_5.strftime("%Y-%m-%d %H:%M:%S")
 
-        try:
+        try: # Main try block for the loop iteration
             # Always attempt to (re)login and get IDs if they are missing
             if user_id is None or plant_id is None or inverter_sn is None or datalog_sn is None:
                 log_message("Attempting to acquire Growatt IDs (re-login or initial login).")
@@ -323,17 +323,10 @@ def monitor_growatt():
                     "freqOutPut": new_ac_output_f,
                 }
 
-                # `last_saved_sensor_values` will be updated by `save_data_to_file` if this data is saved.
-
-            # Assuming save_data_to_file is called here or shortly after this block
-            # For demonstration, explicitly including the call where it's likely happening
-            # save_data_to_file(data_to_save_for_file)
-
             # Always update `current_data` with the most recently *received* values
-            # (even if they are stale), for immediate display on the Flask home page.
             current_data.update({
                 "ac_input_voltage": new_ac_input_v,
-                "ac_input_frequency": new_ac_input_f, # This was freqGrid, which is fine for display
+                "ac_input_frequency": new_ac_input_f,
                 "ac_output_voltage": new_ac_output_v,
                 "ac_output_frequency": new_ac_output_f,
                 "load_power": new_load_w,
@@ -346,47 +339,26 @@ def monitor_growatt():
 
             last_processed_time = current_loop_time_str # This always updates as the loop processed.
 
-            # Assuming the call to save_data_to_file happens here
-            save_data_to_file(data_to_save_for_file) # <-- This function call is crucial
-
-            loop_counter += 1
-            if loop_counter % 12 == 0: # Roughly every hour (12 * 5 minutes)
-                log_message("⚙️ Triggering hourly GitHub sync.")
-                # The actual GitHub sync is typically triggered separately or after data is saved.
-                # If sync is directly triggered here, it should be _perform_single_github_sync_operation()
-                # from the main thread/context, perhaps via a queue or direct call if thread-safe.
-
-        except Exception as e:
-            log_message(f"❌ An error occurred in monitor_growatt loop: {e}")
-            # Consider more granular error handling, e.g., for API specific errors
-            user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None # Reset credentials on error
-
-        finally:
-            time.sleep(300) # Sleep for 5 minutes (300 seconds)
-            
-            # --- Telegram Alerts ---
-            # Telegram alerts should still use the *latest* available data from current_data,
-            # even if stale, but their timestamp should reflect the last time *fresh* data arrived.
+            # --- Telegram Alerts (Moved to be processed before main sleep) ---
             if telegram_enabled:
                 if current_data.get("ac_input_voltage") != "N/A":
-                    try: # Convert to float for comparison if possible
+                    try:
                         current_ac_input_v_float = float(current_data.get("ac_input_voltage"))
                     except ValueError:
-                            current_ac_input_v_float = 0.0 # Default if N/A
+                        current_ac_input_v_float = 0.0
 
-                    alert_timestamp = last_successful_growatt_update_time # Use the time of last *fresh* data
+                    alert_timestamp = last_successful_growatt_update_time
 
                     if current_ac_input_v_float < threshold and not sent_lights_off:
-                        # Re-fetch confirmation logic
                         time.sleep(110) # Wait a bit to confirm
-                        data_confirm = api.storage_detail(inverter_sn) # Re-fetch to confirm
-                        ac_input_v_confirm = data_confirm.get("vGrid", "0") # Default to "0"
+                        data_confirm = api.storage_detail(inverter_sn)
+                        ac_input_v_confirm = data_confirm.get("vGrid", "0")
                         try:
                             current_ac_input_v_confirm = float(ac_input_v_confirm)
                         except ValueError:
                             current_ac_input_v_confirm = 0.0
 
-                        if current_ac_input_v_confirm < threshold: # Confirm again
+                        if current_ac_input_v_confirm < threshold:
                             msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
         🕒 Hora--> {alert_timestamp}
 Nivel de batería      : {current_data.get('battery_capacity', 'N/A')} %
@@ -398,16 +370,15 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                             sent_lights_on = False
 
                     elif current_ac_input_v_float >= threshold and not sent_lights_on:
-                        # Re-fetch confirmation logic
                         time.sleep(110) # Wait a bit to confirm
-                        data_confirm = api.storage_detail(inverter_sn) # Re-fetch to confirm
-                        ac_input_v_confirm = data_confirm.get("vGrid", "0") # Default to "0"
+                        data_confirm = api.storage_detail(inverter_sn)
+                        ac_input_v_confirm = data_confirm.get("vGrid", "0")
                         try:
                             current_ac_input_v_confirm = float(ac_input_v_confirm)
                         except ValueError:
                             current_ac_input_v_confirm = 0.0
 
-                        if current_ac_input_v_confirm >= threshold: # Confirm again
+                        if current_ac_input_v_confirm >= threshold:
                             msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
         🕒 Hora--> {alert_timestamp}
 Nivel de batería      : {current_data.get('battery_capacity', 'N/A')} %
@@ -418,16 +389,16 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                             sent_lights_on = True
                             sent_lights_off = False
 
-            # Save data to file every 7 cycles (or approximately every 4.6 minutes)
-            # regardless if it's new data or nulls due to staleness.
-            # This ensures consistent timestamps in the historical data.
+            # --- Data Saving Frequency Control ---
+            # Save data to file only when loop_counter reaches 7 (approx every 4.6 minutes if sleep is 40s)
+            loop_counter += 1 # Increment counter for every loop iteration
             if loop_counter >= 7:
-                save_data_to_file(data_to_save_for_file)
-                loop_counter = 0
-            else:
-                loop_counter += 1 # Increment counter for non-save cycles
+                save_data_to_file(data_to_save_for_file, data_file) # Pass data_file to save_data_to_file
+                log_message("✅ Saved data to file as a JSON array (controlled by loop_counter).")
+                loop_counter = 0 # Reset counter after saving
+                # Note: The actual GitHub sync is handled by a separate thread (sync_github_repo) on its own schedule.
 
-        except Exception as e_inner:
+        except Exception as e_inner: # This 'except' block will catch any general exceptions from the 'try'
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
             # If there's an API error, we do NOT update last_successful_growatt_update_time.
             # We also do NOT save a data point for this cycle to the file.
@@ -436,7 +407,10 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
             # Reset IDs to force re-login attempt in next loop
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
-        time.sleep(40) # Wait for 40 seconds before next API call
+        finally: # This 'finally' block will always execute after 'try' or 'except'
+            # --- Main Loop Sleep Timing ---
+            # Only one sleep at the end of each loop iteration
+            time.sleep(40) # Wait for 40 seconds before next API call
 
 # --- GitHub Sync Config ---
 GITHUB_REPO_URL = os.getenv("GITHUB_REPO_URL", "github.com/sjimenezn/growatt2.git")
