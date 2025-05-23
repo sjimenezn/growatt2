@@ -237,6 +237,7 @@ def monitor_growatt():
                     # Filter out 'timestamp' and other non-sensor keys and store
                     last_saved_sensor_values.update({
                         'vGrid': last_entry.get('vGrid'),
+                        'freqGrid': last_entry.get('freqGrid'), # Added freqGrid here
                         'outPutVolt': last_entry.get('outPutVolt'),
                         'activePower': last_entry.get('activePower'),
                         'capacity': last_entry.get('capacity'),
@@ -279,12 +280,12 @@ def monitor_growatt():
             # Using str for consistency if "N/A" is possible.
             current_sensor_values_for_comparison = {
                 "vGrid": str(new_ac_input_v),
+                "freqGrid": str(new_ac_input_f),    # <--- ADDED THIS FOR COMPARISON
                 "outPutVolt": str(new_ac_output_v),
                 "activePower": str(new_load_w),
                 "capacity": str(new_battery_pct),
                 "freqOutPut": str(new_ac_output_f)
             }
-            # Note: freqGrid is not typically saved to file, so excluded from comparison if not needed for file saving.
 
             data_to_save_for_file = {}
             growatt_data_is_stale = False
@@ -299,6 +300,7 @@ def monitor_growatt():
                 data_to_save_for_file = {
                     "timestamp": current_loop_time_str,
                     "vGrid": None, # Will become null in JSON
+                    "freqGrid": None, # <--- ADDED THIS FOR STALE DATA SAVE
                     "outPutVolt": None,
                     "activePower": None,
                     "capacity": None,
@@ -314,6 +316,7 @@ def monitor_growatt():
                 data_to_save_for_file = {
                     "timestamp": last_successful_growatt_update_time, # Use the time when fresh data was received
                     "vGrid": new_ac_input_v,
+                    "freqGrid": new_ac_input_f, # <--- ADDED THIS FOR FRESH DATA SAVE
                     "outPutVolt": new_ac_output_v,
                     "activePower": new_load_w,
                     "capacity": new_battery_pct,
@@ -322,11 +325,15 @@ def monitor_growatt():
 
                 # `last_saved_sensor_values` will be updated by `save_data_to_file` if this data is saved.
 
+            # Assuming save_data_to_file is called here or shortly after this block
+            # For demonstration, explicitly including the call where it's likely happening
+            # save_data_to_file(data_to_save_for_file)
+
             # Always update `current_data` with the most recently *received* values
             # (even if they are stale), for immediate display on the Flask home page.
             current_data.update({
                 "ac_input_voltage": new_ac_input_v,
-                "ac_input_frequency": new_ac_input_f,
+                "ac_input_frequency": new_ac_input_f, # This was freqGrid, which is fine for display
                 "ac_output_voltage": new_ac_output_v,
                 "ac_output_frequency": new_ac_output_f,
                 "load_power": new_load_w,
@@ -339,6 +346,24 @@ def monitor_growatt():
 
             last_processed_time = current_loop_time_str # This always updates as the loop processed.
 
+            # Assuming the call to save_data_to_file happens here
+            save_data_to_file(data_to_save_for_file) # <-- This function call is crucial
+
+            loop_counter += 1
+            if loop_counter % 12 == 0: # Roughly every hour (12 * 5 minutes)
+                log_message("⚙️ Triggering hourly GitHub sync.")
+                # The actual GitHub sync is typically triggered separately or after data is saved.
+                # If sync is directly triggered here, it should be _perform_single_github_sync_operation()
+                # from the main thread/context, perhaps via a queue or direct call if thread-safe.
+
+        except Exception as e:
+            log_message(f"❌ An error occurred in monitor_growatt loop: {e}")
+            # Consider more granular error handling, e.g., for API specific errors
+            user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None # Reset credentials on error
+
+        finally:
+            time.sleep(300) # Sleep for 5 minutes (300 seconds)
+            
             # --- Telegram Alerts ---
             # Telegram alerts should still use the *latest* available data from current_data,
             # even if stale, but their timestamp should reflect the last time *fresh* data arrived.
@@ -505,14 +530,16 @@ import time # Ensure 'time' is imported for sleep
 
 
 # --- Helper Function for Robust Git Pull ---
+# --- Helper Function for Robust Git Pull ---
 def _robust_git_pull(repo, branch='main', remote='origin'):
     """
     Performs a Git pull operation, stashing any uncommitted changes first
     and popping them afterwards to ensure a clean working directory for the pull.
+    Includes aggressive error handling for Git internal "BUG" errors during stash.
     """
     log_message(f"🔄 Performing robust pull on branch '{branch}' from '{remote}'.")
     stashed_changes = False # Flag to track if we stashed anything
-
+    
     try:
         # Check if dirty and stash all changes (tracked and untracked)
         if repo.is_dirty(untracked_files=True):
@@ -522,10 +549,34 @@ def _robust_git_pull(repo, branch='main', remote='origin'):
                 stashed_changes = True
                 log_message("✅ Changes stashed successfully.")
             except git.exc.GitCommandError as stash_e:
-                log_message(f"❌ Error stashing changes: {stash_e.stderr.strip()}. Proceeding, but pull might fail.")
-                pass # Don't return here, try to proceed
+                error_message = stash_e.stderr.strip()
+                log_message(f"❌ Error stashing changes: {error_message}")
+                
+                # Specific handling for Git internal "BUG" or "invalid path" errors during stash
+                if "BUG: unpack-trees.c" in error_message or "invalid path" in error_message:
+                    log_message("⚠️ Detected critical Git internal error during stash. Attempting a hard reset and clean-up to recover.")
+                    try:
+                        # Attempt to fix the broken state by hard resetting and cleaning untracked files
+                        repo.git.reset('--hard') # Resets HEAD and index to last commit
+                        repo.git.clean('-fdx')   # Removes untracked files and directories
+                        log_message("✅ Git state reset to clean. (WARNING: Uncommitted changes were lost, saved_data.json will revert to last committed state).")
+                        # After this, the file saved_data.json will revert to its last committed state.
+                        # It will be crucial that the next data fetch re-writes the latest state.
+                        
+                        # Since we reset, we can't pop a stash that never happened or failed.
+                        stashed_changes = False # Mark as not stashed because the stash attempt failed catastrophically
 
-        # Perform the pull operation
+                    except git.exc.GitCommandError as reset_e:
+                        log_message(f"❌ FATAL: Error during Git state reset after stash failure: {reset_e.stderr.strip()}. Repository might be unrecoverable.")
+                        return False, f"FATAL: Git state unrecoverable: {reset_e.stderr.strip()}"
+                    except Exception as reset_e:
+                        log_message(f"❌ FATAL: Unexpected error during Git state reset: {reset_e}. Repository might be unrecoverable.")
+                        return False, f"FATAL: Unexpected error during Git state reset: {reset_e}"
+                else:
+                    # For non-BUG errors, we log and proceed, letting the pull attempt and likely fail.
+                    log_message("Proceeding to pull, but it might fail due to unstashed changes (non-BUG error).")
+
+        # Perform the pull
         pull_result = repo.git.pull('--rebase', remote, branch)
         log_message(f"✅ Git pull result: {pull_result}")
         return True, pull_result # Success
@@ -538,8 +589,8 @@ def _robust_git_pull(repo, branch='main', remote='origin'):
         log_message(f"❌ Git pull failed: {error_message}")
         return False, error_message # Failure
     finally:
-        # Always attempt to pop the stash if it was created
-        if stashed_changes:
+        # Always attempt to pop the stash if it was created and was successful
+        if stashed_changes: # Only pop if stash was truly successful
             try:
                 log_message("🔄 Popping stash after robust pull attempt.")
                 repo.git.stash('pop')
@@ -548,8 +599,7 @@ def _robust_git_pull(repo, branch='main', remote='origin'):
                 log_message(f"❌ Error popping stash: {pop_e.stderr.strip()}")
                 log_message("⚠️ Manual intervention might be required to resolve stash conflicts. Local changes are preserved in stash list.")
                 pass # Log and proceed
-
-# --- Modified _perform_single_github_sync_operation ---
+                
 def _perform_single_github_sync_operation(repo_obj_param=None):
     """Helper function to perform a single Git add, commit, and push operation."""
     log_message("🔄 Attempting GitHub sync operation...")
