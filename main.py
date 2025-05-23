@@ -422,28 +422,7 @@ GIT_PUSH_INTERVAL_MINS = 30 # Sync every 30 minutes
 LOCAL_REPO_PATH = "." # Current directory where main.py and saved_data.json reside
 
 def init_and_add_remote(repo_path, remote_url, username, token):
-    """Initializes a git repo if not exists and sets up remote."""
-    try:
-        repo = git.Repo(repo_path)
-        log_message("✅ Local directory is already a Git repository.")
-    except git.InvalidGitRepositoryError:
-        log_message("🔄 Initializing new Git repository...")
-        repo = git.Repo.init(repo_path)
-        log_message("✅ Git repository initialized.")
-
-    # Ensure the remote exists and is correctly configured with PAT
-    remote_name = "origin"
-    # Format: https://{username}:{token}@{github.com}/{repo}.git
-    configured_remote_url = f"https://{username}:{token}@{remote_url}"
-
-    if remote_name in repo.remotes:
-        log_message(f"🔄 Updating existing remote '{remote_name}' URL with PAT.")
-        # CORRECTED LINE: Use set() method of RemoteConfigWriter
-        with repo.remotes[remote_name].config_writer as cw:
-            cw.set("url", configured_remote_url)
-    else:
-        log_message(f"🔄 Adding new remote '{remote_name}' with URL: {configured_remote_url.replace(token, '************')}")
-        repo.create_remote(remote_name, configured_remote_url)
+    # ... (previous code remains the same) ...
 
     # Set up origin/main tracking if not already done
     try:
@@ -451,8 +430,9 @@ def init_and_add_remote(repo_path, remote_url, username, token):
         repo.git.fetch()
         if 'main' not in repo.heads:
             log_message("🔄 Local 'main' branch not found, attempting to checkout 'origin/main'.")
-            # Create and checkout local 'main' tracking origin/main
-            repo.git.checkout('main', track=repo.remotes.origin.refs.main)
+            # CORRECTED LINE: Create and checkout local 'main' tracking origin/main
+            # Use -b to create the branch, and then specify the remote branch to track
+            repo.git.checkout('-b', 'main', 'origin/main') # This creates 'main' and tracks 'origin/main'
             log_message("✅ Checked out and tracking 'origin/main'.")
         elif not repo.heads.main.is_tracking():
             log_message("🔄 Local 'main' branch exists but not tracking, setting tracking branch.")
@@ -465,7 +445,6 @@ def init_and_add_remote(repo_path, remote_url, username, token):
         log_message(f"⚠️ Error setting up tracking branch: {e}")
 
     return repo
-
 
 def _perform_single_github_sync_operation():
     """Helper function to perform a single Git add, commit, and push operation."""
