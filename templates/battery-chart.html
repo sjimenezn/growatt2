@@ -89,6 +89,7 @@
             width: 580px; /* Explicit width - adjust as needed, considering gap */
             height: 400px;
             overflow: hidden;
+            position: relative; /* For absolute positioning of timestamp */
         }
 
         /* Specifically target SVG elements that might cause overflow */
@@ -104,6 +105,15 @@
             overflow: hidden !important;
         }
 
+        .timestamp-below-chart {
+            position: absolute;
+            bottom: -20px; /* Adjust as needed for spacing */
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.9em;
+            color: #777;
+        }
+
         /* Media query for smaller screens */
         @media (max-width: 600px) {
             #charts-wrapper {
@@ -114,6 +124,9 @@
             #chart-container,
             #energy-chart-container {
                 width: 100%; /* Full width on smaller screens */
+            }
+            .timestamp-below-chart {
+                bottom: -30px; /* Adjust for stacked layout */
             }
         }
     </style>
@@ -141,11 +154,15 @@
 
 <div id="charts-wrapper">
     <div id="chart-container"></div>
-    <div id="energy-chart-container"></div>
+    <div id="energy-chart-container">
+        <div class="timestamp-below-chart">
+            Última actualización de Growatt: {{ last_growatt_update }}
+        </div>
+    </div>
 </div>
 
 <script>
-    // Function to get today's date in<ctrl3348>-MM-DD format
+    // Function to get today's date in YYYY-MM-DD format
     function getTodayDate() {
         const today = new Date();
         const year = today.getFullYear();
@@ -273,8 +290,5 @@
         series: energySeries
     });
 </script>
-
-
-
 </body>
 </html>
