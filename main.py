@@ -88,7 +88,7 @@ def log_message(message):
     print(timestamped)
     console_logs.append((time.time(), timestamped))
     now = time.time()
-    console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
+    console_logs[:] = [(t, m) for t, m in console_logs if now - t < 6000]
 
 
 def send_telegram_message(message):
@@ -396,7 +396,7 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
             # Save data to file every 7 cycles (or approximately every 4.6 minutes)
             # regardless if it's new data or nulls due to staleness.
             # This ensures consistent timestamps in the historical data.
-            if loop_counter >= 7:
+            if loop_counter >= 1:
                 save_data_to_file(data_to_save_for_file)
                 loop_counter = 0
             else:
