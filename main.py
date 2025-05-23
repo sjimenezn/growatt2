@@ -524,24 +524,42 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             repo.git.checkout('main')
             log_message("✅ Switched to 'main' branch.")
 
+        # --- NEW LOGIC: Stage and commit BEFORE pull if data_file has changes ---
+        if os.path.exists(data_file):
+            if repo.is_dirty(untracked_files=True): # Check for any changes including untracked
+                log_message(f"🔄 Detected uncommitted changes in repo. Staging '{data_file}' before pull.")
+                repo.index.add([data_file])
+                if repo.index.diff("HEAD"): # If there are staged changes to commit
+                    commit_message = f"Pre-pull commit of Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+                    repo.index.commit(commit_message)
+                    log_message(f"✅ Pre-pull committed changes: '{commit_message}'")
+                else:
+                    log_message("⚙️ No new changes to commit before pull, but files were detected as dirty.")
+            else:
+                log_message("⚙️ No uncommitted changes detected before pull.")
+        else:
+            log_message(f"⚠️ Data file '{data_file}' not found before pull, skipping pre-pull commit check.")
+
+
         log_message("🔄 Pulling latest changes from GitHub...")
         pull_result = repo.git.pull('--rebase', 'origin', 'main')
         log_message(f"✅ Git pull result: {pull_result}")
 
         if not os.path.exists(data_file):
-            log_message(f"⚠️ Data file '{data_file}' not found, cannot sync.")
+            log_message(f"⚠️ Data file '{data_file}' not found, cannot sync after pull.")
             return False, "Data file not found."
 
+        # Now, check for new changes to commit (after the pull)
         if not repo.is_dirty(untracked_files=True):
-            log_message(f"⚙️ No changes detected in '{data_file}' or other files, skipping Git commit/push.")
-            return True, "No changes detected."
+            log_message(f"⚙️ No further changes detected in '{data_file}' or other files after pull, skipping Git commit/push.")
+            return True, "No changes detected after pull."
 
         log_message(f"🔄 Committing and pushing '{data_file}' to GitHub...")
         repo.index.add([data_file])
 
         if not repo.index.diff("HEAD"):
-            log_message("⚙️ No changes detected in index after add, skipping commit.")
-            return True, "No new changes to commit after add."
+            log_message("⚙️ No changes detected in index after add (post-pull), skipping commit.")
+            return True, "No new changes to commit after post-pull add."
 
         commit_message = f"Auto-update Growatt data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
 
@@ -549,14 +567,20 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         log_message(f"✅ Committed changes: '{commit_message}'")
 
         push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL}"
+        # You can keep --force-with-lease. It's generally safer than plain --force.
+        # It ensures you only force if your local branch is what you last pulled.
         repo.git.push(push_remote_url, 'main', '--force-with-lease')
 
         log_message("✅ Successfully pushed to GitHub.")
         return True, "Successfully pushed."
 
     except git.exc.GitCommandError as e:
-        log_message(f"❌ Git command error during sync: {e.stderr.decode('utf-8').strip() if e.stderr else str(e)}")
-        return False, f"Git command error: {e}"
+        # --- CORRECTED LOGGING FOR GitCommandError ---
+        error_message = e.stderr.strip() if isinstance(e.stderr, str) else \
+                        e.stderr.decode('utf-8').strip() if isinstance(e.stderr, bytes) else \
+                        str(e)
+        log_message(f"❌ Git command error during sync: {error_message}")
+        return False, f"Git command error: {error_message}"
     except Exception as e:
         log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
         return False, f"Unexpected error: {e}"
@@ -1055,7 +1079,7 @@ def trigger_github_sync():
     sync_thread.start()
 
     # Redirect back to the logs page
-    return redirect(url_for('logs'))
+    return redirect(url_for('charts_view'))
 
 # Start the GitHub sync thread after Flask app is defined and before it runs
 github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
