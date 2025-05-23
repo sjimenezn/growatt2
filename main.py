@@ -363,6 +363,7 @@ def init_and_add_remote(repo_path, remote_url, username, token):
             log_message("✅ Git repository initialized.")
         if repo is None:
             raise Exception("Failed to initialize or get Git repository object.")
+        
         remote_name = "origin"
         configured_remote_url = f"https://{username}:{token}@{remote_url}"
         if remote_name in repo.remotes:
@@ -371,40 +372,52 @@ def init_and_add_remote(repo_path, remote_url, username, token):
         else:
             repo.create_remote(remote_name, configured_remote_url)
         
-        log_message("🔄 Fetching from origin in init_and_add_remote...")
-        repo.git.fetch('origin') # Ensure remote refs are known
-        log_message("✅ Fetched from origin.")
+        log_message("🔄 Fetching all from origin in init_and_add_remote...")
+        # Fetch all branches and tags to ensure 'origin/main' is known
+        repo.git.fetch('--all') 
+        log_message("✅ Fetched all from origin.")
 
-        if 'main' not in repo.heads:
-            log_message("Local 'main' branch not found. Attempting to create from 'origin/main'.")
-            if 'origin/main' in repo.remotes.origin.refs:
-                repo.create_head('main', repo.remotes.origin.refs.main).set_tracking_branch(repo.remotes.origin.refs.main)
-                repo.heads.main.checkout()
-                log_message("✅ Created and checked out 'main' tracking 'origin/main'.")
-            else:
-                log_message("❌ 'origin/main' not found. Cannot create local 'main' branch from it. Please ensure the remote repo has a 'main' branch.")
-                # If origin/main doesn't exist, we might need to create an empty main or push a new one.
-                # For now, this indicates a setup issue with the remote.
-                # repo.git.checkout('-b', 'main') # Create an orphaned main branch
-                # log_message("⚠️ Created an orphaned local 'main' branch. It's not tracking any remote branch.")
-                return None # Indicate failure if main branch setup is problematic
-        else:
-            if repo.active_branch.name != 'main':
-                repo.git.checkout('main')
-            log_message("✅ Local 'main' branch exists and is checked out.")
-            # Ensure tracking is set if possible
-            if 'origin/main' in repo.remotes.origin.refs:
+        # --- MODIFIED BRANCH HANDLING ---
+        # Ensure 'main' branch exists locally and is checked out
+        try:
+            # First, try to checkout 'main'. This works if 'main' exists locally.
+            repo.git.checkout('main')
+            log_message("✅ Checked out existing 'main' branch.")
+        except git.exc.GitCommandError as e_checkout_main:
+            # If 'main' doesn't exist locally, and the error indicates pathspec not found,
+            # it means we need to create the local branch from the remote one.
+            if "pathspec 'main' did not match any file(s) known to git" in str(e_checkout_main) or \
+               "did not match any file(s) known to git" in str(e_checkout_main): 
+                log_message("⚠️ Local 'main' branch not found. Attempting to create from 'origin/main'.")
                 try:
-                    repo.heads.main.set_tracking_branch(repo.remotes.origin.refs.main)
-                    log_message("✅ Ensured local 'main' tracks 'origin/main'.")
-                except Exception as e_set_track:
-                    log_message(f"ℹ️ Could not set tracking for main: {str(e_set_track)}")
+                    # Create and checkout a new local 'main' branch that tracks 'origin/main'
+                    repo.git.checkout('-b', 'main', 'origin/main')
+                    log_message("✅ Created and checked out 'main' tracking 'origin/main'.")
+                except git.exc.GitCommandError as e_create_branch:
+                    log_message(f"❌ Failed to create and checkout 'main' from 'origin/main': {e_create_branch}")
+                    log_message("❌ FATAL: Could not ensure 'main' branch setup. Scheduled sync disabled.")
+                    return None # Critical failure, cannot proceed
             else:
-                log_message("⚠️ 'origin/main' not found. Cannot set tracking for local 'main'.")
+                # Other unexpected Git errors during initial checkout
+                log_message(f"❌ Unexpected Git error during initial 'main' checkout: {e_checkout_main}")
+                return None # Critical failure
+        
+        # Explicitly ensure the local 'main' branch tracks 'origin/main'
+        # This is a safeguard, even if `checkout -b` was used.
+        if 'origin/main' in repo.remotes.origin.refs:
+            try:
+                # Set the upstream branch for the active branch (which should now be 'main')
+                repo.active_branch.set_tracking_branch(repo.remotes.origin.refs.main)
+                log_message("✅ Ensured local 'main' branch tracks 'origin/main'.")
+            except Exception as e_set_tracking:
+                log_message(f"ℹ️ Could not explicitly set tracking for main (might already be set or not needed): {e_set_tracking}")
+        else:
+            # This log indicates a deeper issue if 'origin/main' is still not found after fetch --all
+            log_message("⚠️ 'origin/main' still not found after fetch --all. This is highly unexpected. Push might fail later.")
 
     except Exception as e:
-        log_message(f"⚠️ Error in init_and_add_remote: {e}")
-        return None # Return None on any failure
+        log_message(f"⚠️ An unexpected error occurred in init_and_add_remote: {e}")
+        return None
     return repo
 
 
