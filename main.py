@@ -390,59 +390,94 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 # ===== GitHub Sync Functions =====
 
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """Sync operation with full corruption recovery"""
+    """Sync operation with independent file handling"""
     try:
-        log_message("🚀 Starting GitHub sync with corruption checks")
+        log_message("🚀 Starting independent file sync")
         repo = repo_obj_param if repo_obj_param is not None else g_repo
-
         if repo is None:
             raise Exception("Git repository not initialized")
 
-        # 1. Check repository health
-        try:
-            repo.git.fsck()
-        except git.exc.GitCommandError:
-            log_message("⚠️ Repository corruption detected - resetting")
-            return False, "Repository corruption needs full reset"
+        # 1. Verify repository state
+        repo.git.fetch('origin')
+        repo.git.reset('--hard', 'origin/main')
 
-        # 2. Prepare fresh test file
-        test_content = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": "TESTING",
-            "note": "This file verifies sync functionality"
+        # Track results for each file
+        results = {
+            data_file: {"success": False, "message": ""},
+            data_file_test: {"success": False, "message": ""}
         }
-        with open(data_file_test, 'w') as f:
-            json.dump(test_content, f)
-        log_message("🆕 Created fresh verification file")
 
-        # 3. Stage changes
-        repo.index.add([data_file, data_file_test])
-        if not repo.index.diff("HEAD"):
-            return True, "No changes to commit"
-
-        # 4. Commit
-        commit_msg = f"Update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        repo.index.commit(commit_msg)
-        log_message(f"💾 Committed: {commit_msg}")
-
-        # 5. Push with corruption recovery
-        push_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
-        
+        # 2. Process main data file (saved_data.json)
         try:
-            # First try normal push
-            repo.git.push(push_url, 'main')
-            log_message("✅ Push successful")
-            return True, "Sync completed"
-        except git.exc.GitCommandError as e:
-            if "hasDot: contains '.'" in str(e):
-                log_message("⚠️ Severe corruption detected - initiating full reset")
-                return _reset_entire_repository()
-            raise
+            if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
+                # Stage only this file
+                repo.index.add([data_file])
+                if repo.index.diff("HEAD"):
+                    commit_msg = f"Data update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    repo.index.commit(commit_msg)
+                    results[data_file]["message"] = "Committed successfully"
+                    
+                    # Attempt push
+                    try:
+                        repo.git.push(
+                            f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
+                            'main'
+                        )
+                        results[data_file]["success"] = True
+                    except Exception as e:
+                        results[data_file]["message"] = f"Push failed: {str(e)}"
+                else:
+                    results[data_file]["message"] = "No changes to commit"
+            else:
+                results[data_file]["message"] = "Source file missing or empty"
+        except Exception as e:
+            results[data_file]["message"] = f"Processing failed: {str(e)}"
+
+        # Reset to clean state before second file
+        repo.git.reset('--hard', 'origin/main')
+
+        # 3. Process test file (saved_data_test.json)
+        try:
+            # Create fresh test file
+            test_content = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "status": "TESTING",
+                "note": "This file tests independent upload"
+            }
+            with open(data_file_test, 'w') as f:
+                json.dump(test_content, f)
+
+            # Stage only this file
+            repo.index.add([data_file_test])
+            if repo.index.diff("HEAD"):
+                commit_msg = f"Test file update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                repo.index.commit(commit_msg)
+                results[data_file_test]["message"] = "Test file committed"
+                
+                # Attempt push
+                try:
+                    repo.git.push(
+                        f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
+                        'main'
+                    )
+                    results[data_file_test]["success"] = True
+                except Exception as e:
+                    results[data_file_test]["message"] = f"Test push failed: {str(e)}"
+            else:
+                results[data_file_test]["message"] = "No test file changes"
+        except Exception as e:
+            results[data_file_test]["message"] = f"Test file processing failed: {str(e)}"
+
+        # 4. Generate final status
+        all_success = all(r["success"] for r in results.values())
+        messages = "\n".join(f"{f}: {r['message']}" for f, r in results.items())
+        
+        return all_success, messages
 
     except Exception as e:
-        log_message(f"💥 Sync failed: {str(e)}")
-        return False, str(e)
-
+        log_message(f"💥 Sync operation failed: {str(e)}")
+        return False, f"Operation failed: {str(e)}"
+        
 def _reset_entire_repository():
     """Completely reset the repository"""
     try:
