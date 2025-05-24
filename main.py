@@ -172,39 +172,41 @@ def login_growatt():
 def save_data_to_file(data):
     global last_saved_sensor_values
     try:
+        # Read existing data
         existing_data = []
         if os.path.exists(data_file_name) and os.path.getsize(data_file_name) > 0:
-            with open(data_file_name, "r") as f:
-                try:
+            try:
+                with open(data_file_name, "r") as f:
                     existing_data = json.load(f)
-                    if not isinstance(existing_data, list):
-                        log_message(f"⚠️ Warning: {data_file_name} did not contain a JSON list. Attempting to convert.")
-                        existing_data = [existing_data]
-                except json.JSONDecodeError:
-                    f.seek(0)
-                    lines = f.readlines()
-                    existing_data = []
-                    for line in lines:
-                        stripped_line = line.strip()
-                        if stripped_line:
-                            try:
-                                existing_data.append(json.loads(stripped_line))
-                            except json.JSONDecodeError as e:
-                                log_message(f"❌ Error decoding existing JSON line in {data_file_name}: {stripped_line} - {e}")
+                if not isinstance(existing_data, list):
+                    existing_data = [existing_data]
+            except Exception as e:
+                log_message(f"⚠️ Error reading file: {e}")
+                existing_data = []
 
+        # Add new data and truncate
         existing_data.append(data)
-        existing_data = existing_data[-1200:]
+        existing_data = existing_data[-1200:]  # Keep last 1200 entries
 
+        # Write with sync
         with open(data_file_name, "w") as f:
-            json.dump(existing_data, f, indent=None, separators=(',', ':'))
+            json.dump(existing_data, f)
+            f.flush()
+            os.fsync(f.fileno())
+        
+        log_message(f"✅ Saved {len(existing_data)} records to {data_file_name} (size: {os.path.getsize(data_file_name)} bytes)")
+        
+        # Verify write
+        with open(data_file_name, "r") as f:
+            verify_data = json.load(f)
+            log_message(f"Verification: Last record timestamp: {verify_data[-1].get('timestamp')}")
 
-        log_message(f"✅ Saved data to file {data_file_name} as a JSON array.")
         comparable_data = {k: v for k, v in data.items() if k != 'timestamp'}
         last_saved_sensor_values.update(comparable_data)
 
     except Exception as e:
-        log_message(f"❌ Error saving data to {data_file_name}: {e}")
-
+        log_message(f"❌ Critical error saving data: {e}")
+        
 def monitor_growatt():
     global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values
     threshold = 80
@@ -386,74 +388,135 @@ def init_and_add_remote(repo_path, remote_url, username, token):
     return repo
 
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    log_message("🔄 Attempting GitHub sync operation with test file...")
+    log_message("🚀 Starting GitHub sync operation")
     repo = repo_obj_param if repo_obj_param is not None else g_repo
 
     if repo is None:
-        log_message("❌ Git repository object is not initialized. Cannot perform sync.")
-        return False, "Git repository not initialized."
-    if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
-        log_message("⚠️ GitHub credentials are not fully set. Skipping Git operation.")
-        return False, "GitHub credentials not fully set."
+        log_message("❌ Git repository object is not initialized")
+        return False, "Git repository not initialized"
+    
+    if not all([GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN]):
+        log_message("⚠️ GitHub credentials not fully configured")
+        return False, "Missing GitHub credentials"
 
     try:
-        # 1. Copy data file
+        # ======================
+        # 1. Verify Source File
+        # ======================
+        log_message(f"🔍 Verifying source file: {data_file}")
         if not os.path.exists(data_file):
-            log_message(f"⚠️ Original data file '{data_file_name}' not found.")
-            return False, f"Original data file {data_file_name} not found."
-        
-        shutil.copy2(data_file, data_file_test)
-        log_message(f"✅ Copied '{data_file_name}' to '{data_file_test_name}'.")
+            log_message("❌ Source file does not exist")
+            return False, "Source file missing"
+            
+        if os.path.getsize(data_file) == 0:
+            log_message("❌ Source file is empty")
+            return False, "Empty source file"
+            
+        with open(data_file, 'r') as f:
+            try:
+                source_data = json.load(f)
+                if not source_data:
+                    log_message("❌ Source file contains no valid data")
+                    return False, "No valid data in source"
+                log_message(f"📊 Source file contains {len(source_data)} records")
+            except json.JSONDecodeError as e:
+                log_message(f"❌ Invalid JSON in source file: {e}")
+                return False, "Invalid source JSON"
 
-        # 2. Ensure we're on main branch
+        # ======================
+        # 2. Copy File
+        # ======================
+        log_message(f"📋 Copying {data_file} to {data_file_test}")
+        try:
+            shutil.copy2(data_file, data_file_test)
+            os.chmod(data_file_test, 0o644)  # Ensure proper permissions
+            
+            # Verify copy succeeded
+            if not os.path.exists(data_file_test):
+                log_message("❌ Copy failed - destination file not created")
+                return False, "Copy failed"
+                
+            if os.path.getsize(data_file_test) == 0:
+                log_message("❌ Copied file is empty")
+                return False, "Empty destination file"
+                
+            with open(data_file_test, 'r') as f:
+                test_data = json.load(f)
+                if len(test_data) != len(source_data):
+                    log_message("❌ Copied data length mismatch")
+                    return False, "Data length mismatch"
+                    
+            log_message("✅ File copied and verified successfully")
+        except Exception as e:
+            log_message(f"❌ File copy failed: {e}")
+            return False, f"Copy error: {e}"
+
+        # ======================
+        # 3. Git Operations
+        # ======================
+        log_message("🔄 Starting Git operations")
+        
+        # Ensure we're on main branch
         if repo.active_branch.name != 'main':
-            log_message(f"Switching to 'main' branch from '{repo.active_branch.name}'.")
+            log_message(f"🌿 Switching to main branch from {repo.active_branch.name}")
             repo.git.checkout('main')
 
-        # 3. Hard reset to ensure clean state
-        log_message("🔄 Performing hard reset to origin/main...")
+        # Reset to ensure clean state
+        log_message("🔄 Resetting to origin/main")
         repo.git.fetch('origin')
         repo.git.reset('--hard', 'origin/main')
-        log_message("✅ Hard reset completed.")
-
-        # 4. Copy file again after reset
-        shutil.copy2(data_file, data_file_test)
+        
+        # Stage the test file
+        log_message("➕ Staging test file")
         repo.index.add([data_file_test])
-
-        # 5. Check if there are actual changes
+        
+        # Check for actual changes
         if not repo.index.diff("HEAD"):
-            log_message("⚙️ No changes detected after reset and file copy.")
-            return True, "No changes to commit"
+            log_message("⚖️ No changes to commit")
+            return True, "No changes detected"
+            
+        # Commit changes
+        commit_msg = f"Auto-update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+        repo.index.commit(commit_msg)
+        log_message(f"💾 Committed changes: {commit_msg}")
 
-        # 6. Commit changes
-        commit_message = f"Auto-update Growatt test data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-        repo.index.commit(commit_message)
-        log_message(f"✅ Committed changes: '{commit_message}'")
-
-        # 7. Push with retry logic
-        push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
+        # ======================
+        # 4. Push with Retry
+        # ======================
         max_retries = 2
+        push_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
+        
         for attempt in range(max_retries + 1):
             try:
-                log_message(f"🔄 Attempting push (attempt {attempt + 1}/{max_retries + 1})...")
-                repo.git.push(push_remote_url, 'main', '--force')
-                log_message("✅ Successfully pushed to GitHub.")
-                return True, "Push succeeded"
-            except git.exc.GitCommandError as e:
-                error_msg = str(e)
-                log_message(f"❌ Push attempt {attempt + 1} failed: {error_msg}")
+                log_message(f"📤 Push attempt {attempt + 1}/{max_retries + 1}")
+                repo.git.push(push_url, 'main', '--force')
+                
+                # Verify push succeeded
+                repo.git.fetch('origin')
+                local_commit = repo.head.commit.hexsha
+                remote_commit = repo.commit('origin/main').hexsha
+                
+                if local_commit == remote_commit:
+                    log_message("✅ Push verified successfully")
+                    return True, "Sync completed"
+                else:
+                    log_message("❌ Push verification failed")
+                    raise Exception("Push verification failed")
+                    
+            except Exception as e:
                 if attempt < max_retries:
-                    log_message("🔄 Resetting and retrying...")
+                    log_message(f"🔄 Retry {attempt + 1} after error: {str(e)}")
+                    time.sleep(2)
                     repo.git.fetch('origin')
                     repo.git.reset('--hard', 'origin/main')
-                    time.sleep(2)
                 else:
-                    log_message("❌ All push attempts failed.")
-                    return False, f"Push failed after {max_retries + 1} attempts"
+                    log_message(f"❌ Final push attempt failed: {str(e)}")
+                    return False, f"Push failed: {str(e)}"
 
     except Exception as e:
-        log_message(f"❌ Unexpected error during GitHub sync: {e}")
-        return False, f"Unexpected error: {e}"
+        log_message(f"💥 Critical sync error: {str(e)}")
+        return False, f"Sync failed: {str(e)}"
+        
 def sync_github_repo():
     log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
     if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
