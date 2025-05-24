@@ -397,81 +397,63 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         return False, "GitHub credentials not fully set."
 
     try:
+        # 1. Copy data file
         if not os.path.exists(data_file):
-            log_message(f"⚠️ Original data file '{data_file_name}' not found. Cannot copy to test file.")
+            log_message(f"⚠️ Original data file '{data_file_name}' not found.")
             return False, f"Original data file {data_file_name} not found."
         
         shutil.copy2(data_file, data_file_test)
         log_message(f"✅ Copied '{data_file_name}' to '{data_file_test_name}'.")
 
+        # 2. Ensure we're on main branch
         if repo.active_branch.name != 'main':
-            log_message(f"Switching from '{repo.active_branch.name}' to 'main' branch.")
+            log_message(f"Switching to 'main' branch from '{repo.active_branch.name}'.")
             repo.git.checkout('main')
-            log_message("✅ Switched to 'main' branch.")
 
-        if repo.is_dirty(untracked_files=True):
-            log_message("🔄 Detected uncommitted changes in the repository. Staging all changes before pull.")
-            repo.git.add(A=True)
-            if repo.index.diff("HEAD"):
-                commit_message_pre = f"Pre-pull auto-commit of local changes: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-                repo.index.commit(commit_message_pre)
-                log_message(f"✅ Pre-pull committed local changes: '{commit_message_pre}'")
-
-        log_message("🔄 Fetching latest updates from origin...")
+        # 3. Hard reset to ensure clean state
+        log_message("🔄 Performing hard reset to origin/main...")
         repo.git.fetch('origin')
-        log_message("✅ Fetched from origin.")
+        repo.git.reset('--hard', 'origin/main')
+        log_message("✅ Hard reset completed.")
 
-        log_message("🔄 Pulling latest changes from GitHub with rebase (origin main)...")
-        pull_result = repo.git.pull('--rebase', 'origin', 'main')
-        log_message(f"✅ Git pull --rebase result: {pull_result}")
-
-        if not os.path.exists(data_file_test):
-            log_message(f"⚠️ Test data file '{data_file_test_name}' not found after pull. Sync aborted.")
-            return False, f"Test data file {data_file_test_name} not found."
-
+        # 4. Copy file again after reset
+        shutil.copy2(data_file, data_file_test)
         repo.index.add([data_file_test])
 
+        # 5. Check if there are actual changes
         if not repo.index.diff("HEAD"):
-            log_message("⚙️ Index is clean after pull. No new changes to commit or push.")
-            return True, "Index clean, no new changes to push."
+            log_message("⚙️ No changes detected after reset and file copy.")
+            return True, "No changes to commit"
 
-        commit_message_main = f"Auto-update Growatt test data ({data_file_test_name}): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-        repo.index.commit(commit_message_main)
-        log_message(f"✅ Committed staged changes: '{commit_message_main}'")
+        # 6. Commit changes
+        commit_message = f"Auto-update Growatt test data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
+        repo.index.commit(commit_message)
+        log_message(f"✅ Committed changes: '{commit_message}'")
 
+        # 7. Push with retry logic
         push_remote_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
-        
-        try:
-            log_message("🔄 Attempting to push to remote main...")
-            repo.git.push(push_remote_url, 'main', '--force-with-lease')
-            log_message("✅ Successfully pushed to GitHub.")
-            return True, "Push succeeded"
-        except git.exc.GitCommandError as e_push:
-            error_msg = str(e_push)
-            if "stale info" in error_msg or "[rejected]" in error_msg:
-                log_message("🔄 Push rejected (stale). Resetting to origin/main and retrying...")
-                repo.git.fetch('origin')
-                repo.git.reset('--hard', 'origin/main')
-                try:
-                    shutil.copy2(data_file, data_file_test)
-                    repo.index.add([data_file_test])
-                    repo.index.commit(commit_message_main)
-                    
-                    log_message("🔄 Retrying push after reset...")
-                    repo.git.push(push_remote_url, 'main', '--force-with-lease')
-                    log_message("✅ Push succeeded after reset and retry.")
-                    return True, "Push succeeded after retry"
-                except Exception as e_retry:
-                    log_message(f"❌ Failed to push after reset: {e_retry}")
-                    return False, f"Push failed after reset: {e_retry}"
-            else:
-                log_message(f"❌ Git push failed: {error_msg}")
-                return False, f"Push failed: {error_msg}"
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                log_message(f"🔄 Attempting push (attempt {attempt + 1}/{max_retries + 1})...")
+                repo.git.push(push_remote_url, 'main', '--force')
+                log_message("✅ Successfully pushed to GitHub.")
+                return True, "Push succeeded"
+            except git.exc.GitCommandError as e:
+                error_msg = str(e)
+                log_message(f"❌ Push attempt {attempt + 1} failed: {error_msg}")
+                if attempt < max_retries:
+                    log_message("🔄 Resetting and retrying...")
+                    repo.git.fetch('origin')
+                    repo.git.reset('--hard', 'origin/main')
+                    time.sleep(2)
+                else:
+                    log_message("❌ All push attempts failed.")
+                    return False, f"Push failed after {max_retries + 1} attempts"
 
     except Exception as e:
-        log_message(f"❌ An unexpected error occurred during GitHub sync: {e}")
+        log_message(f"❌ Unexpected error during GitHub sync: {e}")
         return False, f"Unexpected error: {e}"
-
 def sync_github_repo():
     log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
     if not GITHUB_REPO_URL or not GITHUB_USERNAME or not GITHUB_TOKEN:
