@@ -390,7 +390,7 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 # ===== GitHub Sync Functions =====
 
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """Handle a single sync operation with proper error handling"""
+    """Handle a single sync operation with branch verification"""
     try:
         log_message("🚀 Starting GitHub sync operation")
         repo = repo_obj_param if repo_obj_param is not None else g_repo
@@ -398,39 +398,93 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         if repo is None:
             raise Exception("Git repository not initialized")
 
+        # Verify branch exists
+        if 'main' not in [h.name for h in repo.heads]:
+            log_message("🌿 Creating local main branch")
+            repo.git.checkout('-b', 'main')
+
+        # Ensure we're on main branch
+        if repo.active_branch.name != 'main':
+            log_message(f"🔀 Switching from {repo.active_branch.name} to main")
+            repo.git.checkout('main')
+
         # Verify source file
         if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
             raise Exception("Source data file missing or empty")
 
-        # Git operations
+        # Sync with remote
         repo.git.fetch('origin')
         repo.git.reset('--hard', 'origin/main')
+        
+        # Stage changes
         repo.index.add([data_file])
         
-        if repo.index.diff("HEAD"):
-            repo.index.commit(f"Auto-update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            # Push with retry
-            for attempt in range(3):
-                try:
-                    repo.git.push(
-                        f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
-                        'main',
-                        force=True
-                    )
-                    return True, "Sync successful"
-                except Exception as e:
-                    if attempt == 2:
-                        raise
-                    time.sleep(2)
-                    repo.git.reset('--hard', 'origin/main')
+        if not repo.index.diff("HEAD"):
+            return True, "No changes to commit"
+
+        # Commit changes
+        commit_msg = f"Data update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        repo.index.commit(commit_msg)
+        log_message(f"💾 Committed: {commit_msg}")
+
+        # Push with branch verification
+        push_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
         
-        return True, "No changes to sync"
+        # First verify remote branch exists
+        remote_refs = repo.git.ls_remote('--heads', push_url)
+        if 'main' not in remote_refs:
+            log_message("🌍 Creating main branch on remote")
+            repo.git.push(push_url, 'HEAD:refs/heads/main')
+        else:
+            # Normal push with force if needed
+            repo.git.push(push_url, 'main', force=True)
+
+        return True, "Sync successful"
 
     except Exception as e:
         log_message(f"❌ Sync failed: {str(e)}")
         return False, str(e)
 
+def sync_github_repo():
+    """Main sync thread with proper branch initialization"""
+    try:
+        log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
+        
+        if not all([GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN]):
+            raise Exception("GitHub credentials not configured")
+
+        global g_repo
+        
+        # Initialize repository
+        repo_path = LOCAL_REPO_PATH
+        if not os.path.exists(os.path.join(repo_path, '.git')):
+            log_message("🔍 Cloning repository...")
+            g_repo = git.Repo.clone_from(
+                f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
+                repo_path,
+                branch='main'
+            )
+        else:
+            g_repo = git.Repo(repo_path)
+            # Ensure main branch exists locally
+            if 'main' not in [h.name for h in g_repo.heads]:
+                g_repo.git.checkout('-b', 'main')
+            else:
+                g_repo.git.checkout('main')
+            
+            # Sync with remote
+            g_repo.git.fetch('origin')
+            g_repo.git.reset('--hard', 'origin/main')
+
+        # Main sync loop
+        while True:
+            time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
+            success, message = _perform_single_github_sync_operation()
+            log_message(f"Sync result: {message}")
+
+    except Exception as e:
+        log_message(f"💥 GitHub sync thread crashed: {str(e)}")
+        
 def sync_github_repo():
     """Main sync thread that runs periodically"""
     try:
