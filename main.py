@@ -208,8 +208,6 @@ def save_data_to_file(data):
     except Exception as e:
         log_message(f"❌ Critical error saving data: {e}")
         
-        
-import fcntl
 
 def safe_file_operation(filename, operation='read', data=None):
     """Thread-safe file operations with locking"""
@@ -458,6 +456,29 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 
 # ===== GitHub Sync Functions =====
 
+def ensure_repository_health():
+    """Ensure repository is in good state before operations"""
+    global g_repo
+    
+    try:
+        if g_repo is None:
+            init_repository()
+            return True
+            
+        if g_repo.head.is_detached:
+            log_message("⚠️ Repository in detached HEAD state - fixing")
+            g_repo.git.checkout('main')
+            
+        if not hasattr(g_repo.active_branch, 'tracking_branch') or not g_repo.active_branch.tracking_branch():
+            log_message("⚠️ Setting up tracking branch")
+            g_repo.git.branch('--set-upstream-to', 'origin/main', 'main')
+            
+        return True
+        
+    except Exception as e:
+        log_message(f"❌ Repository health check failed: {str(e)}")
+        return False
+
 def _perform_single_github_sync_operation(repo_obj_param=None):
     """Independent file sync with GitHub"""
     try:
@@ -466,6 +487,16 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
 
         if repo is None:
             raise Exception("Git repository not initialized")
+
+        # Ensure we're on the main branch
+        if repo.head.is_detached:
+            log_message("⚠️ In detached HEAD state, checking out main branch")
+            repo.git.checkout('main')
+
+        # Verify branch tracking
+        if not repo.active_branch.tracking_branch():
+            log_message("⚠️ No tracking branch set, configuring")
+            repo.git.branch('--set-upstream-to', 'origin/main', 'main')
 
         # Handle files independently
         files_to_add = []
@@ -488,10 +519,10 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         repo.index.commit(commit_msg)
         log_message(f"💾 Committed: {commit_msg}")
 
-        # Push changes
+        # Push changes with explicit branch reference
         try:
             origin = repo.remote(name='origin')
-            origin.push()
+            origin.push(refspec=f'main:main')
             log_message("✅ Push successful")
             return True, "Sync completed"
         except Exception as e:
@@ -501,7 +532,7 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
     except Exception as e:
         log_message(f"💥 Sync failed: {str(e)}")
         return False, str(e)
-
+        
 def _reset_entire_repository():
     """Completely reset the repository"""
     try:
@@ -550,40 +581,24 @@ def _reset_entire_repository():
         return False, f"Recovery failed: {str(e)}"
 
 def sync_github_repo():
-    """Main sync thread with corruption handling"""
+    """Main sync thread with health checks"""
     try:
-        log_message(f"🔁 Starting robust sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
+        log_message(f"🔁 Starting sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
         
         if not all([GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN]):
             raise Exception("GitHub credentials not configured")
 
-        global g_repo
-        
-        # Initialize with corruption check
-        repo_path = LOCAL_REPO_PATH
-        if not os.path.exists(os.path.join(repo_path, '.git')):
-            log_message("🔍 Performing fresh clone...")
-            g_repo = git.Repo.clone_from(
-                f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
-                repo_path,
-                branch='main'
-            )
-        else:
-            g_repo = git.Repo(repo_path)
-            try:
-                g_repo.git.fsck()
-            except git.exc.GitCommandError:
-                log_message("⚠️ Corruption detected during init - resetting")
-                success, message = _reset_entire_repository()
-                if not success:
-                    raise Exception(f"Initial reset failed: {message}")
-
-        # Main sync loop
         while True:
             time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
+            
+            # Perform health check before each sync
+            if not ensure_repository_health():
+                log_message("⚠️ Repository health check failed, attempting repair")
+                if not init_repository():
+                    log_message("❌ Failed to repair repository")
+                    continue
+                    
             success, message = _perform_single_github_sync_operation()
-            if not success and "corruption" in message.lower():
-                _reset_entire_repository()
             log_message(f"Sync result: {message}")
 
     except Exception as e:
