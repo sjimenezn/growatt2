@@ -390,42 +390,30 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 # ===== GitHub Sync Functions =====
 
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """Sync operation with branch creation and verification"""
+    """Sync operation with full corruption recovery"""
     try:
-        log_message("🚀 Starting GitHub sync with branch verification")
+        log_message("🚀 Starting GitHub sync with corruption checks")
         repo = repo_obj_param if repo_obj_param is not None else g_repo
 
         if repo is None:
             raise Exception("Git repository not initialized")
 
-        # 1. Verify/Create main branch
-        if 'main' not in [h.name for h in repo.heads]:
-            log_message("🌿 Creating local main branch with initial commit")
-            
-            # Create orphan branch to start fresh history
-            repo.git.checkout('--orphan', 'temp_main')
-            repo.git.rm('-rf', '.')  # Remove all files
-            
-            # Create initial commit
-            with open(data_file_test, 'w') as f:
-                json.dump({"initial": "commit"}, f)
-            repo.index.add([data_file_test])
-            repo.index.commit("Initial commit")
-            
-            # Rename to main
-            repo.git.branch('-m', 'main')
-            log_message("✅ Created new main branch")
-        else:
-            repo.git.checkout('main')
+        # 1. Check repository health
+        try:
+            repo.git.fsck()
+        except git.exc.GitCommandError:
+            log_message("⚠️ Repository corruption detected - resetting")
+            return False, "Repository corruption needs full reset"
 
-        # 2. Prepare test file
+        # 2. Prepare fresh test file
         test_content = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": "TESTING"
+            "status": "TESTING",
+            "note": "This file verifies sync functionality"
         }
         with open(data_file_test, 'w') as f:
             json.dump(test_content, f)
-        log_message("🆕 Created fresh test file")
+        log_message("🆕 Created fresh verification file")
 
         # 3. Stage changes
         repo.index.add([data_file, data_file_test])
@@ -435,45 +423,87 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         # 4. Commit
         commit_msg = f"Update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         repo.index.commit(commit_msg)
-        local_hash = repo.head.commit.hexsha
-        log_message(f"💾 Committed: {commit_msg} ({local_hash[:8]})")
+        log_message(f"💾 Committed: {commit_msg}")
 
-        # 5. Push with branch creation
+        # 5. Push with corruption recovery
         push_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
         
         try:
             # First try normal push
             repo.git.push(push_url, 'main')
-        except git.exc.GitCommandError:
-            # If branch doesn't exist remotely, create it
-            log_message("🌍 Creating main branch on remote")
-            repo.git.push(push_url, 'main:main', force=True)
-            
-        # Verify
-        repo.git.fetch('origin')
-        if repo.head.commit.hexsha == repo.commit('origin/main').hexsha:
-            log_message("✅ Sync verified successfully")
+            log_message("✅ Push successful")
             return True, "Sync completed"
-        raise Exception("Verification failed")
+        except git.exc.GitCommandError as e:
+            if "hasDot: contains '.'" in str(e):
+                log_message("⚠️ Severe corruption detected - initiating full reset")
+                return _reset_entire_repository()
+            raise
 
     except Exception as e:
         log_message(f"💥 Sync failed: {str(e)}")
         return False, str(e)
 
-def sync_github_repo():
-    """Main sync thread with branch management"""
+def _reset_entire_repository():
+    """Completely reset the repository"""
     try:
-        log_message(f"🔁 Starting GitHub sync (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
+        log_message("🛑 INITIATING FULL REPOSITORY RESET")
+        
+        # 1. Backup important files
+        backup_dir = os.path.join(LOCAL_REPO_PATH, "backup")
+        os.makedirs(backup_dir, exist_ok=True)
+        shutil.copy2(data_file, backup_dir)
+        shutil.copy2(data_file_test, backup_dir)
+        log_message("✅ Created backup of data files")
+
+        # 2. Remove existing repository
+        git_dir = os.path.join(LOCAL_REPO_PATH, ".git")
+        if os.path.exists(git_dir):
+            shutil.rmtree(git_dir)
+            log_message("🧹 Removed corrupted repository")
+
+        # 3. Reclone fresh repository
+        global g_repo
+        g_repo = git.Repo.clone_from(
+            f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
+            LOCAL_REPO_PATH,
+            branch='main'
+        )
+        log_message("🔄 Successfully cloned fresh repository")
+
+        # 4. Restore data files
+        shutil.copy2(os.path.join(backup_dir, os.path.basename(data_file)), data_file)
+        shutil.copy2(os.path.join(backup_dir, os.path.basename(data_file_test)), data_file_test)
+        log_message("🔄 Restored data files")
+
+        # 5. Commit and push fresh start
+        g_repo.index.add([data_file, data_file_test])
+        g_repo.index.commit("Fresh start after corruption recovery")
+        g_repo.git.push(
+            f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
+            'main',
+            force=True
+        )
+        log_message("🎉 Successfully recovered from corruption")
+        return True, "Recovery completed"
+
+    except Exception as e:
+        log_message(f"💥 Recovery failed: {str(e)}")
+        return False, f"Recovery failed: {str(e)}"
+
+def sync_github_repo():
+    """Main sync thread with corruption handling"""
+    try:
+        log_message(f"🔁 Starting robust sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
         
         if not all([GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN]):
             raise Exception("GitHub credentials not configured")
 
         global g_repo
         
-        # Initialize repository
+        # Initialize with corruption check
         repo_path = LOCAL_REPO_PATH
         if not os.path.exists(os.path.join(repo_path, '.git')):
-            log_message("🔍 Cloning repository...")
+            log_message("🔍 Performing fresh clone...")
             g_repo = git.Repo.clone_from(
                 f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
                 repo_path,
@@ -481,20 +511,20 @@ def sync_github_repo():
             )
         else:
             g_repo = git.Repo(repo_path)
-            # Ensure we have a valid main branch
-            if 'main' not in [h.name for h in g_repo.heads]:
-                g_repo.git.checkout('--orphan', 'main')
-                with open(data_file_test, 'w') as f:
-                    json.dump({"initial": "commit"}, f)
-                g_repo.index.add([data_file_test])
-                g_repo.index.commit("Initial commit")
-            else:
-                g_repo.git.checkout('main')
+            try:
+                g_repo.git.fsck()
+            except git.exc.GitCommandError:
+                log_message("⚠️ Corruption detected during init - resetting")
+                success, message = _reset_entire_repository()
+                if not success:
+                    raise Exception(f"Initial reset failed: {message}")
 
         # Main sync loop
         while True:
             time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
             success, message = _perform_single_github_sync_operation()
+            if not success and "corruption" in message.lower():
+                _reset_entire_repository()
             log_message(f"Sync result: {message}")
 
     except Exception as e:
