@@ -388,7 +388,7 @@ def init_and_add_remote(repo_path, remote_url, username, token):
     return repo
 
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    log_message("🚀 Starting GitHub sync operation")
+    log_message("🚀 Starting GitHub sync operation (direct update)")
     repo = repo_obj_param if repo_obj_param is not None else g_repo
 
     if repo is None:
@@ -424,35 +424,7 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
                 return False, "Invalid source JSON"
 
         # ======================
-        # 2. Copy File
-        # ======================
-        log_message(f"📋 Copying {data_file} to {data_file_test}")
-        try:
-            shutil.copy2(data_file, data_file_test)
-            os.chmod(data_file_test, 0o644)  # Ensure proper permissions
-            
-            # Verify copy succeeded
-            if not os.path.exists(data_file_test):
-                log_message("❌ Copy failed - destination file not created")
-                return False, "Copy failed"
-                
-            if os.path.getsize(data_file_test) == 0:
-                log_message("❌ Copied file is empty")
-                return False, "Empty destination file"
-                
-            with open(data_file_test, 'r') as f:
-                test_data = json.load(f)
-                if len(test_data) != len(source_data):
-                    log_message("❌ Copied data length mismatch")
-                    return False, "Data length mismatch"
-                    
-            log_message("✅ File copied and verified successfully")
-        except Exception as e:
-            log_message(f"❌ File copy failed: {e}")
-            return False, f"Copy error: {e}"
-
-        # ======================
-        # 3. Git Operations
+        # 2. Git Operations
         # ======================
         log_message("🔄 Starting Git operations")
         
@@ -466,56 +438,16 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
         repo.git.fetch('origin')
         repo.git.reset('--hard', 'origin/main')
         
-        # Stage the test file
-        log_message("➕ Staging test file")
-        repo.index.add([data_file_test])
+        # Stage the main data file
+        log_message("➕ Staging data file")
+        repo.index.add([data_file])
         
         # Check for actual changes
         if not repo.index.diff("HEAD"):
             log_message("⚖️ No changes to commit")
             return True, "No changes detected"
             
-        # Commit changes
-        commit_msg = f"Auto-update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (UTC-5)"
-        repo.index.commit(commit_msg)
-        log_message(f"💾 Committed changes: {commit_msg}")
-
-        # ======================
-        # 4. Push with Retry
-        # ======================
-        max_retries = 2
-        push_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
         
-        for attempt in range(max_retries + 1):
-            try:
-                log_message(f"📤 Push attempt {attempt + 1}/{max_retries + 1}")
-                repo.git.push(push_url, 'main', '--force')
-                
-                # Verify push succeeded
-                repo.git.fetch('origin')
-                local_commit = repo.head.commit.hexsha
-                remote_commit = repo.commit('origin/main').hexsha
-                
-                if local_commit == remote_commit:
-                    log_message("✅ Push verified successfully")
-                    return True, "Sync completed"
-                else:
-                    log_message("❌ Push verification failed")
-                    raise Exception("Push verification failed")
-                    
-            except Exception as e:
-                if attempt < max_retries:
-                    log_message(f"🔄 Retry {attempt + 1} after error: {str(e)}")
-                    time.sleep(2)
-                    repo.git.fetch('origin')
-                    repo.git.reset('--hard', 'origin/main')
-                else:
-                    log_message(f"❌ Final push attempt failed: {str(e)}")
-                    return False, f"Push failed: {str(e)}"
-
-    except Exception as e:
-        log_message(f"💥 Critical sync error: {str(e)}")
-        return False, f"Sync failed: {str(e)}"
         
 def sync_github_repo():
     log_message(f"Starting scheduled GitHub sync thread. Sync interval: {GIT_PUSH_INTERVAL_MINS} minutes.")
