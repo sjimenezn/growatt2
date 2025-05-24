@@ -5,10 +5,22 @@ from datetime import datetime
 
 # Configuration
 GITHUB_REPO_URL = "github.com/sjimenezn/growatt2.git"
-GITHUB_USERNAME = "sjimenezn"  # Fixed typo from previous version
+GITHUB_USERNAME = "sjimenezn"
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
 LOCAL_REPO_PATH = "."
 TEST_FILE_NAME = "saved_data_test.json"
+
+def configure_git_identity(repo):
+    """Configure git user identity for commits"""
+    try:
+        with repo.config_writer() as git_config:
+            git_config.set_value("user", "name", "Koyeb Deployment")
+            git_config.set_value("user", "email", "deploy@koyeb.com")
+        print("✅ Configured Git identity")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to configure Git identity: {str(e)}")
+        return False
 
 def force_push_to_github():
     """Ensures branch alignment and force-pushes to GitHub"""
@@ -23,6 +35,10 @@ def force_push_to_github():
             repo = git.Repo(LOCAL_REPO_PATH)
             print("✅ Using existing repository")
 
+        # Configure Git identity
+        if not configure_git_identity(repo):
+            return False
+
         # Fetch all remote branches
         print("🔄 Fetching remote branches...")
         repo.remotes.origin.fetch()
@@ -35,14 +51,14 @@ def force_push_to_github():
         # Fix detached HEAD state
         if repo.head.is_detached:
             print("⚠️ Fixing detached HEAD state...")
-            repo.git.checkout('main')  # Just checkout main, don't reset yet
+            repo.git.checkout('main')
 
         # Ensure we're on main branch
         if repo.active_branch.name != "main":
             print("🔄 Switching to main branch...")
             repo.git.checkout('main')
 
-        # Reset to origin/main (now that we know it exists)
+        # Reset to origin/main
         print("🔄 Resetting to origin/main...")
         repo.git.reset('--hard', 'origin/main')
 
@@ -58,7 +74,7 @@ def force_push_to_github():
         # Stage, commit and push
         print("🚀 Pushing changes...")
         repo.git.add('--all')
-        repo.git.commit('-m', f'Test update {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', '--no-verify')
+        repo.git.commit('-m', f'Test update {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
         repo.git.push('origin', 'main', force=True)
 
         print("✅ Successfully pushed to GitHub!")
