@@ -390,31 +390,42 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 # ===== GitHub Sync Functions =====
 
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """Sync operation with post-push verification"""
+    """Sync operation with branch creation and verification"""
     try:
-        log_message("🚀 Starting verified GitHub sync operation")
+        log_message("🚀 Starting GitHub sync with branch verification")
         repo = repo_obj_param if repo_obj_param is not None else g_repo
 
         if repo is None:
             raise Exception("Git repository not initialized")
 
-        # 1. Get current remote commit hash for comparison
-        original_remote_hash = None
-        try:
-            repo.git.fetch('origin')
-            original_remote_hash = repo.commit('origin/main').hexsha
-        except:
-            original_remote_hash = None
+        # 1. Verify/Create main branch
+        if 'main' not in [h.name for h in repo.heads]:
+            log_message("🌿 Creating local main branch with initial commit")
+            
+            # Create orphan branch to start fresh history
+            repo.git.checkout('--orphan', 'temp_main')
+            repo.git.rm('-rf', '.')  # Remove all files
+            
+            # Create initial commit
+            with open(data_file_test, 'w') as f:
+                json.dump({"initial": "commit"}, f)
+            repo.index.add([data_file_test])
+            repo.index.commit("Initial commit")
+            
+            # Rename to main
+            repo.git.branch('-m', 'main')
+            log_message("✅ Created new main branch")
+        else:
+            repo.git.checkout('main')
 
         # 2. Prepare test file
         test_content = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": "TESTING",
-            "message": "Verification file - should update each sync"
+            "status": "TESTING"
         }
         with open(data_file_test, 'w') as f:
             json.dump(test_content, f)
-        log_message("🆕 Created fresh verification file")
+        log_message("🆕 Created fresh test file")
 
         # 3. Stage changes
         repo.index.add([data_file, data_file_test])
@@ -422,104 +433,72 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             return True, "No changes to commit"
 
         # 4. Commit
-        commit_msg = f"Verified update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        commit_msg = f"Update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         repo.index.commit(commit_msg)
         local_hash = repo.head.commit.hexsha
-        log_message(f"💾 Committed: {commit_msg} (hash: {local_hash[:8]})")
+        log_message(f"💾 Committed: {commit_msg} ({local_hash[:8]})")
 
-        # 5. Push with verification
+        # 5. Push with branch creation
         push_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
         
-        for attempt in range(3):
-            try:
-                log_message(f"📤 Push attempt {attempt + 1}/3")
-                if attempt > 0:
-                    repo.git.push(push_url, 'main', force=True)
-                else:
-                    repo.git.push(push_url, 'main')
-
-                # Verify the push actually changed remote
-                repo.git.fetch('origin')
-                new_remote_hash = repo.commit('origin/main').hexsha
-                
-                if new_remote_hash == local_hash:
-                    log_message(f"✅ Push verified (new hash: {new_remote_hash[:8]})")
-                    if original_remote_hash and new_remote_hash == original_remote_hash:
-                        raise Exception("Push succeeded but remote didn't change")
-                    return True, "Sync completed with verification"
-                raise Exception("Push verification failed - hashes don't match")
-
-            except Exception as push_error:
-                if attempt == 2:
-                    # Final attempt - check if we made any progress
-                    repo.git.fetch('origin')
-                    final_remote_hash = repo.commit('origin/main').hexsha
-                    if final_remote_hash != original_remote_hash:
-                        log_message(f"⚠️ Partial success - remote changed to {final_remote_hash[:8]}")
-                        return True, "Partial sync completed"
-                    raise
-                log_message(f"🔄 Retry {attempt + 1} after: {str(push_error)}")
-                time.sleep(2)
-                repo.git.reset('--hard', 'origin/main')
+        try:
+            # First try normal push
+            repo.git.push(push_url, 'main')
+        except git.exc.GitCommandError:
+            # If branch doesn't exist remotely, create it
+            log_message("🌍 Creating main branch on remote")
+            repo.git.push(push_url, 'main:main', force=True)
+            
+        # Verify
+        repo.git.fetch('origin')
+        if repo.head.commit.hexsha == repo.commit('origin/main').hexsha:
+            log_message("✅ Sync verified successfully")
+            return True, "Sync completed"
+        raise Exception("Verification failed")
 
     except Exception as e:
-        log_message(f"💥 Verified sync failed: {str(e)}")
+        log_message(f"💥 Sync failed: {str(e)}")
         return False, str(e)
 
 def sync_github_repo():
-    """Main sync thread with enhanced verification"""
+    """Main sync thread with branch management"""
     try:
-        log_message(f"🔁 Starting verified sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
+        log_message(f"🔁 Starting GitHub sync (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
         
         if not all([GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN]):
             raise Exception("GitHub credentials not configured")
 
         global g_repo
         
-        # Initialize with strict verification
+        # Initialize repository
         repo_path = LOCAL_REPO_PATH
         if not os.path.exists(os.path.join(repo_path, '.git')):
-            log_message("🔍 Cloning fresh verified repository...")
+            log_message("🔍 Cloning repository...")
             g_repo = git.Repo.clone_from(
                 f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
                 repo_path,
                 branch='main'
             )
-            # Verify clone worked
-            if not os.path.exists(os.path.join(repo_path, '.git')):
-                raise Exception("Clone failed - no .git directory created")
         else:
             g_repo = git.Repo(repo_path)
-            g_repo.git.fetch('origin')
-            g_repo.git.reset('--hard', 'origin/main')
+            # Ensure we have a valid main branch
+            if 'main' not in [h.name for h in g_repo.heads]:
+                g_repo.git.checkout('--orphan', 'main')
+                with open(data_file_test, 'w') as f:
+                    json.dump({"initial": "commit"}, f)
+                g_repo.index.add([data_file_test])
+                g_repo.index.commit("Initial commit")
+            else:
+                g_repo.git.checkout('main')
 
-        # Main sync loop with verification
+        # Main sync loop
         while True:
             time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
-            
-            # Verify local and remote states before sync
-            pre_local_hash = g_repo.head.commit.hexsha if not g_repo.bare else None
-            g_repo.git.fetch('origin')
-            pre_remote_hash = g_repo.commit('origin/main').hexsha
-            
             success, message = _perform_single_github_sync_operation()
-            
-            # Post-sync verification
-            g_repo.git.fetch('origin')
-            post_local_hash = g_repo.head.commit.hexsha
-            post_remote_hash = g_repo.commit('origin/main').hexsha
-            
-            log_message(f"🔍 Verification: Pre={pre_remote_hash[:8]}, Post={post_remote_hash[:8]}")
-            
-            if post_remote_hash == pre_remote_hash:
-                log_message("❌ Verification failed - remote unchanged")
-            else:
-                log_message("✅ Verification passed - remote updated")
-
             log_message(f"Sync result: {message}")
 
     except Exception as e:
-        log_message(f"💥 Verified sync thread crashed: {str(e)}")
+        log_message(f"💥 Sync thread crashed: {str(e)}")
         
 # Telegram Handlers
 def start(update: Update, context: CallbackContext):
