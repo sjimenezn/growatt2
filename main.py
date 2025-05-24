@@ -872,6 +872,22 @@ def trigger_github_sync():
     sync_thread = threading.Thread(target=_perform_single_github_sync_operation, args=(g_repo,), daemon=True)
     sync_thread.start()
     return redirect(url_for('charts_view'))
+    
+@app.route('/repo-status', methods=['GET'])
+def repo_status():
+    try:
+        if g_repo is None:
+            return jsonify({"status": "no repository initialized"})
+            
+        return jsonify({
+            "active_branch": str(g_repo.active_branch),
+            "is_detached": g_repo.head.is_detached,
+            "tracking_branch": str(g_repo.active_branch.tracking_branch()) if hasattr(g_repo.active_branch, 'tracking_branch') else None,
+            "last_commit": str(g_repo.head.commit),
+            "remotes": [remote.name for remote in g_repo.remotes]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
