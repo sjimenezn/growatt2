@@ -5,6 +5,7 @@ import pprint
 import json
 import os
 import time
+import fcntl
 import requests
 from datetime import datetime, timedelta
 from growattServer import GrowattApi
@@ -207,6 +208,74 @@ def save_data_to_file(data):
     except Exception as e:
         log_message(f"❌ Critical error saving data: {e}")
         
+        
+import fcntl
+
+def safe_file_operation(filename, operation='read', data=None):
+    """Thread-safe file operations with locking"""
+    try:
+        with open(filename, 'r+' if operation == 'write' else 'r') as f:
+            fcntl.flock(f, fcntl.LOCK_EX)  # Exclusive lock
+            
+            if operation == 'read':
+                try:
+                    content = json.load(f)
+                    return content
+                except json.JSONDecodeError:
+                    return []
+            
+            elif operation == 'write':
+                f.seek(0)
+                json.dump(data, f)
+                f.truncate()
+                return True
+                
+    except FileNotFoundError:
+        if operation == 'write':
+            with open(filename, 'w') as f:
+                json.dump(data, f)
+            return True
+        return None
+    except Exception as e:
+        log_message(f"❌ File operation failed on {filename}: {str(e)}")
+        return None
+    finally:
+        fcntl.flock(f, fcntl.LOCK_UN)  # Release lock
+        
+        
+def init_repository():
+    """Initialize or recover Git repository"""
+    global g_repo
+    
+    try:
+        if os.path.exists(os.path.join(LOCAL_REPO_PATH, '.git')):
+            g_repo = git.Repo(LOCAL_REPO_PATH)
+            log_message("✅ Found existing repository")
+        else:
+            repo_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
+            g_repo = git.Repo.clone_from(repo_url, LOCAL_REPO_PATH)
+            log_message("✅ Cloned new repository")
+
+        # Configure remote
+        if 'origin' not in g_repo.remotes:
+            repo_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
+            g_repo.create_remote('origin', repo_url)
+        
+        g_repo.remotes.origin.fetch()
+        
+        # Ensure main branch exists
+        if 'main' not in g_repo.heads:
+            g_repo.git.checkout('-b', 'main', 'origin/main')
+        else:
+            g_repo.git.checkout('main')
+            
+        return True
+        
+    except Exception as e:
+        log_message(f"❌ Repository initialization failed: {str(e)}")
+        return False
+        
+        
 def monitor_growatt():
     global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values
     threshold = 80
@@ -390,94 +459,49 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 # ===== GitHub Sync Functions =====
 
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """Sync operation with independent file handling"""
+    """Independent file sync with GitHub"""
     try:
-        log_message("🚀 Starting independent file sync")
+        log_message("🚀 Starting GitHub sync")
         repo = repo_obj_param if repo_obj_param is not None else g_repo
+
         if repo is None:
             raise Exception("Git repository not initialized")
 
-        # 1. Verify repository state
-        repo.git.fetch('origin')
-        repo.git.reset('--hard', 'origin/main')
-
-        # Track results for each file
-        results = {
-            data_file: {"success": False, "message": ""},
-            data_file_test: {"success": False, "message": ""}
-        }
-
-        # 2. Process main data file (saved_data.json)
-        try:
-            if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
-                # Stage only this file
-                repo.index.add([data_file])
-                if repo.index.diff("HEAD"):
-                    commit_msg = f"Data update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                    repo.index.commit(commit_msg)
-                    results[data_file]["message"] = "Committed successfully"
-                    
-                    # Attempt push
-                    try:
-                        repo.git.push(
-                            f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
-                            'main'
-                        )
-                        results[data_file]["success"] = True
-                    except Exception as e:
-                        results[data_file]["message"] = f"Push failed: {str(e)}"
+        # Handle files independently
+        files_to_add = []
+        for filename in [data_file_name, data_file_test_name]:
+            try:
+                if os.path.exists(filename):
+                    repo.index.add([filename])
+                    log_message(f"✅ Staged {filename}")
+                    files_to_add.append(filename)
                 else:
-                    results[data_file]["message"] = "No changes to commit"
-            else:
-                results[data_file]["message"] = "Source file missing or empty"
-        except Exception as e:
-            results[data_file]["message"] = f"Processing failed: {str(e)}"
+                    log_message(f"⚠️ {filename} not found")
+            except Exception as e:
+                log_message(f"❌ Failed to stage {filename}: {str(e)}")
 
-        # Reset to clean state before second file
-        repo.git.reset('--hard', 'origin/main')
+        if not files_to_add:
+            return True, "No files to commit"
 
-        # 3. Process test file (saved_data_test.json)
+        # Commit changes
+        commit_msg = f"Update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        repo.index.commit(commit_msg)
+        log_message(f"💾 Committed: {commit_msg}")
+
+        # Push changes
         try:
-            # Create fresh test file
-            test_content = {
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "status": "TESTING",
-                "note": "This file tests independent upload"
-            }
-            with open(data_file_test, 'w') as f:
-                json.dump(test_content, f)
-
-            # Stage only this file
-            repo.index.add([data_file_test])
-            if repo.index.diff("HEAD"):
-                commit_msg = f"Test file update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                repo.index.commit(commit_msg)
-                results[data_file_test]["message"] = "Test file committed"
-                
-                # Attempt push
-                try:
-                    repo.git.push(
-                        f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
-                        'main'
-                    )
-                    results[data_file_test]["success"] = True
-                except Exception as e:
-                    results[data_file_test]["message"] = f"Test push failed: {str(e)}"
-            else:
-                results[data_file_test]["message"] = "No test file changes"
+            origin = repo.remote(name='origin')
+            origin.push()
+            log_message("✅ Push successful")
+            return True, "Sync completed"
         except Exception as e:
-            results[data_file_test]["message"] = f"Test file processing failed: {str(e)}"
-
-        # 4. Generate final status
-        all_success = all(r["success"] for r in results.values())
-        messages = "\n".join(f"{f}: {r['message']}" for f, r in results.items())
-        
-        return all_success, messages
+            log_message(f"❌ Push failed: {str(e)}")
+            return False, str(e)
 
     except Exception as e:
-        log_message(f"💥 Sync operation failed: {str(e)}")
-        return False, f"Operation failed: {str(e)}"
-        
+        log_message(f"💥 Sync failed: {str(e)}")
+        return False, str(e)
+
 def _reset_entire_repository():
     """Completely reset the repository"""
     try:
