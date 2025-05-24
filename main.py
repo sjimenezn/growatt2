@@ -389,16 +389,32 @@ def init_and_add_remote(repo_path, remote_url, username, token):
 
 # ===== GitHub Sync Functions =====
 
+# --- GitHub Sync Functions ---
+
 def _perform_single_github_sync_operation(repo_obj_param=None):
-    """Handle sync operations with Git object corruption recovery"""
+    """Handle sync operations with dual-file upload"""
     try:
-        log_message("🚀 Starting GitHub sync operation")
+        log_message("🚀 Starting dual-file GitHub sync operation")
         repo = repo_obj_param if repo_obj_param is not None else g_repo
 
         if repo is None:
             raise Exception("Git repository not initialized")
 
-        # 1. Branch verification and creation
+        # 1. Verify and prepare source data
+        if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
+            raise Exception("Source data file missing or empty")
+
+        # 2. Create fresh test file
+        test_content = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "TESTING",
+            "message": "This is a test file for sync verification"
+        }
+        with open(data_file_test, 'w') as f:
+            json.dump(test_content, f)
+        log_message("🆕 Created fresh test file")
+
+        # 3. Branch management
         if 'main' not in repo.heads:
             log_message("🌿 Creating local main branch")
             repo.git.checkout('-b', 'main')
@@ -406,95 +422,53 @@ def _perform_single_github_sync_operation(repo_obj_param=None):
             log_message(f"🔀 Switching to main from {repo.active_branch.name}")
             repo.git.checkout('main')
 
-        # 2. Verify and repair repository if needed
-        try:
-            repo.git.fsck()  # Check repository integrity
-        except git.exc.GitCommandError:
-            log_message("⚠️ Repository corruption detected, repairing...")
-            repo.git.gc('--prune=now')
-            repo.git.fsck('--full')
+        # 4. Sync with remote
+        repo.git.fetch('origin')
+        repo.git.reset('--hard', 'origin/main')
 
-        # 3. Sync with remote
+        # 5. Stage both files
+        repo.index.add([data_file, data_file_test])
+        
+        if not repo.index.diff("HEAD"):
+            log_message("⚖️ No changes to commit")
+            return True, "No changes detected"
+
+        # 6. Commit changes
+        commit_msg = f"Dual-file update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        repo.index.commit(commit_msg)
+        log_message(f"💾 Committed: {commit_msg}")
+
+        # 7. Push with retry
         push_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}"
         
-        # First try normal push
-        try:
-            repo.git.push(push_url, 'main')
-            return True, "Sync successful"
-        except git.exc.GitCommandError as e:
-            log_message(f"⚠️ Normal push failed, attempting recovery: {str(e)}")
+        for attempt in range(3):
+            try:
+                log_message(f"📤 Push attempt {attempt + 1}/3")
+                if attempt > 0:
+                    repo.git.push(push_url, 'main', force=True)
+                else:
+                    repo.git.push(push_url, 'main')
+                
+                # Verify push
+                repo.git.fetch('origin')
+                if repo.head.commit.hexsha == repo.commit('origin/main').hexsha:
+                    log_message("✅ Push verified successfully")
+                    return True, "Dual-file sync completed"
+                raise Exception("Push verification failed")
 
-        # Recovery procedure
-        try:
-            # Create new orphan commit
-            repo.git.checkout('--orphan', 'new_main')
-            repo.git.rm('-rf', '.')
-            
-            # Re-add data file
-            if os.path.exists(data_file):
-                repo.index.add([data_file])
-                repo.index.commit("Fresh start commit")
-                
-                # Force push new history
-                repo.git.push(push_url, 'new_main:main', force=True)
-                log_message("✅ Successfully reset remote branch")
-                
-                # Clean up local repo
-                repo.git.checkout('main')
-                repo.git.branch('-D', 'new_main')
-                return True, "Recovery successful"
-                
-        except Exception as recovery_error:
-            log_message(f"❌ Recovery failed: {str(recovery_error)}")
-            return False, f"Recovery failed: {str(recovery_error)}"
+            except Exception as push_error:
+                if attempt == 2:
+                    raise
+                log_message(f"🔄 Retry {attempt + 1} after push error: {str(push_error)}")
+                time.sleep(2)
+                repo.git.reset('--hard', 'origin/main')
 
     except Exception as e:
-        log_message(f"💥 Critical sync error: {str(e)}")
+        log_message(f"💥 Dual-file sync failed: {str(e)}")
         return False, str(e)
 
 def sync_github_repo():
-    """Main sync thread with enhanced error recovery"""
-    try:
-        log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
-        
-        if not all([GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN]):
-            raise Exception("GitHub credentials not configured")
-
-        global g_repo
-        
-        # Initialize repository with corruption checks
-        repo_path = LOCAL_REPO_PATH
-        if not os.path.exists(os.path.join(repo_path, '.git')):
-            log_message("🔍 Cloning fresh repository...")
-            g_repo = git.Repo.clone_from(
-                f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
-                repo_path,
-                branch='main'
-            )
-        else:
-            g_repo = git.Repo(repo_path)
-            try:
-                g_repo.git.fsck()
-            except git.exc.GitCommandError:
-                log_message("⚠️ Repository corrupted, recreating...")
-                shutil.rmtree(os.path.join(repo_path, '.git'))
-                g_repo = git.Repo.clone_from(
-                    f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
-                    repo_path,
-                    branch='main'
-                )
-
-        # Main sync loop
-        while True:
-            time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
-            success, message = _perform_single_github_sync_operation()
-            log_message(f"Sync result: {message}")
-
-    except Exception as e:
-        log_message(f"💥 GitHub sync thread crashed: {str(e)}")
-
-def sync_github_repo():
-    """Main sync thread with proper branch initialization"""
+    """Main sync thread with dual-file handling"""
     try:
         log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
         
@@ -506,7 +480,7 @@ def sync_github_repo():
         # Initialize repository
         repo_path = LOCAL_REPO_PATH
         if not os.path.exists(os.path.join(repo_path, '.git')):
-            log_message("🔍 Cloning repository...")
+            log_message("🔍 Cloning fresh repository...")
             g_repo = git.Repo.clone_from(
                 f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
                 repo_path,
@@ -514,7 +488,7 @@ def sync_github_repo():
             )
         else:
             g_repo = git.Repo(repo_path)
-            # Ensure main branch exists locally
+            # Ensure main branch exists
             if 'main' not in [h.name for h in g_repo.heads]:
                 g_repo.git.checkout('-b', 'main')
             else:
@@ -533,38 +507,6 @@ def sync_github_repo():
     except Exception as e:
         log_message(f"💥 GitHub sync thread crashed: {str(e)}")
         
-def sync_github_repo():
-    """Main sync thread that runs periodically"""
-    try:
-        log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
-        
-        if not all([GITHUB_REPO_URL, GITHUB_USERNAME, GITHUB_TOKEN]):
-            raise Exception("GitHub credentials not configured")
-
-        global g_repo
-        
-        # Initialize repository
-        if not os.path.exists(os.path.join(LOCAL_REPO_PATH, '.git')):
-            log_message("Cloning repository...")
-            g_repo = git.Repo.clone_from(
-                f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('@')[-1]}",
-                LOCAL_REPO_PATH,
-                branch='main'
-            )
-        else:
-            g_repo = git.Repo(LOCAL_REPO_PATH)
-            g_repo.git.fetch('origin')
-            g_repo.git.reset('--hard', 'origin/main')
-
-        # Main sync loop
-        while True:
-            time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
-            success, message = _perform_single_github_sync_operation()
-            log_message(f"Sync result: {message}")
-
-    except Exception as e:
-        log_message(f"💥 GitHub sync thread crashed: {str(e)}")
-
 # Telegram Handlers
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
