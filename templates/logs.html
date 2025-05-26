@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -5,25 +6,97 @@
     <meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; background-color: #f9f9f9; margin: 0; padding: 0; max-height: 100vh; overflow-y: auto; }
-        nav { background-color: #333; overflow: hidden; position: sticky; top: 0; z-index: 100; }
-        nav ul { list-style-type: none; margin: 0; padding: 0; display: flex; justify-content: center; flex-wrap: wrap; }
-        nav ul li { padding: 14px 20px; }
-        nav ul li a { color: white; text-decoration: none; font-size: 18px; }
-        nav ul li a:hover { background-color: #ddd; color: black; }
-        .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
-        h2 { text-align: center; margin: 20px 0; }
-        .chart-container { width: 95%; max-width: 1000px; height: 400px; margin: 20px auto; }
-        .controls-container { text-align: center; margin-bottom: 20px; }
-        .controls-container label, .controls-container select, .controls-container button { font-size: 1.1em; padding: 5px 10px; margin: 5px; border: 1px solid #ccc; border-radius: 5px; cursor: pointer; }
-        .controls-container button:hover { background-color: #ddd; }
-        .timestamp-container { text-align: center; margin-bottom: 10px; font-size: 0.9em; color: #777; }
-        .flash-messages { list-style-type: none; padding: 0; margin-bottom: 15px; }
-        .flash-messages li { padding: 10px; margin-bottom: 10px; border-radius: 4px; text-align: center; }
-        .flash-messages li.success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .flash-messages li.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .flash-messages li.info { background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
-        @media (max-width: 600px) { .chart-container { height: 300px; } }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            margin: 0;
+            padding: 0;
+            max-height: 100vh; /* Apply max-height to the body */
+            overflow-y: auto; /* Allow vertical scrolling if content exceeds max-height */
+        }
+
+        nav {
+            background-color: #333;
+            overflow: hidden;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        nav ul {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        nav ul li {
+            padding: 14px 20px;
+        }
+
+        nav ul li a {
+            color: white;
+            text-decoration: none;
+            font-size: 18px;
+        }
+
+        nav ul li a:hover {
+            background-color: #ddd;
+            color: black;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        h2 {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .chart-container {
+            width: 95%;
+            max-width: 1000px;
+            height: 400px;
+            margin: 20px auto;
+        }
+
+        .controls-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .controls-container label,
+        .controls-container select,
+        .controls-container button {
+            font-size: 1.1em;
+            padding: 5px 10px;
+            margin: 5px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .controls-container button:hover {
+            background-color: #ddd;
+        }
+
+        .timestamp-container {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: #777;
+        }
+
+        @media (max-width: 600px) {
+            .chart-container {
+                height: 300px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -33,6 +106,7 @@
             <li><a href="/logs" class="active">Logs</a></li>
             <li><a href="/chatlog">Chatlog</a></li>
             <li><a href="/console">Console</a></li>
+            <li><a href="/details">Details</a></li>
             <li><a href="/battery-chart">Battery Chart</a></li>
         </ul>
     </nav>
@@ -40,18 +114,8 @@
     <div class="container">
         <h2>Growatt Monitoring Charts</h2>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <ul class="flash-messages">
-                {% for category, message in messages %}
-                    <li class="{{ category }}">{{ message }}</li>
-                {% endfor %}
-                </ul>
-            {% endif %}
-        {% endwith %}
-
         <div class="timestamp-container">
-            Última actualización de Growatt (Logger): <span id="lastUpdateTime">{{ last_growatt_update }}</span>
+            Última actualización de Growatt: <span id="lastUpdateTime">{{ last_growatt_update }}</span>
         </div>
 
         <div class="controls-container">
@@ -62,8 +126,8 @@
                 <option value="72">72 hours</option>
                 <option value="96">96 hours</option>
             </select>
-            <form action="{{ url_for('trigger_github_sync') }}" method="POST" style="display: inline;">
-                <button type="submit">Sync Data to GitHub</button>
+            <form action="/trigger_github_sync" method="POST" style="display: inline;">
+                <button type="submit">Sync to GitHub</button>
             </form>
         </div>
 
@@ -74,99 +138,103 @@
     </div>
 
     <script>
-        const allTimestampsFromFlask = {{ timestamps | tojson }};
-        const allTimestampsAsDates = allTimestampsFromFlask.map(ts => {
-            if (!ts) return null; // Handle null timestamps if any
-            // Ensure timestamp includes time. If just date, append T00:00:00 for UTC or local interpretation.
-            // For consistency, if your timestamps are "YYYY-MM-DD HH:MM:SS" they should parse fine.
-            // If they are "YYYY-MM-DD", new Date() might interpret them as UTC midnight.
-            // Adding 'T00:00:00' makes it local midnight if that's the intent for date-only strings.
-            let parsableTs = ts;
-            if (ts && ts.length === 10) { // YYYY-MM-DD
-                parsableTs = ts + 'T00:00:00'; // Interpret as local midnight
-            }
-            return new Date(parsableTs);
-        }).filter(date => date !== null && !isNaN(date)); // Filter out invalid dates
-
+        // These global variables will hold the full dataset received from Flask
+        // Timestamps will be converted to Date objects for easier manipulation
+        const allTimestampsAsDates = {{ timestamps | tojson }}.map(ts => new Date(ts));
         const allAcInput = {{ ac_input | tojson }};
         const allAcOutput = {{ ac_output | tojson }};
         const allActivePower = {{ active_power | tojson }};
         const allBatteryCapacity = {{ battery_capacity | tojson }};
 
+        // Function to draw a single chart, now taking 'hoursToShow' as an argument
         function drawChart(id, title, data, color, hoursToShow) {
+            // Determine the reference time: use the latest timestamp in the data
+            // This ensures "last X hours" is relative to the end of the loaded data.
             const referenceTime = allTimestampsAsDates.length > 0 ?
                                   allTimestampsAsDates[allTimestampsAsDates.length - 1] :
-                                  new Date(); 
+                                  new Date(); // Fallback to current time if no data
 
-            const cutoffTime = new Date(referenceTime.getTime() - (hoursToShow * 60 * 60 * 1000));
+            const cutoffTime = new Date(referenceTime.getTime() - (hoursToShow * 60 * 60 * 1000)); // hours * minutes * seconds * milliseconds
 
-            const filteredPoints = [];
+            // Filter data based on timestamps
+            const filteredIndices = [];
             for (let i = 0; i < allTimestampsAsDates.length; i++) {
                 if (allTimestampsAsDates[i] >= cutoffTime) {
-                    filteredPoints.push({
-                        x: allTimestampsAsDates[i].getTime(), // Use epoch milliseconds for x
-                        y: data[i] // data[i] can be null here
-                    });
+                    filteredIndices.push(i);
                 }
             }
-            
-            // Sort points by time, crucial for Highcharts time series
-            filteredPoints.sort((a, b) => a.x - b.x);
 
-            if (filteredPoints.length === 0 || filteredPoints.every(p => p.y === null)) {
+            // If no data found for the period, or data is invalid, display empty chart
+            if (filteredIndices.length === 0) {
+                console.warn(`No data found for the last ${hoursToShow} hours for chart: ${title}`);
                 Highcharts.chart(id, {
-                    title: { text: title + ' (No Data for Period)' },
+                    title: { text: title + ' (No Data Available)' },
                     series: []
                 });
-                return;
+                return; // Exit function if no data
             }
 
+            // Get the actual data and labels for the filtered indices
+            const displayedLabels = filteredIndices.map(index => allTimestampsAsDates[index]);
+            const displayedData = filteredIndices.map(index => data[index]);
+
+            // Generate time labels for x-axis categories from the displayedLabels
+            const timeLabels = displayedLabels.map(date => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
             Highcharts.chart(id, {
-                chart: { type: 'area', spacingTop: 10, spacingBottom: 10 },
+                chart: {
+                    type: 'area',
+                    spacingTop: 10,
+                    spacingBottom: 10
+                },
                 title: { text: title },
                 xAxis: {
-                    type: 'datetime', // Use datetime type for x-axis
+                    categories: timeLabels,
                     title: { text: 'Time' },
-                    labels: { rotation: -45, align: 'right' }
+                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))),
+                    labels: {
+                        rotation: -45,
+                        align: 'right',
+                    }
                 },
-                yAxis: { title: { text: 'Value' }, min: 0 },
+                yAxis: {
+                    title: { text: 'Value' },
+                    min: 0
+                },
                 tooltip: {
                     formatter: function () {
-                        return `<b>${Highcharts.dateFormat('%Y-%m-%d %H:%M:%S', this.x)}</b><br/>${this.series.name}: ${this.y}`;
+                        const originalTime = displayedLabels[this.point.index];
+                        const timeStr = originalTime.toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                        return `Time: ${timeStr}<br>Value: ${this.y}`;
                     }
                 },
                 series: [{
                     name: title,
-                    data: filteredPoints, // Use the {x, y} points
+                    data: displayedData,
                     color: color,
-                    fillOpacity: 0.2,
-                    gapSize: 5 // Renders a gap for null points if data is far apart
+                    fillOpacity: 0.2
                 }]
             });
         }
 
+        // Function to update all charts based on the selected time range
         function updateCharts() {
             const selectElement = document.getElementById('timeRangeSelect');
             const hoursToShow = parseInt(selectElement.value);
 
-            if (allTimestampsAsDates.length === 0) {
-                console.warn("No valid timestamp data available to draw charts.");
-                // Optionally display a message on the page
-                document.getElementById("acInputChart").innerHTML = "No data loaded for charts.";
-                // Clear other charts too
-                return;
-            }
-
-            drawChart("acInputChart", "AC Input Voltage (V)", allAcInput, "blue", hoursToShow);
-            drawChart("acOutputChart", "AC Output Voltage (V)", allAcOutput, "green", hoursToShow);
-            drawChart("activePowerChart", "Active Power (W)", allActivePower, "red", hoursToShow);
-            drawChart("batteryChart", "Battery Capacity (%)", allBatteryCapacity, "orange", hoursToShow);
+            drawChart("acInputChart", "AC Input Voltage", allAcInput, "blue", hoursToShow);
+            drawChart("acOutputChart", "AC Output Voltage", allAcOutput, "green", hoursToShow);
+            drawChart("activePowerChart", "Active Power", allActivePower, "red", hoursToShow);
+            drawChart("batteryChart", "Battery Capacity", allBatteryCapacity, "orange", hoursToShow);
         }
 
+        // Initial chart drawing on page load
         window.onload = function() {
             updateCharts();
         };
     </script>
 </body>
 </html>
-
