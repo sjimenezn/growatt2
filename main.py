@@ -89,7 +89,7 @@ def log_message(message):
     print(timestamped)
     console_logs.append((time.time(), timestamped))
     now = time.time()
-    console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
+    console_logs[:] = [(t, m) for t, m in console_logs if now - t < 6000]
 
 
 def send_telegram_message(message):
@@ -418,7 +418,7 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
 GITHUB_USERNAME = "sjimenezn"
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
-GIT_PUSH_INTERVAL_MINS = 30
+GIT_PUSH_INTERVAL_MINS = 1
 LOCAL_REPO_PATH = "."
 
 def _perform_single_github_sync_operation():
@@ -929,8 +929,9 @@ def trigger_github_sync():
     """Manual trigger endpoint for GitHub sync"""
     log_message("Received manual GitHub sync request")
     success, message = _perform_single_github_sync_operation()
-    return jsonify({"success": success, "message": message})
-
+    
+    # Instead of returning JSON, redirect back to logs
+    return redirect(url_for('logs'))
 # Start the GitHub sync thread after Flask app is defined and before it runs
 github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
 github_sync_thread.start()
