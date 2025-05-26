@@ -949,11 +949,12 @@ def trigger_github_sync():
     """Manual trigger endpoint for GitHub sync"""
     log_message("Received manual GitHub sync request")
     success, message = _perform_single_github_sync_operation()
-    if success:
-        flash("GitHub sync initiated successfully!", "success")
-    else:
-        flash(f"GitHub sync failed: {message}", "error")
+    # if success:
+    #     flash("GitHub sync initiated successfully!", "success")
+    # else:
+    #     flash(f"GitHub sync failed: {message}", "error")
     return redirect(url_for('logs'))
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
