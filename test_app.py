@@ -2,8 +2,8 @@ import os
 import time
 from datetime import datetime, timedelta
 from flask import Flask
-# New imports
-from growattServer import GrowattApi
+from growattServer import GrowattApi # Already there
+import pprint # New import for pretty printing fetched_data
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -20,11 +20,10 @@ def log_message(message):
 
 # --- Credentials ---
 username1 = "vospina"
-password1 = "Vospina.2025" # Be aware: hardcoding sensitive info is not ideal for production.
-                           # Consider environment variables for real deployments.
+password1 = "Vospina.2025" # REMINDER: Use environment variables in production.
 
-GROWATT_USERNAME = "vospina" # This seems redundant with username1, consider unifying.
-PASSWORD_CRC = "0c4107c238d57d475d4660b07b2f043e" # This is likely a hashed password or similar, used by specific Growatt login methods.
+GROWATT_USERNAME = "vospina" # REMINDER: Consider unifying with username1.
+PASSWORD_CRC = "0c4107c238d57d475d4660b07b2f043e"
 
 # Growatt API initialization
 api = GrowattApi()
@@ -33,11 +32,81 @@ api.session.headers.update({
 })
 log_message("GrowattApi object initialized with custom headers.")
 
+# --- Shared Data for Growatt ---
+fetched_data = {} # Global dictionary to store fetched Growatt data
+
+def login_growatt():
+    """
+    Attempts to log into Growatt and fetch basic plant and inverter info.
+    Stores results in the global 'fetched_data' dictionary.
+    """
+    log_message("🔄 Attempting Growatt login...")
+    
+    user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None # Initialize to None
+
+    try:
+        login_response = api.login(username1, password1)
+        fetched_data['login_response'] = login_response
+        user = login_response.get('user', {})
+        user_id = user.get('id')
+        fetched_data['user_id'] = user_id
+        # Only store relevant parts, not the full login_response unless needed for debugging
+        fetched_data['account_name'] = user.get('accountName')
+        fetched_data['email'] = user.get('email')
+        log_message("✅ Login successful!")
+    except Exception as e:
+        log_message(f"❌ Login failed: {e}")
+        return None, None, None, None # Return all Nones on failure
+
+    try:
+        plant_info = api.plant_list(user_id)
+        # Store only summary, avoid storing entire raw response unless absolutely needed for debugging
+        fetched_data['plant_id'] = plant_info['data'][0]['plantId'] if plant_info.get('data') else 'N/A'
+        fetched_data['plant_name'] = plant_info['data'][0]['plantName'] if plant_info.get('data') else 'N/A'
+        plant_id = fetched_data['plant_id']
+    except Exception as e:
+        log_message(f"❌ Failed to retrieve plant info: {e}")
+        return None, None, None, None
+
+    try:
+        inverter_info = api.inverter_list(plant_id)
+        # Store only summary
+        inverter_data = inverter_info[0] if inverter_info else {}
+        fetched_data['inverter_sn'] = inverter_data.get('deviceSn', 'N/A')
+        fetched_data['datalog_sn'] = inverter_data.get('datalogSn', 'N/A')
+        inverter_sn = fetched_data['inverter_sn']
+        datalog_sn = fetched_data['datalog_sn']
+    except Exception as e:
+        log_message(f"❌ Failed to retrieve inverter info: {e}")
+        return None, None, None, None
+    
+    # Attempt to fetch storage detail here for initial check
+    try:
+        storage_detail = api.storage_detail(inverter_sn)
+        fetched_data['initial_storage_detail'] = storage_detail # Store for verification
+        log_message(f"✅ Initial storage detail fetched for {inverter_sn}.")
+    except Exception as e:
+        log_message(f"❌ Failed to retrieve initial storage detail: {e}")
+        fetched_data['initial_storage_detail'] = {} # Ensure it's present even if empty
+
+    log_message(f"🌿 User ID: {user_id}, Plant ID: {plant_id}, Inverter SN: {inverter_sn}, Datalogger SN: {datalog_sn}")
+
+    return user_id, plant_id, inverter_sn, datalog_sn
+
+# Call login_growatt once during app startup
+# Store these globally if they are needed elsewhere consistently
+GROWATT_USER_ID, GROWATT_PLANT_ID, GROWATT_INVERTER_SN, GROWATT_DATALOG_SN = login_growatt()
+
 # --- Flask Routes ---
 @app.route("/")
 def home():
     log_message("Home route accessed.")
-    return "<h1>Hello from Growatt Monitor (Stage 2)!</h1><p>Growatt API initialized. Check console logs.</p>"
+    status_msg = "Growatt API Login attempted."
+    if GROWATT_USER_ID:
+        status_msg += " Login successful."
+    else:
+        status_msg += " Login failed. See console logs for details."
+    return f"<h1>Hello from Growatt Monitor (Stage 3)!</h1><p>{status_msg}</p><p>Check console logs for Growatt data.</p>"
 
 @app.route("/console")
 def console_view():
@@ -50,10 +119,12 @@ def console_view():
         <body>
             <h2>Console Output</h2>
             <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{"\\n".join(log_messages_only)}</pre>
+            <h2>📦 Fetched Growatt Data (Initial)</h2>
+            <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{pprint.pformat(fetched_data, indent=2)}</pre>
         </body>
         </html>
     """
 
 # Initial log message when the app starts
-log_message("Flask app initialized and running (Stage 2).")
+log_message("Flask app initialized and running (Stage 3).")
 
