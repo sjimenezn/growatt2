@@ -591,7 +591,7 @@ def update_telegram_token():
 
 
 @app.route("/logs")
-def charts_view():
+def logs():
     parsed_data = []
     if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
         try:
