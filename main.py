@@ -948,7 +948,7 @@ def download_logs():
 def trigger_github_sync():
     """Manual trigger endpoint for GitHub sync"""
     log_message("Received manual GitHub sync request")
-   # success, message = _perform_single_github_sync_operation()
+    success, message = _perform_single_github_sync_operation()
     #if success:
     #    flash("GitHub sync initiated successfully!", "success")
     #else:
