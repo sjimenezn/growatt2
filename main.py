@@ -435,24 +435,17 @@ def _perform_single_github_sync_operation():
         if os.path.exists(TEMP_DIR):
             shutil.rmtree(TEMP_DIR, ignore_errors=True)
 
-        # Clone only the specific file using sparse checkout
+        # Clone the repo
         repo = Repo.clone_from(
             f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git",
             TEMP_DIR,
-            depth=1,  # Only get latest commit
-            filter='blob:none'  # Don't download file contents yet
+            depth=1  # Only get latest commit
         )
 
-        # Configure sparse checkout to only get our file
-        with repo.config_writer() as c:
-            c.set_value("core", "sparseCheckout", "true")
-        
-        # Specify which file we want
-        with open(os.path.join(TEMP_DIR, ".git/info/sparse-checkout"), "w") as f:
-            f.write(FILE_TO_SYNC + "\n")
-        
-        # Now actually checkout the file
-        repo.git.checkout("main")
+        # Configure git user identity (THIS IS THE CRUCIAL FIX)
+        with repo.config_writer() as git_config:
+            git_config.set_value("user", "name", "Growatt Data Sync Bot")
+            git_config.set_value("user", "email", "growatt-sync@example.com")
 
         # Copy our current data file to the repo
         if os.path.exists(FILE_TO_SYNC):
@@ -461,11 +454,11 @@ def _perform_single_github_sync_operation():
             log_message(f"❌ Local {FILE_TO_SYNC} not found")
             return False, "Data file not found"
 
-        # Commit and push only this file
+        # Git operations
         repo.git.add(FILE_TO_SYNC)
         repo.git.commit("-m", f"Update {FILE_TO_SYNC} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        repo.git.push("origin", "main")
-
+        repo.git.push()
+        
         log_message("✅ Successfully synced saved_data.json to GitHub")
         return True, "Sync completed"
     
