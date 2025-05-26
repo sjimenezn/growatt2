@@ -1,18 +1,15 @@
 import pytz
-from flask import Flask, render_template, render_template_string, jsonify, request, send_file, redirect, url_for, flash
+from flask import Flask, render_template, render_template_string, jsonify, request, send_file
 import threading
 import pprint
 import json
 import os
 import time
 import requests
-import shutil
 from datetime import datetime, timedelta
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
-import git # New import for GitPython
-from git import Repo
 
 # --- File for saving data ---
 data_file = "saved_data.json"
@@ -21,21 +18,16 @@ data_file = "saved_data.json"
 if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
     with open(data_file, "w") as f:
         f.write("[]")  # Initialize with an empty JSON array
-    print(f"Initialized empty data file: {data_file}")
+    print(f"Initialized empty data file: {data_file}") # Added for clarity on startup
 
 # --- Credentials ---
 username1 = "vospina"
 password1 = "Vospina.2025"
 
 # --- Telegram Config ---
-TELEGRAM_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo" # <--- YOUR CURRENT TOKEN
+TELEGRAM_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo"
 CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
-
-# Global variable to control Telegram bot state
-telegram_enabled = False
-updater = None  # Global reference for the Updater object
-dp = None       # Global reference for the Dispatcher object
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -46,7 +38,7 @@ STORAGE_SN = "BNG7CH806N"
 PLANT_ID = "2817170"
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.5',
+    'User-Agent': 'Mozilla/5.5', # Updated user agent slightly
     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     'X-Requested-With': 'XMLHttpRequest'
 }
@@ -76,15 +68,12 @@ api.session.headers.update({
 
 # --- Shared Data ---
 current_data = {}
-last_processed_time = "Never" 
-last_successful_growatt_update_time = "Never" # This will be the time of the last *fresh* data received
-
-# NEW: Store the last successfully saved sensor values for comparison
-last_saved_sensor_values = {}
-
+last_update_time = "Never"
 console_logs = []
+updater = None  # Global reference
 
 def log_message(message):
+    # Apply a 5-hour reduction to the timestamp
     timestamped = f"{(datetime.now() - timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
     print(timestamped)
     console_logs.append((time.time(), timestamped))
@@ -93,30 +82,31 @@ def log_message(message):
 
 
 def send_telegram_message(message):
-    global updater
-    if telegram_enabled and updater and updater.running:
-        for chat_id in CHAT_IDS:
-            for attempt in range(3):
-                try:
-                    updater.bot.send_message(chat_id=chat_id, text=message)
-                    log_message(f"✅ Message sent to {chat_id}")
-                    break
-                except Exception as e:
-                    log_message(f"❌ Attempt {attempt + 1} failed to send message to {chat_id}: {e}")
-                    time.sleep(5)
-                    if attempt == 2:
-                        log_message(f"❌ Failed to send message to {chat_id} after 3 attempts")
-    else:
-        log_message(f"Telegram not enabled or updater not running. Message not sent: {message}")
+    for chat_id in CHAT_IDS:
+        for attempt in range(3):  # Retry up to 3 times
+            try:
+                url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+                payload = {"chat_id": chat_id, "text": message}
+                response = requests.post(url, data=payload, timeout=10)
+                response.raise_for_status()  # Raise exception for HTTP errors
+                log_message(f"✅ Message sent to {chat_id}")
+                break  # Exit retry loop if successful
+            except requests.exceptions.RequestException as e:
+                log_message(f"❌ Attempt {attempt + 1} failed to send message to {chat_id}: {e}")
+                time.sleep(5)  # Wait before retrying
+                if attempt == 2:  # Final attempt failed
+                    log_message(f"❌ Failed to send message to {chat_id} after 3 attempts")
 
+# Global variable to hold the fetched data
 fetched_data = {}
 
 def login_growatt():
     log_message("🔄 Attempting Growatt login...")
     
     try:
+        # Attempting to login and fetching the login response
         login_response = api.login(username1, password1)
-        fetched_data['login_response'] = login_response
+        fetched_data['login_response'] = login_response  # Save login response
         user = login_response.get('user', {})
         user_id = user.get('id')
         fetched_data['user_id'] = user_id
@@ -129,28 +119,30 @@ def login_growatt():
         log_message("✅ Login successful!")
     except Exception as e:
         log_message(f"❌ Login failed: {e}")
-        return None, None, None, None
+        return None
 
     try:
+        # Fetching plant information
         plant_info = api.plant_list(user_id)
-        fetched_data['plant_info'] = plant_info
+        fetched_data['plant_info'] = plant_info  # Save plant info
         plant_data = plant_info['data'][0]
         plant_id = plant_data['plantId']
-        fetched_data['plant_id'] = plant_id
+        fetched_data['plant_id'] = plant_id  # Save plant ID
         fetched_data['plant_name'] = plant_data['plantName']
         fetched_data['plant_total_data'] = plant_info.get('totalData', {})
     except Exception as e:
         log_message(f"❌ Failed to retrieve plant info: {e}")
-        return None, None, None, None
+        return None
 
     try:
+        # Fetching inverter information
         inverter_info = api.inverter_list(plant_id)
-        fetched_data['inverter_info'] = inverter_info
+        fetched_data['inverter_info'] = inverter_info  # Save inverter info
         inverter_data = inverter_info[0]
         inverter_sn = inverter_data['deviceSn']
         datalog_sn = inverter_data.get('datalogSn', 'N/A')
-        fetched_data['inverter_sn'] = inverter_sn
-        fetched_data['datalog_sn'] = datalog_sn
+        fetched_data['inverter_sn'] = inverter_sn  # Save inverter SN
+        fetched_data['datalog_sn'] = datalog_sn  # Save datalogger SN
         fetched_data['inverter_alias'] = inverter_data.get('deviceAilas')
         fetched_data['inverter_capacity'] = inverter_data.get('capacity')
         fetched_data['inverter_energy'] = inverter_data.get('energy')
@@ -159,35 +151,41 @@ def login_growatt():
         fetched_data['inverter_status'] = inverter_data.get('deviceStatus')
     except Exception as e:
         log_message(f"❌ Failed to retrieve inverter info: {e}")
-        return None, None, None, None
+        return None
 
     try:
+        # Fetching storage details
         storage_detail = api.storage_detail(inverter_sn)
-        fetched_data['storage_detail'] = storage_detail
+        fetched_data['storage_detail'] = storage_detail  # Save full storage detail
     except Exception as e:
         log_message(f"❌ Failed to retrieve storage detail: {e}")
         fetched_data['storage_detail'] = {}
 
+    # Log the fetched data
     log_message(f"🌿 User ID: {user_id}")
     log_message(f"🌿 Plant ID: {plant_id}")
     log_message(f"🌿 Inverter SN: {inverter_sn}")
     log_message(f"🌿 Datalogger SN: {datalog_sn}")
 
+    # Return the gathered data
     return user_id, plant_id, inverter_sn, datalog_sn
 
+# --- MODIFIED: save_data_to_file to save as JSON array ---
 def save_data_to_file(data):
-    global last_saved_sensor_values
     try:
         existing_data = []
+        # Check if the file exists and is not empty before trying to load
         if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
             with open(data_file, "r") as f:
                 try:
                     existing_data = json.load(f)
+                    # Ensure existing_data is a list; if not, wrap it in one
                     if not isinstance(existing_data, list):
                         log_message(f"⚠️ Warning: {data_file} did not contain a JSON list. Attempting to convert.")
                         existing_data = [existing_data]
                 except json.JSONDecodeError:
-                    f.seek(0)
+                    # Fallback for old JSON Lines format or corruption: read line by line
+                    f.seek(0) # Go back to the beginning of the file
                     lines = f.readlines()
                     existing_data = []
                     for line in lines:
@@ -197,6 +195,7 @@ def save_data_to_file(data):
                                 existing_data.append(json.loads(stripped_line))
                             except json.JSONDecodeError as e:
                                 log_message(f"❌ Error decoding existing JSON line in {data_file}: {stripped_line} - {e}")
+                                # Skip problematic line
         
         # Add the new data point
         existing_data.append(data)
@@ -206,294 +205,110 @@ def save_data_to_file(data):
 
         # Write the entire list back as a single JSON array
         with open(data_file, "w") as f:
-            json.dump(existing_data, f, indent=None, separators=(',', ':'))
+            json.dump(existing_data, f, indent=None, separators=(',', ':')) # Compact output
+            # For human-readable output in the file, use: json.dump(existing_data, f, indent=2)
 
         log_message("✅ Saved data to file as a JSON array.")
-        
-        # After successful save, update last_saved_sensor_values with the data just saved
-        # This is crucial for the next comparison in monitor_growatt
-        last_saved_sensor_values = {
-            'vGrid': data.get('vGrid'),
-            'outPutVolt': data.get('outPutVolt'),
-            'activePower': data.get('activePower'),
-            'capacity': data.get('capacity'),
-            'freqOutPut': data.get('freqOutPut')
-        }
-        log_message(f"Updated last_saved_sensor_values after save: {last_saved_sensor_values}")
-
     except Exception as e:
         log_message(f"❌ Error saving data to file: {e}")
 
 def monitor_growatt():
-    global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values, last_file_save_time
+    global last_update_time
     threshold = 80
     sent_lights_off = False
     sent_lights_on = False
 
-    user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
+    loop_counter = 0
 
-    # On startup, attempt to populate last_saved_sensor_values from the last entry in the file
-    if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
-        try:
-            with open(data_file, "r") as f:
-                existing_data_from_file = json.load(f)
-                if isinstance(existing_data_from_file, list) and existing_data_from_file:
-                    last_entry = existing_data_from_file[-1]
-                    # Populate last_saved_sensor_values with the last *actual* sensor readings
-                    last_saved_sensor_values = {
-                        'vGrid': last_entry.get('vGrid'),
-                        'outPutVolt': last_entry.get('outPutVolt'),
-                        'activePower': last_entry.get('activePower'),
-                        'capacity': last_entry.get('capacity'),
-                        'freqOutPut': last_entry.get('freqOutPut')
+    try:
+        user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
+        log_message("✅ Growatt login and initialization successful!")
+
+        while True:
+            try:
+                data = api.storage_detail(inverter_sn)
+                log_message(f"Growatt API data: {data}")
+
+                ac_input_v = data.get("vGrid", "N/A")
+                ac_input_f = data.get("freqGrid", "N/A")
+                ac_output_v = data.get("outPutVolt", "N/A")
+                ac_output_f = data.get("freqOutPut", "N/A")
+                load_w = data.get("activePower", "N/A")
+                battery_pct = data.get("capacity", "N/A")
+
+                current_data.update({
+                    "ac_input_voltage": ac_input_v,
+                    "ac_input_frequency": ac_input_f,
+                    "ac_output_voltage": ac_output_v,
+                    "ac_output_frequency": ac_output_f,
+                    "load_power": load_w,
+                    "battery_capacity": battery_pct,
+                    "user_id": user_id,
+                    "plant_id": plant_id,
+                    "inverter_sn": inverter_sn,
+                    "datalog_sn": datalog_sn
+                })
+
+                last_update_time = (datetime.now() - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
+                log_message(f"Updated current_data: {current_data}")
+
+                loop_counter += 1
+                if loop_counter >= 2: # Saves data every 7 cycles (approx 10 * 30s = 5 minutes)
+                    data_to_save = {
+                        "timestamp": last_update_time,
+                        "vGrid": ac_input_v,
+                        "outPutVolt": ac_output_v,
+                        "activePower": load_w,
+                        "capacity": battery_pct,
+                        "freqOutPut": ac_output_f
                     }
-                    # Try to get the timestamp from the last entry
-                    try:
-                        last_file_save_time = datetime.strptime(last_entry.get('timestamp', ''), "%Y-%m-%d %H:%M:%S")
-                    except ValueError:
-                        last_file_save_time = datetime.min # Default if timestamp is bad
-                    
-                    log_message(f"Initialized last_saved_sensor_values from file: {last_saved_sensor_values}")
-                    log_message(f"Initialized last_file_save_time from file: {last_file_save_time}")
-                else:
-                    log_message(f"⚠️ {data_file} is not a list or is empty after load. last_saved_sensor_values remains empty.")
-        except json.JSONDecodeError as e:
-            log_message(f"⚠️ Could not load last_saved_sensor_values from {data_file} due to JSON error: {e}")
-            last_saved_sensor_values = {} # Reset to empty on error
-        except Exception as e:
-            log_message(f"⚠️ Could not load last_saved_sensor_values from {data_file}: {e}")
-            last_saved_sensor_values = {} # Reset to empty on error
+                    save_data_to_file(data_to_save)
+                    loop_counter = 0
 
-    while True:
-        current_loop_datetime_utc_minus_5 = datetime.now() - timedelta(hours=5)
-        current_loop_time_str = current_loop_datetime_utc_minus_5.strftime("%Y-%m-%d %H:%M:%S")
-
-        try:
-            # Always attempt to (re)login and get IDs if they are missing
-            if user_id is None or plant_id is None or inverter_sn is None or datalog_sn is None:
-                log_message("Attempting to acquire Growatt IDs (re-login or initial login).")
-                user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
-                if user_id is None: # If login/ID fetching fails, wait and try again
-                    log_message("Growatt login/ID fetching failed. Retrying in 60 seconds.")
-                    time.sleep(60)
-                    continue # Skip to next loop iteration
-
-            # Attempt to fetch storage detail (main data point)
-            raw_growatt_data = api.storage_detail(inverter_sn)
-
-            # Extract new values for comparison and current_data update
-            new_ac_input_v = raw_growatt_data.get("vGrid", "N/A")
-            new_ac_input_f = raw_growatt_data.get("freqGrid", "N/A")
-            new_ac_output_v = raw_growatt_data.get("outPutVolt", "N/A")
-            new_ac_output_f = raw_growatt_data.get("freqOutPut", "N/A")
-            new_load_w = raw_growatt_data.get("activePower", "N/A")
-            new_battery_pct = raw_growatt_data.get("capacity", "N/A")
-
-            current_fetched_sensor_values = {
-                "vGrid": new_ac_input_v,
-                "outPutVolt": new_ac_output_v,
-                "activePower": new_load_w,
-                "capacity": new_battery_pct,
-                "freqOutPut": new_ac_output_f
-            }
-
-            current_data.update({
-                "ac_input_voltage": new_ac_input_v,
-                "ac_input_frequency": new_ac_input_f,
-                "ac_output_voltage": new_ac_output_v,
-                "ac_output_frequency": new_ac_output_f,
-                "load_power": new_load_w,
-                "battery_capacity": new_battery_pct,
-                "user_id": user_id,
-                "plant_id": plant_id,
-                "inverter_sn": inverter_sn,
-                "datalog_sn": datalog_sn
-            })
-
-            last_processed_time = current_loop_time_str
-
-            # --- Conditional Data Saving with STRICT MINIMUM 5-minute interval ---
-            data_has_changed = (not last_saved_sensor_values) or (current_fetched_sensor_values != last_saved_sensor_values)
-            time_since_last_save = (datetime.now() - last_file_save_time).total_seconds()
-            
-            # This flag will determine if we actually save to file in this iteration
-            perform_file_save = False 
-
-            if time_since_last_save >= (5 * 60): # Is it time to check for a save?
-                if data_has_changed:
-                    log_message("⏱️✅ 5 minutes have passed AND new Growatt data received. Saving to file.")
-                    perform_file_save = True
-                else:
-                    log_message("⏱️ 5 minutes have passed since last save. Saving current data (even if identical) as a heartbeat.")
-                    perform_file_save = True
-                log_message(f"   Raw data: {raw_growatt_data}") # Log raw data for heartbeat save
-            else:
-                # Less than 5 minutes have passed. We will NOT save, even if data changed.
-                log_message(f"No file save. Less than 5 minutes ({time_since_last_save:.0f}s) since last save, even if data changed.")
-                # We do not set perform_file_save = True here.
-
-            if perform_file_save:
-                last_successful_growatt_update_time = current_loop_time_str
-
-                data_to_save_for_file = {
-                    "timestamp": last_successful_growatt_update_time,
-                    "vGrid": new_ac_input_v,
-                    "outPutVolt": new_ac_output_v,
-                    "activePower": new_load_w,
-                    "capacity": new_battery_pct,
-                    "freqOutPut": new_ac_output_f,
-                }
-                save_data_to_file(data_to_save_for_file)
-                # Important: save_data_to_file already updates last_file_save_time.
-            
-            # --- Telegram Alerts ---
-            if telegram_enabled:
-                if current_data.get("ac_input_voltage") != "N/A":
-                    try:
-                        current_ac_input_v_float = float(current_data.get("ac_input_voltage"))
-                    except ValueError:
-                            current_ac_input_v_float = 0.0
-
-                    alert_timestamp = last_successful_growatt_update_time
-                    
-                    if current_ac_input_v_float < threshold and not sent_lights_off:
-                        time.sleep(110)
-                        data_confirm = api.storage_detail(inverter_sn)
-                        ac_input_v_confirm = data_confirm.get("vGrid", "0")
-                        try:
-                            current_ac_input_v_confirm = float(ac_input_v_confirm)
-                        except ValueError:
-                            current_ac_input_v_confirm = 0.0
-
-                        if current_ac_input_v_confirm < threshold:
+                if ac_input_v != "N/A":
+                    if float(ac_input_v) < threshold and not sent_lights_off:
+                        time.sleep(110) # Wait a bit to confirm
+                        data = api.storage_detail(inverter_sn) # Re-fetch to confirm
+                        ac_input_v = data.get("vGrid", "N/A")
+                        if float(ac_input_v) < threshold: # Confirm again
                             msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
-        🕒 Hora--> {alert_timestamp}
-Nivel de batería      : {current_data.get('battery_capacity', 'N/A')} %
-Voltaje de la red     : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
-Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
-Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
+        🕒 Hora--> {last_update_time}
+Nivel de batería      : {battery_pct} %
+Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
+Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
+Consumo actual     : {load_w} W"""
                             send_telegram_message(msg)
                             sent_lights_off = True
                             sent_lights_on = False
 
-                    elif current_ac_input_v_float >= threshold and not sent_lights_on:
-                        time.sleep(110)
-                        data_confirm = api.storage_detail(inverter_sn)
-                        ac_input_v_confirm = data_confirm.get("vGrid", "0")
-                        try:
-                            current_ac_input_v_confirm = float(ac_input_v_confirm)
-                        except ValueError:
-                            current_ac_input_v_confirm = 0.0
-
-                        if current_ac_input_v_confirm >= threshold:
+                    elif float(ac_input_v) >= threshold and not sent_lights_on:
+                        time.sleep(110) # Wait a bit to confirm
+                        data = api.storage_detail(inverter_sn) # Re-fetch to confirm
+                        ac_input_v = data.get("vGrid", "N/A")
+                        if float(ac_input_v) >= threshold: # Confirm again
                             msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
-        🕒 Hora--> {alert_timestamp}
-Nivel de batería      : {current_data.get('battery_capacity', 'N/A')} %
-Voltaje de la red     : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
-Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
-Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
+        🕒 Hora--> {last_update_time}
+Nivel de batería      : {battery_pct} %
+Voltaje de la red     : {ac_input_v} V / {ac_input_f} Hz
+Voltaje del inversor: {ac_output_v} V / {ac_output_f} Hz
+Consumo actual     : {load_w} W"""
                             send_telegram_message(msg)
                             sent_lights_on = True
                             sent_lights_off = False
 
-        except Exception as e_inner:
-            log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
-            user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None 
+            except Exception as e_inner:
+                log_message(f"⚠️ Error during monitoring: {e_inner}")
+                # Attempt to re-login on error to recover
+                user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
 
-        time.sleep(40) # Wait for 40 seconds before next API call
+            time.sleep(30) # Wait for 30 seconds before next API call
 
-# --- GitHub Sync Config ---
-GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
-GITHUB_USERNAME = "sjimenezn"
-GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
-GIT_PUSH_INTERVAL_MINS = 5 # Changed to 5 minutes to align with data saving
-LOCAL_REPO_PATH = "."
+    except Exception as e_outer:
+        log_message(f"❌ Fatal error in monitor_growatt, restarting login: {e_outer}")
+        # If login fails, try to re-login in the next loop iteration
+        login_growatt() # This might be recursive, consider a simple return and let the outer loop restart
 
-def _perform_single_github_sync_operation():
-    """Performs a Git sync operation focusing only on saved_data.json, forcing a commit."""
-    try:
-        if not GITHUB_TOKEN:
-            log_message("❌ GITHUB_PAT environment variable not set!")
-            return False, "GitHub credentials not set"
-
-        TEMP_DIR = "temp_repo"
-        FILE_TO_SYNC = "saved_data.json"
-
-        # Clean up previous temp directory if it exists
-        if os.path.exists(TEMP_DIR):
-            log_message(f"Cleaning up existing temp repo: {TEMP_DIR}")
-            shutil.rmtree(TEMP_DIR, ignore_errors=True)
-
-        # Clone the repo
-        log_message(f"Cloning repo into {TEMP_DIR}...")
-        repo = Repo.clone_from(
-            f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git",
-            TEMP_DIR,
-            depth=1  # Only get latest commit
-        )
-        log_message("Repo cloned successfully.")
-
-        # Configure git user identity
-        with repo.config_writer() as git_config:
-            git_config.set_value("user", "name", "Growatt Data Sync Bot")
-            git_config.set_value("user", "email", "growatt-sync@example.com")
-        log_message("Git user identity configured.")
-
-        # Copy our current data file to the repo
-        if os.path.exists(FILE_TO_SYNC):
-            shutil.copy2(FILE_TO_SYNC, os.path.join(TEMP_DIR, FILE_TO_SYNC))
-            log_message(f"Copied local {FILE_TO_SYNC} to temp repo.")
-        else:
-            log_message(f"❌ Local {FILE_TO_SYNC} not found. Cannot sync.")
-            return False, "Data file not found"
-
-        # Git operations:
-        # 1. Add the file, explicitly forcing if it's already staged or unchanged
-        log_message(f"Staging {FILE_TO_SYNC} for commit...")
-        repo.git.add("--force", FILE_TO_SYNC) # Use --force to ensure it's staged
-        log_message(f"{FILE_TO_SYNC} staged.")
-
-        # 2. Check if there are actual changes before committing
-        # This is a more robust way to handle the "nothing to commit" situation
-        # and prevent unnecessary empty commits unless explicitly desired.
-        index_diff = repo.index.diff("HEAD")
-        if not index_diff and not repo.untracked_files:
-            log_message("No actual changes detected in saved_data.json. Committing with --allow-empty.")
-            # If no actual content change, commit an empty commit to mark the timestamp
-            repo.git.commit("--allow-empty", "-m", f"Keepalive / No data change - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        else:
-            log_message("Changes detected in saved_data.json. Committing normally.")
-            repo.git.commit("-m", f"Update {FILE_TO_SYNC} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        log_message("Pushing to remote...")
-        repo.git.push()
-        
-        log_message("✅ Successfully synced saved_data.json to GitHub")
-        return True, "Sync completed"
-    
-    except Exception as e:
-        log_message(f"❌ GitHub sync failed: {e}")
-        # Ensure temp directory is cleaned up even on failure
-        if 'TEMP_DIR' in locals() and os.path.exists(TEMP_DIR):
-            log_message(f"Cleaning up temp repo after failure: {TEMP_DIR}")
-            shutil.rmtree(TEMP_DIR, ignore_errors=True)
-        return False, str(e)
-
-def sync_github_repo():
-    """Scheduled thread to sync data with GitHub"""
-    log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
-    
-    while True:
-        time.sleep(GIT_PUSH_INTERVAL_MINS * 60) # Convert minutes to seconds
-        success, message = _perform_single_github_sync_operation()
-        log_message(f"Sync result: {message}")
-
-# Start the GitHub sync thread
-github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
-github_sync_thread.start()
-
-
-# Telegram Handlers (unchanged)
+# --- Telegram Handlers ---
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
@@ -515,153 +330,63 @@ Batería                 : {current_data.get('battery_capacity', 'N/A')}%
         log_message(f"✅ Status sent to {update.effective_chat.id}")
     except Exception as e:
         log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
-
 def send_chatlog(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     ids = "\n".join(str(cid) for cid in chat_log)
     update.message.reply_text(f"IDs registrados:\n{ids}")
 
-def stop_bot_telegram_command(update: Update, context: CallbackContext):
+def stop_bot(update: Update, context: CallbackContext):
     update.message.reply_text("Bot detenido.")
     log_message("Bot detenido por comando /stop")
-    global telegram_enabled, updater
-    if updater and updater.running:
-        updater.stop()
-        telegram_enabled = False
-        log_message("Telegram bot stopped via /stop command.")
-    else:
-        log_message("Telegram bot not running to be stopped.")
+    updater.stop()
 
-def initialize_telegram_bot():
-    global updater, dp, TELEGRAM_TOKEN, telegram_enabled
-    if not TELEGRAM_TOKEN:
-        log_message("❌ Cannot start Telegram bot: TELEGRAM_TOKEN is empty.")
-        return False
+updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+dp = updater.dispatcher
+dp.add_handler(CommandHandler("start", start))
+dp.add_handler(CommandHandler("status", send_status))
+dp.add_handler(CommandHandler("chatlog", send_chatlog))
+dp.add_handler(CommandHandler("stop", stop_bot))
 
-    if updater and updater.running:
-        log_message("Telegram bot is already running. No re-initialization needed unless token changed.")
-        return True
-
-    try:
-        log_message("Initializing Telegram bot...")
-        updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
-        dp = updater.dispatcher
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(CommandHandler("status", send_status))
-        dp.add_handler(CommandHandler("chatlog", send_chatlog))
-        dp.add_handler(CommandHandler("stop", stop_bot_telegram_command))
-        updater.start_polling()
-        log_message("Telegram bot polling started.")
-        return True
-    except Exception as e:
-        log_message(f"❌ Error starting Telegram bot (check token): {e}")
-        updater = None
-        dp = None
-        telegram_enabled = False
-        return False
-
+# Start background monitoring thread
 monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
 monitor_thread.start()
+
+# Start Telegram bot polling
+updater.start_polling()
 
 # --- Flask Routes ---
 @app.route("/")
 def home():
-    global TELEGRAM_TOKEN, last_successful_growatt_update_time
-    displayed_token = TELEGRAM_TOKEN
-    if TELEGRAM_TOKEN and len(TELEGRAM_TOKEN) > 10:
-        displayed_token = TELEGRAM_TOKEN[:5] + "..." + TELEGRAM_TOKEN[-5:]
-
     return render_template("home.html",
         d=current_data,
-        last_growatt_update=last_successful_growatt_update_time, # This now correctly shows last *fresh* data
+        last=last_update_time,
         plant_id=current_data.get("plant_id", "N/A"),
         user_id=current_data.get("user_id", "N/A"),
         inverter_sn=current_data.get("inverter_sn", "N/A"),
-        datalog_sn=current_data.get("datalog_sn", "N/A"),
-        telegram_status="Running" if telegram_enabled and updater and updater.running else "Stopped",
-        current_telegram_token=displayed_token
-        )
+        datalog_sn=current_data.get("datalog_sn", "N/A"))
 
-@app.route("/toggle_telegram", methods=["POST"])
-def toggle_telegram():
-    global telegram_enabled, updater
-    action = request.form.get('action')
-
-    if action == 'start' and not telegram_enabled:
-        log_message("Attempting to start Telegram bot via Flask.")
-        if initialize_telegram_bot():
-            telegram_enabled = True
-            log_message("Telegram bot enabled.")
-        else:
-            log_message("Failed to enable Telegram bot (check logs for token error).")
-            telegram_enabled = False
-    elif action == 'stop' and telegram_enabled:
-        log_message("Attempting to stop Telegram bot via Flask.")
-        if updater and updater.running:
-            updater.stop()
-            telegram_enabled = False
-            log_message("Telegram bot stopped.")
-        else:
-            log_message("Telegram bot not running to be stopped.")
-
-    return redirect(url_for('home'))
-
-
-@app.route("/update_telegram_token", methods=["POST"])
-def update_telegram_token():
-    global TELEGRAM_TOKEN, telegram_enabled, updater, dp
-    new_token = request.form.get('new_telegram_token')
-
-    if not new_token:
-        log_message("❌ No new Telegram token provided.")
-        return redirect(url_for('home'))
-
-    log_message(f"Attempting to update Telegram token...")
-
-    if updater and updater.running:
-        log_message("Stopping existing Telegram bot for token update.")
-        try:
-            updater.stop()
-            time.sleep(1)
-            log_message("Existing Telegram bot stopped.")
-        except Exception as e:
-            log_message(f"⚠️ Error stopping existing Telegram bot: {e}")
-        finally:
-            updater = None
-            dp = None
-
-    TELEGRAM_TOKEN = new_token
-    log_message(f"Telegram token updated to: {new_token[:5]}...{new_token[-5:]}")
-
-    if initialize_telegram_bot():
-        telegram_enabled = True
-        log_message("Telegram bot restarted successfully with new token.")
-    else:
-        telegram_enabled = False
-        log_message("❌ Failed to restart Telegram bot with new token. It remains disabled. Check logs for details.")
-
-    return redirect(url_for('home'))
-
-
+# --- MODIFIED: /logs route to read JSON array ---
 @app.route("/logs")
-def logs():
-    global last_successful_growatt_update_time
+def charts_view():
     parsed_data = []
-    if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
+    # Check if file exists AND is not empty before trying to load
+    if os.path.exists(data_file) and os.path.getsize(data_file) > 0: 
         try:
             with open(data_file, "r") as file:
-                parsed_data = json.load(file)
+                parsed_data = json.load(file) # Load the entire JSON array
+            # Ensure parsed_data is a list; if file was empty or corrupted, it might be something else
             if not isinstance(parsed_data, list):
                 log_message(f"❌ Data file {data_file} does not contain a JSON list. Resetting.")
-                parsed_data = []
+                parsed_data = [] # Reset to empty list if not a list
         except json.JSONDecodeError as e:
             log_message(f"❌ Error decoding JSON from {data_file}: {e}. File might be corrupted.")
-            parsed_data = []
+            parsed_data = [] # Clear data if decoding fails
         except Exception as e:
             log_message(f"❌ General error reading data for charts from {data_file}: {e}")
             parsed_data = []
     else:
         log_message(f"⚠️ Data file not found or empty: {data_file}. Charts will be empty.")
+        # Ensure the file is created with an empty array if it doesn't exist or is invalid
         if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
             try:
                 with open(data_file, "w") as f:
@@ -670,8 +395,10 @@ def logs():
             except Exception as e:
                 log_message(f"❌ Error initializing empty data file: {e}")
 
+    # Prepare timestamps as datetime objects for sorting and filtering
     processed_data = []
     for entry in parsed_data:
+        # Ensure timestamp exists and is a string before attempting conversion
         if 'timestamp' in entry and isinstance(entry['timestamp'], str):
             try:
                 entry['dt_timestamp'] = datetime.strptime(entry['timestamp'], "%Y-%m-%d %H:%M:%S")
@@ -681,37 +408,45 @@ def logs():
         else:
             log_message(f"Skipping entry with missing or non-string timestamp: {entry}")
 
+
+    # Sort data by timestamp (important for consistent slicing in JS)
     processed_data.sort(key=lambda x: x['dt_timestamp'])
 
+    # Filter data to send a maximum of 96 hours to the frontend
+    # This prevents sending excessively large datasets
     max_duration_hours_to_send = 96
-
+    
+    # Use the latest timestamp in the processed_data as 'now' for filtering,
+    # if data exists. Otherwise, use actual current time.
     if processed_data:
+        # Get the timestamp of the very last entry in your data
+        # This makes the "last 24 hours" relative to your actual data, not the server's current time.
         reference_time = processed_data[-1]['dt_timestamp']
     else:
-        reference_time = datetime.now()
+        # If no data is available, use the current time
+        reference_time = datetime.now() 
 
     cutoff_time = reference_time - timedelta(hours=max_duration_hours_to_send)
 
+    # Filter data to only include entries within the last `max_duration_hours_to_send`
     filtered_data_for_frontend = [
         entry for entry in processed_data
         if entry['dt_timestamp'] >= cutoff_time
     ]
 
+    # Extract data - send original string timestamp for Highcharts
     timestamps = [entry['timestamp'] for entry in filtered_data_for_frontend]
-    # Handle None values for chart data by explicitly converting to float for numbers,
-    # but allowing None to pass through.
-    ac_input = [float(entry['vGrid']) if entry.get('vGrid') is not None else None for entry in filtered_data_for_frontend]
-    ac_output = [float(entry['outPutVolt']) if entry.get('outPutVolt') is not None else None for entry in filtered_data_for_frontend]
-    active_power = [int(entry['activePower']) if entry.get('activePower') is not None else None for entry in filtered_data_for_frontend]
-    battery_capacity = [int(entry['capacity']) if entry.get('capacity') is not None else None for entry in filtered_data_for_frontend]
+    ac_input = [float(entry['vGrid']) for entry in filtered_data_for_frontend]
+    ac_output = [float(entry['outPutVolt']) for entry in filtered_data_for_frontend]
+    active_power = [int(entry['activePower']) for entry in filtered_data_for_frontend]
+    battery_capacity = [int(entry['capacity']) for entry in filtered_data_for_frontend]
 
     return render_template("logs.html",
         timestamps=timestamps,
         ac_input=ac_input,
         ac_output=ac_output,
         active_power=active_power,
-        battery_capacity=battery_capacity,
-        last_growatt_update=last_successful_growatt_update_time)
+        battery_capacity=battery_capacity)     
 
 @app.route("/chatlog")
 def chatlog_view():
@@ -823,28 +558,28 @@ def console_view():
                     <li><a href="/battery-chart">Battery Chart</a></li>
                 </ul>
             </nav>
-            <h2>Console Output (últimos 100 minutos)</h2>
+            <h2>Console Output (últimos 5 minutos)</h2>
             <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
 
             <h2>📦 Fetched Growatt Data</h2>
             <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ data }}</pre>
         </body>
         </html>
-    """,
+    """, 
     logs="\n\n".join(m for _, m in console_logs),
     data=pprint.pformat(fetched_data, indent=2))
 
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
-    global last_successful_growatt_update_time
     if request.method == "POST":
         selected_date = request.form.get("date")
     else:
         selected_date = get_today_date_utc_minus_5()
-        print(f"Selected date on GET: {selected_date}")
+        print(f"Selected date on GET: {selected_date}")  # Add this line for debugging
 
     growatt_login2()
 
+    # Request Battery SoC Data
     battery_payload = {
         'plantId': PLANT_ID,
         'storageSn': STORAGE_SN,
@@ -869,6 +604,7 @@ def battery_chart():
         log_message(f"⚠️ No SoC data received for {selected_date}")
     soc_data = soc_data + [None] * (288 - len(soc_data))
 
+    # Request Energy Chart Data
     energy_payload = {
         "date": selected_date,
         "plantId": PLANT_ID,
@@ -888,15 +624,15 @@ def battery_chart():
         log_message(f"❌ Failed to fetch energy chart data for {selected_date}: {e}")
         energy_data = {}
 
+    # Access charts inside obj
     energy_obj = energy_data.get("obj", {}).get("charts", {})
     energy_titles = energy_data.get("titles", [])
 
+    # Format each data series for Highcharts with updated line width and color
     def prepare_series(data_list, name, color):
-        # Convert to float and replace 'N/A' with None for chart compatibility
-        cleaned_data = [float(x) if (isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.', '', 1).isdigit())) else None for x in data_list]
-        if not cleaned_data or all(x is None for x in cleaned_data): # Check if all data points are None
+        if not data_list or not isinstance(data_list, list) or not data_list: # Check if data_list is empty too
             return None
-        return {"name": name, "data": cleaned_data, "color": color, "fillOpacity": 0.2, "lineWidth": 1}
+        return {"name": name, "data": data_list, "color": color, "fillOpacity": 0.2, "lineWidth": 1}
 
     energy_series = [
         prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#FFEB3B"),
@@ -908,6 +644,7 @@ def battery_chart():
     if not any(series and series['data'] for series in energy_series):
         log_message(f"⚠️ No usable energy chart data received for {selected_date}")
 
+    # Ensure 288 data points for energy data
     for series in energy_series:
         if series and series["data"]:
             series["data"] = series["data"] + [None] * (288 - len(series["data"]))
@@ -920,28 +657,18 @@ def battery_chart():
         soc_data=soc_data,
         raw_json=battery_data,
         energy_titles=energy_titles,
-        energy_series=energy_series,
-        last_growatt_update=last_successful_growatt_update_time
+        energy_series=energy_series
     )
 
 @app.route('/dn')
 def download_logs():
     try:
+        # Send the saved_data.json file as an attachment
         return send_file(data_file, as_attachment=True, download_name="saved_data.json", mimetype="application/json")
     except Exception as e:
         log_message(f"❌ Error downloading file: {e}")
         return f"❌ Error downloading file: {e}", 500
 
-@app.route("/trigger_github_sync", methods=["POST"])
-def trigger_github_sync():
-    """Manual trigger endpoint for GitHub sync"""
-    log_message("Received manual GitHub sync request")
-    success, message = _perform_single_github_sync_operation()
-    #if success:
-    #    flash("GitHub sync initiated successfully!", "success")
-    #else:
-    #    flash(f"GitHub sync failed: {message}", "error")
-    return redirect(url_for('logs'))
-
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
