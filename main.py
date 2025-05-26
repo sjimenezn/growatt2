@@ -4,6 +4,7 @@ import threading
 import pprint
 import json
 import os
+import imghdr
 import time
 import requests
 import shutil
