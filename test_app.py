@@ -6,8 +6,9 @@ from growattServer import GrowattApi
 import pprint
 import json
 import threading
-from telegram import Update # New imports for Telegram
+from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+import imghdr # Explicitly importing imghdr
 
 # --- File for saving data ---
 data_file = "saved_data.json"
@@ -43,9 +44,9 @@ PASSWORD_CRC = "0c4107c238d57d475d4660b07b2f043e"
 PLANT_ID = "2817170"
 STORAGE_SN = "BNG7CH806N"
 
-# IMPORTANT: Replace with your actual Bot Token and Chat ID (from environment variables in production)
-TELEGRAM_BOT_TOKEN = "AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo" # <--- REPLACE THIS!
-TELEGRAM_CHAT_ID = "5715745951"     # <--- REPLACE THIS! (Your personal chat ID for testing)
+# IMPORTANT: Your actual Bot Token and Chat ID
+TELEGRAM_BOT_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo" # Your Bot Token
+TELEGRAM_CHAT_ID = "5715745951"     # Your personal chat ID
 
 # Growatt API initialization
 api = GrowattApi()
@@ -101,7 +102,7 @@ def login_growatt():
         inverter_data = inverter_info[0] if inverter_info else {}
         fetched_data['inverter_sn'] = inverter_data.get('deviceSn', 'N/A')
         fetched_data['datalog_sn'] = inverter_data.get('datalogSn', 'N/A')
-        inverter_sn = inverter_data.get('deviceSn', 'N/A') # Ensure inverter_sn is updated here for consistency
+        inverter_sn = inverter_data.get('deviceSn', 'N/A')
         datalog_sn = inverter_data.get('datalogSn', 'N/A')
     except Exception as e:
         log_message(f"❌ Failed to retrieve inverter info: {e}")
@@ -294,23 +295,29 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def current_data_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     log_message(f"Telegram /currentdata command received from {update.effective_user.id}")
     data_display = pprint.pformat(current_data, indent=2)
-    message = f"**Current Growatt Inverter Data:**\n```json\n{data_display}\n```"
+    # MarkdownV2 requires escaping certain characters. This is a basic attempt.
+    # If the message formatting breaks, you might need a more robust escaping function.
+    message_content = f"**Current Growatt Inverter Data:**\n```json\n{data_display}\n```"
+    # Basic escaping for MarkdownV2 - add more if needed
+    message = message_content.replace('.', '\\.').replace('-', '\\-').replace('(', '\\(').replace(')', '\\)').replace('|', '\\|').replace('{', '\\{').replace('}', '\\}').replace('!', '\\!').replace('#', '\\#').replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+    
     await update.message.reply_markdown_v2(message)
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     log_message(f"Telegram /status command received from {update.effective_user.id}")
-    status_message = (
+    status_message_template = (
         f"**App Status:**\n"
         f"Last Processed: `{last_processed_time}`\n"
         f"Last Fresh Update: `{last_successful_growatt_update_time}`\n"
         f"Monitor Thread: {'Running' if monitor_thread.is_alive() else 'Stopped'}\n"
         f"File: `{data_file}` (Last Saved: {last_saved_sensor_values.get('timestamp', 'N/A')})"
     )
+    # Basic escaping for MarkdownV2 - add more if needed
+    status_message = status_message_template.replace('.', '\\.').replace('-', '\\-').replace('(', '\\(').replace(')', '\\)').replace('|', '\\|').replace('{', '\\{').replace('}', '\\}').replace('!', '\\!').replace('#', '\\#').replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+    
     await update.message.reply_markdown_v2(status_message)
 
 
-# The Telegram bot will run in its own thread managed by Application.run_polling()
-# It needs a separate thread to avoid blocking the Flask app.
 def run_telegram_bot():
     try:
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -319,17 +326,17 @@ def run_telegram_bot():
         application.add_handler(CommandHandler("status", status_command))
 
         log_message("Starting Telegram bot polling...")
-        application.run_polling(poll_interval=1.0) # Poll every 1 second
-        log_message("Telegram bot polling stopped.") # This should ideally not be reached
+        application.run_polling(poll_interval=1.0)
+        log_message("Telegram bot polling stopped.")
     except Exception as e:
         log_message(f"❌ Error in Telegram bot thread: {e}")
 
 telegram_bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-if TELEGRAM_BOT_TOKEN != "YOUR_TELEGRAM_BOT_TOKEN" and TELEGRAM_CHAT_ID != "YOUR_TELEGRAM_CHAT_ID":
+if TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_TOKEN != "YOUR_TELEGRAM_BOT_TOKEN" and TELEGRAM_CHAT_ID and TELEGRAM_CHAT_ID != "YOUR_TELEGRAM_CHAT_ID":
     telegram_bot_thread.start()
-    log_message("Telegram bot thread initiated (if token/chat ID are set).")
+    log_message("Telegram bot thread initiated.")
 else:
-    log_message("⚠️ Skipping Telegram bot initiation: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set.")
+    log_message("⚠️ Skipping Telegram bot initiation: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set correctly.")
 
 
 # --- Flask Routes ---
@@ -417,4 +424,3 @@ def console_view():
 
 # Initial log message when the app starts
 log_message("Flask app initialized and running (Stage 5).")
-
