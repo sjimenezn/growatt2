@@ -835,7 +835,7 @@ def console_view():
                     <li><a href="/battery-chart">Battery Chart</a></li>
                 </ul>
             </nav>
-            <h2>Console Output (últimos 5 minutos)</h2>
+            <h2>Console Output (últimos 100 minutos)</h2>
             <pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
 
             <h2>📦 Fetched Growatt Data</h2>
