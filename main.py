@@ -377,8 +377,7 @@ def initialize_telegram_bot():
         telegram_enabled = False
         return False
 
-monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
-monitor_thread.start()
+
 
 # --- Flask Routes ---
 @app.route("/")
