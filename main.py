@@ -409,96 +409,77 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
         time.sleep(40) # Wait for 40 seconds before next API call
 
 # --- GitHub Sync Config ---
-GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
-GITHUB_USERNAME = "sjimenezn"
-GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
-GIT_PUSH_INTERVAL_MINS = 5 # Changed to 5 minutes to align with data saving
-LOCAL_REPO_PATH = "."
 
-def _perform_single_github_sync_operation():
-    """Performs a Git sync operation focusing only on saved_data.json, forcing a commit."""
+
+# Telegram Handlers (unchanged)
+def start(update: Update, context: CallbackContext):
+    chat_log.add(update.effective_chat.id)
+    update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
+
+def send_status(update: Update, context: CallbackContext):
+    chat_log.add(update.effective_chat.id)
+
+    timestamp = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
+
+    msg = f"""⚡ /status Estado del Inversor /stop⚡
+        🕒 Hora--> {timestamp} 
+Voltaje Red          : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
+Voltaje Inversor   : {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
+Consumo             : {current_data.get('load_power', 'N/A')} W
+Batería                 : {current_data.get('battery_capacity', 'N/A')}%
+"""
     try:
-        if not GITHUB_TOKEN:
-            log_message("❌ GITHUB_PAT environment variable not set!")
-            return False, "GitHub credentials not set"
-
-        TEMP_DIR = "temp_repo"
-        FILE_TO_SYNC = "saved_data.json"
-
-        # Clean up previous temp directory if it exists
-        if os.path.exists(TEMP_DIR):
-            log_message(f"Cleaning up existing temp repo: {TEMP_DIR}")
-            shutil.rmtree(TEMP_DIR, ignore_errors=True)
-
-        # Clone the repo
-        log_message(f"Cloning repo into {TEMP_DIR}...")
-        repo = Repo.clone_from(
-            f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git",
-            TEMP_DIR,
-            depth=1  # Only get latest commit
-        )
-        log_message("Repo cloned successfully.")
-
-        # Configure git user identity
-        with repo.config_writer() as git_config:
-            git_config.set_value("user", "name", "Growatt Data Sync Bot")
-            git_config.set_value("user", "email", "growatt-sync@example.com")
-        log_message("Git user identity configured.")
-
-        # Copy our current data file to the repo
-        if os.path.exists(FILE_TO_SYNC):
-            shutil.copy2(FILE_TO_SYNC, os.path.join(TEMP_DIR, FILE_TO_SYNC))
-            log_message(f"Copied local {FILE_TO_SYNC} to temp repo.")
-        else:
-            log_message(f"❌ Local {FILE_TO_SYNC} not found. Cannot sync.")
-            return False, "Data file not found"
-
-        # Git operations:
-        # 1. Add the file, explicitly forcing if it's already staged or unchanged
-        log_message(f"Staging {FILE_TO_SYNC} for commit...")
-        repo.git.add("--force", FILE_TO_SYNC) # Use --force to ensure it's staged
-        log_message(f"{FILE_TO_SYNC} staged.")
-
-        # 2. Check if there are actual changes before committing
-        # This is a more robust way to handle the "nothing to commit" situation
-        # and prevent unnecessary empty commits unless explicitly desired.
-        index_diff = repo.index.diff("HEAD")
-        if not index_diff and not repo.untracked_files:
-            log_message("No actual changes detected in saved_data.json. Committing with --allow-empty.")
-            # If no actual content change, commit an empty commit to mark the timestamp
-            repo.git.commit("--allow-empty", "-m", f"Keepalive / No data change - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        else:
-            log_message("Changes detected in saved_data.json. Committing normally.")
-            repo.git.commit("-m", f"Update {FILE_TO_SYNC} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        log_message("Pushing to remote...")
-        repo.git.push()
-        
-        log_message("✅ Successfully synced saved_data.json to GitHub")
-        return True, "Sync completed"
-    
+        update.message.reply_text(msg)
+        log_message(f"✅ Status sent to {update.effective_chat.id}")
     except Exception as e:
-        log_message(f"❌ GitHub sync failed: {e}")
-        # Ensure temp directory is cleaned up even on failure
-        if 'TEMP_DIR' in locals() and os.path.exists(TEMP_DIR):
-            log_message(f"Cleaning up temp repo after failure: {TEMP_DIR}")
-            shutil.rmtree(TEMP_DIR, ignore_errors=True)
-        return False, str(e)
+        log_message(f"❌ Failed to send status to {update.effective_chat.id}: {e}")
 
-def sync_github_repo():
-    """Scheduled thread to sync data with GitHub"""
-    log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
-    
-    while True:
-        time.sleep(GIT_PUSH_INTERVAL_MINS * 60) # Convert minutes to seconds
-        success, message = _perform_single_github_sync_operation()
-        log_message(f"Sync result: {message}")
+def send_chatlog(update: Update, context: CallbackContext):
+    chat_log.add(update.effective_chat.id)
+    ids = "\n".join(str(cid) for cid in chat_log)
+    update.message.reply_text(f"IDs registrados:\n{ids}")
 
-# Start the GitHub sync thread
-github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
-github_sync_thread.start()
+def stop_bot_telegram_command(update: Update, context: CallbackContext):
+    update.message.reply_text("Bot detenido.")
+    log_message("Bot detenido por comando /stop")
+    global telegram_enabled, updater
+    if updater and updater.running:
+        updater.stop()
+        telegram_enabled = False
+        log_message("Telegram bot stopped via /stop command.")
+    else:
+        log_message("Telegram bot not running to be stopped.")
 
+def initialize_telegram_bot():
+    global updater, dp, TELEGRAM_TOKEN, telegram_enabled
+    if not TELEGRAM_TOKEN:
+        log_message("❌ Cannot start Telegram bot: TELEGRAM_TOKEN is empty.")
+        return False
 
+    if updater and updater.running:
+        log_message("Telegram bot is already running. No re-initialization needed unless token changed.")
+        return True
+
+    try:
+        log_message("Initializing Telegram bot...")
+        updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+        dp = updater.dispatcher
+        dp.add_handler(CommandHandler("start", start))
+        dp.add_handler(CommandHandler("status", send_status))
+        dp.add_handler(CommandHandler("chatlog", send_chatlog))
+        dp.add_handler(CommandHandler("stop", stop_bot_telegram_command))
+        updater.start_polling()
+        log_message("Telegram bot polling started.")
+        return True
+    except Exception as e:
+        log_message(f"❌ Error starting Telegram bot (check token): {e}")
+        updater = None
+        dp = None
+        telegram_enabled = False
+        return False
+
+monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
+monitor_thread.start()
 
 # --- Flask Routes ---
 @app.route("/")
