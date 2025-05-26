@@ -12,6 +12,7 @@ from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 import git # New import for GitPython
+from git import Repo
 
 # --- File for saving data ---
 data_file = "saved_data.json"
@@ -88,7 +89,7 @@ def log_message(message):
     print(timestamped)
     console_logs.append((time.time(), timestamped))
     now = time.time()
-    console_logs[:] = [(t, m) for t, m in console_logs if now - t < 300]
+    console_logs[:] = [(t, m) for t, m in console_logs if now - t < 6000]
 
 
 def send_telegram_message(message):
@@ -417,48 +418,55 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
 GITHUB_USERNAME = "sjimenezn"
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
-GIT_PUSH_INTERVAL_MINS = 30
+GIT_PUSH_INTERVAL_MINS = 1
 LOCAL_REPO_PATH = "."
 
 def _perform_single_github_sync_operation():
     """Performs a Git sync operation that always commits"""
     try:
-        # Setup
+        # Config
+        if not GITHUB_TOKEN:
+            log_message("❌ GITHUB_PAT environment variable not set!")
+            return False, "GitHub credentials not set"
+
         TEMP_DIR = "temp_repo"
+        FILE = "saved_data.json"
+
+        # Setup
         if os.path.exists(TEMP_DIR):
             shutil.rmtree(TEMP_DIR)
-            
-        # Clone repo with authentication
+        
+        # Clone repo using the Repo class
         repo = Repo.clone_from(
             f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git",
             TEMP_DIR
         )
         
-        # Configure git identity
+        # Configure git
         with repo.config_writer() as c:
             c.set_value("user", "name", "GitHub Uploader")
             c.set_value("user", "email", "uploader@example.com")
 
-        # Copy current data file to temp repo
-        file_path = os.path.join(TEMP_DIR, "saved_data.json")
-        if os.path.exists("saved_data.json"):
-            shutil.copy2("saved_data.json", file_path)
+        # File operations
+        file_path = os.path.join(TEMP_DIR, FILE)
+        
+        # Copy current file to temp repo
+        if os.path.exists(FILE):
+            shutil.copy2(FILE, file_path)
         else:
-            log_message("❌ saved_data.json not found")
-            shutil.rmtree(TEMP_DIR)
-            return False, "No data file to sync"
+            log_message(f"❌ Local {FILE} not found")
+            return False, "Data file not found"
 
-        # Always commit and push
+        # Git operations - ALWAYS COMMIT
         repo.git.add(".")
         repo.git.commit("-m", f"Update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         repo.git.push()
         log_message("✅ Changes pushed to GitHub")
-        
+
         shutil.rmtree(TEMP_DIR)
         return True, "Sync completed"
-        
     except Exception as e:
-        log_message(f"❌ GitHub sync failed: {str(e)}")
+        log_message(f"❌ GitHub sync failed: {e}")
         if 'TEMP_DIR' in locals() and os.path.exists(TEMP_DIR):
             shutil.rmtree(TEMP_DIR)
         return False, str(e)
@@ -628,7 +636,7 @@ def update_telegram_token():
 
 
 @app.route("/logs")
-def charts_view():
+def logs():
     global last_successful_growatt_update_time
     parsed_data = []
     if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
@@ -921,8 +929,9 @@ def trigger_github_sync():
     """Manual trigger endpoint for GitHub sync"""
     log_message("Received manual GitHub sync request")
     success, message = _perform_single_github_sync_operation()
-    return jsonify({"success": success, "message": message})
-
+    
+    # Instead of returning JSON, redirect back to logs
+    return redirect(url_for('logs'))
 # Start the GitHub sync thread after Flask app is defined and before it runs
 github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
 github_sync_thread.start()
