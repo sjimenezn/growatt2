@@ -312,28 +312,27 @@ def monitor_growatt():
 
             last_processed_time = current_loop_time_str
 
-            # --- Conditional Data Saving with MINIMUM 5-minute interval ---
+            # --- Conditional Data Saving with STRICT MINIMUM 5-minute interval ---
             data_has_changed = (not last_saved_sensor_values) or (current_fetched_sensor_values != last_saved_sensor_values)
             time_since_last_save = (datetime.now() - last_file_save_time).total_seconds()
             
-            # Condition to save:
-            #   1. Data has changed AND at least 5 minutes have passed since last save.
-            #   OR
-            #   2. More than 5 minutes have passed since last save (heartbeat).
-            
-            should_save = False
-            if time_since_last_save >= (5 * 60): # If 5 minutes or more have passed
-                should_save = True
+            # This flag will determine if we actually save to file in this iteration
+            perform_file_save = False 
+
+            if time_since_last_save >= (5 * 60): # Is it time to check for a save?
                 if data_has_changed:
                     log_message("⏱️✅ 5 minutes have passed AND new Growatt data received. Saving to file.")
+                    perform_file_save = True
                 else:
-                    log_message("⏱️ 5 minutes have passed since last save. Saving current data (even if identical).")
+                    log_message("⏱️ 5 minutes have passed since last save. Saving current data (even if identical) as a heartbeat.")
+                    perform_file_save = True
                 log_message(f"   Raw data: {raw_growatt_data}") # Log raw data for heartbeat save
-            elif data_has_changed: # Data changed, but less than 5 minutes passed since last save
-                log_message("No new data to save (identical to last saved values) and less than 5 minutes since last save. Skipping file write.")
-                # We intentionally don't save here to enforce the minimum 5-minute interval
-                
-            if should_save:
+            else:
+                # Less than 5 minutes have passed. We will NOT save, even if data changed.
+                log_message(f"No file save. Less than 5 minutes ({time_since_last_save:.0f}s) since last save, even if data changed.")
+                # We do not set perform_file_save = True here.
+
+            if perform_file_save:
                 last_successful_growatt_update_time = current_loop_time_str
 
                 data_to_save_for_file = {
@@ -345,9 +344,7 @@ def monitor_growatt():
                     "freqOutPut": new_ac_output_f,
                 }
                 save_data_to_file(data_to_save_for_file)
-            else:
-                # This log is now redundant if the previous elif handles the no-save case
-                pass # Already handled by the else branch in the `elif data_has_changed` block
+                # Important: save_data_to_file already updates last_file_save_time.
             
             # --- Telegram Alerts ---
             if telegram_enabled:
