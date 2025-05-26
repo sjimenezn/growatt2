@@ -636,7 +636,7 @@ def update_telegram_token():
 
 
 @app.route("/logs")
-def charts_view():
+def logs():
     global last_successful_growatt_update_time
     parsed_data = []
     if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
