@@ -28,7 +28,7 @@ username1 = "vospina"
 password1 = "Vospina.2025"
 
 # --- Telegram Config ---
-TELEGRAM_TOKEN = "7653969082:AAGJ_8TL2-MA0uCLgtx8UAyfEBRzCmFWyzG" # <--- YOUR CURRENT TOKEN
+TELEGRAM_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo" # <--- YOUR CURRENT TOKEN
 CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
 
@@ -394,10 +394,10 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                             sent_lights_on = True
                             sent_lights_off = False
 
-            # Save data to file every 7 cycles (or approximately every 4.6 minutes)
+            # Save data to file every 10 cycles (or approximately every 5 minutes)
             # regardless if it's new data or nulls due to staleness.
             # This ensures consistent timestamps in the historical data.
-            if loop_counter >= 7:
+            if loop_counter >= 2:
                 save_data_to_file(data_to_save_for_file)
                 loop_counter = 0
             else:
@@ -412,13 +412,13 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
             # Reset IDs to force re-login attempt in next loop
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None 
 
-        time.sleep(40) # Wait for 40 seconds before next API call
+        time.sleep(30) # Wait for 30 seconds before next API call
 
 # --- GitHub Sync Config ---
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
 GITHUB_USERNAME = "sjimenezn"
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
-GIT_PUSH_INTERVAL_MINS = 1
+GIT_PUSH_INTERVAL_MINS = 5
 LOCAL_REPO_PATH = "."
 
 def _perform_single_github_sync_operation():
