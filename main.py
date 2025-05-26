@@ -687,94 +687,119 @@ def console_view():
 
 @app.route("/battery-chart", methods=["GET", "POST"])
 def battery_chart():
-    global last_successful_growatt_update_time
     if request.method == "POST":
         selected_date = request.form.get("date")
     else:
-        selected_date = get_today_date_utc_minus_5()
-        print(f"Selected date on GET: {selected_date}")
+        selected_date = get_today_date_utc_minus_5() # Fetches date like YYYY-MM-DD
+    # Log the selected date for debugging
+    log_message(f"Battery chart: Selected date for processing: {selected_date}")
 
-    growatt_login2()
+    growatt_login2() # Ensure secondary login session is active for these panel endpoints
 
+    # Initialize data structures to ensure they are always defined
+    battery_data = {}
+    soc_data_raw = []
+    energy_data = {}
+    energy_series = [] # This will hold the list of series for the chart
+
+    # Request Battery SoC Data
     battery_payload = {
-        'plantId': PLANT_ID,
+        'plantId': PLANT_ID, # Using the constant PLANT_ID defined at the top
         'storageSn': STORAGE_SN,
-        'date': selected_date
+        'date': selected_date # Format YYYY-MM-DD
     }
 
     try:
         battery_response = session.post(
             'https://server.growatt.com/panel/storage/getStorageBatChart',
-            headers=HEADERS,
-            data=battery_payload,
-            timeout=10
+            headers=HEADERS, data=battery_payload, timeout=15 # Increased timeout slightly
         )
-        battery_response.raise_for_status()
+        battery_response.raise_for_status() # Raise an exception for HTTP errors
         battery_data = battery_response.json()
+        # Safely get the 'capacity' list
+        soc_data_raw = battery_data.get("obj", {}).get("socChart", {}).get("capacity", [])
+        if not isinstance(soc_data_raw, list): # Ensure it's a list
+            log_message(f"⚠️ SoC data 'capacity' is not a list for {selected_date}. Found: {type(soc_data_raw)}. Resetting.")
+            soc_data_raw = []
+        if not soc_data_raw:
+            log_message(f"⚠️ No SoC data array ('obj.socChart.capacity') received for {selected_date}. Response: {battery_data}")
+
     except requests.exceptions.RequestException as e:
-        log_message(f"❌ Failed to fetch battery data for {selected_date}: {e}")
-        battery_data = {}
+        log_message(f"❌ Failed to fetch battery SoC data for {selected_date}: {e}")
+        # soc_data_raw remains empty as initialized
+    except json.JSONDecodeError as e:
+        log_message(f"❌ Failed to decode battery SoC JSON for {selected_date}: {e}")
+        # soc_data_raw remains empty
+    
+    # Pad SoC data to 288 points (5 min intervals for 24h)
+    # Ensure soc_data_raw is a list before padding
+    if not isinstance(soc_data_raw, list): 
+        soc_data_raw = [] # Should already be handled above, but as a safeguard
+    soc_data_padded = soc_data_raw + [None] * (288 - len(soc_data_raw))
 
-    soc_data = battery_data.get("obj", {}).get("socChart", {}).get("capacity", [])
-    if not soc_data:
-        log_message(f"⚠️ No SoC data received for {selected_date}")
-    soc_data = soc_data + [None] * (288 - len(soc_data))
 
+    # Request Energy Chart Data
     energy_payload = {
-        "date": selected_date,
-        "plantId": PLANT_ID,
+        "date": selected_date, # Format YYYY-MM-DD
+        "plantId": PLANT_ID, # Using the constant PLANT_ID
         "storageSn": STORAGE_SN
     }
 
     try:
         energy_response = session.post(
             "https://server.growatt.com/panel/storage/getStorageEnergyDayChart",
-            headers=HEADERS,
-            data=energy_payload,
-            timeout=10
+            headers=HEADERS, data=energy_payload, timeout=15 # Increased timeout
         )
         energy_response.raise_for_status()
         energy_data = energy_response.json()
+        energy_obj = energy_data.get("obj", {}).get("charts", {}) # Safely get charts object
+        if not isinstance(energy_obj, dict): # Ensure charts is a dictionary
+            log_message(f"⚠️ Energy data 'charts' is not a dictionary for {selected_date}. Found: {type(energy_obj)}. Resetting.")
+            energy_obj = {}
+
+        # Helper function defined inside the route or accessible globally
+        def prepare_series_for_chart(data_list, name, color): # Renamed to avoid conflict if defined globally
+            # Ensure data_list is actually a list from energy_obj.get()
+            current_data_list = data_list if isinstance(data_list, list) else []
+            
+            padded_data = current_data_list + [None] * (288 - len(current_data_list))
+            return {"name": name, "data": padded_data, "color": color, "fillOpacity": 0.2, "lineWidth": 1}
+
+        # Prepare the series list
+        temp_energy_series = [
+            prepare_series_for_chart(energy_obj.get("ppv"), "Photovoltaic Output", "#FFEB3B"),
+            prepare_series_for_chart(energy_obj.get("userLoad"), "Load Consumption", "#9C27B0"),
+            prepare_series_for_chart(energy_obj.get("pacToUser"), "Imported from Grid", "#00BCD4"),
+            # prepare_series_for_chart(energy_obj.get("pacToGrid"), "Exported to Grid", "#4CAF50"), # Example if you want to add it
+        ]
+        # Filter out any series you don't want, e.g., 'Exported to Grid'
+        energy_series = [s for s in temp_energy_series if s and s.get('name') != 'Exported to Grid (Example Filter)']
+        
+        # Check if any of the series actually contain data points beyond just [None, None, ...]
+        has_meaningful_data = False
+        for s in energy_series:
+            if s and s.get("data") and any(dp is not None for dp in s.get("data")):
+                has_meaningful_data = True
+                break
+        if not has_meaningful_data:
+             log_message(f"⚠️ No meaningful energy chart data points (all nulls or empty) received for {selected_date}. API Response: {energy_data}")
+
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch energy chart data for {selected_date}: {e}")
-        energy_data = {}
-
-    energy_obj = energy_data.get("obj", {}).get("charts", {})
-    energy_titles = energy_data.get("titles", [])
-
-    def prepare_series(data_list, name, color):
-        # Convert to float and replace 'N/A' with None for chart compatibility
-        cleaned_data = [float(x) if (isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.', '', 1).isdigit())) else None for x in data_list]
-        if not cleaned_data or all(x is None for x in cleaned_data): # Check if all data points are None
-            return None
-        return {"name": name, "data": cleaned_data, "color": color, "fillOpacity": 0.2, "lineWidth": 1}
-
-    energy_series = [
-        prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#FFEB3B"),
-        prepare_series(energy_obj.get("userLoad"), "Load Consumption", "#9C27B0"),
-        prepare_series(energy_obj.get("pacToUser"), "Imported from Grid", "#00BCD4"),
-    ]
-    energy_series = [s for s in energy_series if s and s['name'] != 'Exported to Grid']
-
-    if not any(series and series['data'] for series in energy_series):
-        log_message(f"⚠️ No usable energy chart data received for {selected_date}")
-
-    for series in energy_series:
-        if series and series["data"]:
-            series["data"] = series["data"] + [None] * (288 - len(series["data"]))
-        elif series:
-            series["data"] = [None] * 288
+        # energy_series will remain empty as initialized
+    except json.JSONDecodeError as e:
+        log_message(f"❌ Failed to decode energy chart JSON for {selected_date}: {e}")
+        # energy_series will remain empty
 
     return render_template(
-        "battery-chart.html",
+        "battery-chart.html", # Assuming you have battery-chart.html in a 'templates' folder
         selected_date=selected_date,
-        soc_data=soc_data,
-        raw_json=battery_data,
-        energy_titles=energy_titles,
-        energy_series=energy_series,
-        last_growatt_update=last_successful_growatt_update_time
+        soc_data=soc_data_padded,        # This is the list of SoC values, padded
+        raw_json_battery=battery_data,   # For debugging in template if needed
+        raw_json_energy=energy_data,     # For debugging in template if needed
+        # energy_titles=energy_data.get("titles", []), # Pass if your template uses this
+        energy_series=energy_series      # <<<< CORRECTED: Pass the list of series with this name
     )
-
 @app.route('/dn') # Download logs
 def download_logs():
     try:
