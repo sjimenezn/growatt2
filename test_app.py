@@ -44,8 +44,8 @@ PLANT_ID = "2817170"
 STORAGE_SN = "BNG7CH806N"
 
 # IMPORTANT: Replace with your actual Bot Token and Chat ID (from environment variables in production)
-TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN" # <--- REPLACE THIS!
-TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"     # <--- REPLACE THIS! (Your personal chat ID for testing)
+TELEGRAM_BOT_TOKEN = "AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo" # <--- REPLACE THIS!
+TELEGRAM_CHAT_ID = "5715745951"     # <--- REPLACE THIS! (Your personal chat ID for testing)
 
 # Growatt API initialization
 api = GrowattApi()
