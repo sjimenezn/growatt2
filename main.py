@@ -1,5 +1,5 @@
 import pytz
-from flask import Flask, render_template, render_template_string, jsonify, request, send_file, redirect, url_for
+from flask import Flask, render_template, render_template_string, jsonify, request, send_file, redirect, url_for, flash
 import threading
 import pprint
 import json
@@ -397,7 +397,7 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
             # Save data to file every 7 cycles (or approximately every 4.6 minutes)
             # regardless if it's new data or nulls due to staleness.
             # This ensures consistent timestamps in the historical data.
-            if loop_counter >= 1:
+            if loop_counter >= 7:
                 save_data_to_file(data_to_save_for_file)
                 loop_counter = 0
             else:
@@ -418,11 +418,11 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
 GITHUB_USERNAME = "sjimenezn"
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
-GIT_PUSH_INTERVAL_MINS = 1
+GIT_PUSH_INTERVAL_MINS = 1 # Changed to 5 minutes to align with data saving
 LOCAL_REPO_PATH = "."
 
 def _perform_single_github_sync_operation():
-    """Performs a Git sync operation focusing only on saved_data.json"""
+    """Performs a Git sync operation focusing only on saved_data.json, forcing a commit."""
     try:
         if not GITHUB_TOKEN:
             log_message("❌ GITHUB_PAT environment variable not set!")
@@ -433,30 +433,51 @@ def _perform_single_github_sync_operation():
 
         # Clean up previous temp directory if it exists
         if os.path.exists(TEMP_DIR):
+            log_message(f"Cleaning up existing temp repo: {TEMP_DIR}")
             shutil.rmtree(TEMP_DIR, ignore_errors=True)
 
         # Clone the repo
+        log_message(f"Cloning repo into {TEMP_DIR}...")
         repo = Repo.clone_from(
             f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git",
             TEMP_DIR,
             depth=1  # Only get latest commit
         )
+        log_message("Repo cloned successfully.")
 
-        # Configure git user identity (THIS IS THE CRUCIAL FIX)
+        # Configure git user identity
         with repo.config_writer() as git_config:
             git_config.set_value("user", "name", "Growatt Data Sync Bot")
             git_config.set_value("user", "email", "growatt-sync@example.com")
+        log_message("Git user identity configured.")
 
         # Copy our current data file to the repo
         if os.path.exists(FILE_TO_SYNC):
             shutil.copy2(FILE_TO_SYNC, os.path.join(TEMP_DIR, FILE_TO_SYNC))
+            log_message(f"Copied local {FILE_TO_SYNC} to temp repo.")
         else:
-            log_message(f"❌ Local {FILE_TO_SYNC} not found")
+            log_message(f"❌ Local {FILE_TO_SYNC} not found. Cannot sync.")
             return False, "Data file not found"
 
-        # Git operations
-        repo.git.add(FILE_TO_SYNC)
-        repo.git.commit("-m", f"Update {FILE_TO_SYNC} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        # Git operations:
+        # 1. Add the file, explicitly forcing if it's already staged or unchanged
+        log_message(f"Staging {FILE_TO_SYNC} for commit...")
+        repo.git.add("--force", FILE_TO_SYNC) # Use --force to ensure it's staged
+        log_message(f"{FILE_TO_SYNC} staged.")
+
+        # 2. Check if there are actual changes before committing
+        # This is a more robust way to handle the "nothing to commit" situation
+        # and prevent unnecessary empty commits unless explicitly desired.
+        index_diff = repo.index.diff("HEAD")
+        if not index_diff and not repo.untracked_files:
+            log_message("No actual changes detected in saved_data.json. Committing with --allow-empty.")
+            # If no actual content change, commit an empty commit to mark the timestamp
+            repo.git.commit("--allow-empty", "-m", f"Keepalive / No data change - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            log_message("Changes detected in saved_data.json. Committing normally.")
+            repo.git.commit("-m", f"Update {FILE_TO_SYNC} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        log_message("Pushing to remote...")
         repo.git.push()
         
         log_message("✅ Successfully synced saved_data.json to GitHub")
@@ -464,7 +485,9 @@ def _perform_single_github_sync_operation():
     
     except Exception as e:
         log_message(f"❌ GitHub sync failed: {e}")
+        # Ensure temp directory is cleaned up even on failure
         if 'TEMP_DIR' in locals() and os.path.exists(TEMP_DIR):
+            log_message(f"Cleaning up temp repo after failure: {TEMP_DIR}")
             shutil.rmtree(TEMP_DIR, ignore_errors=True)
         return False, str(e)
 
@@ -473,7 +496,7 @@ def sync_github_repo():
     log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
     
     while True:
-        time.sleep(GIT_PUSH_INTERVAL_MINS * 2)
+        time.sleep(GIT_PUSH_INTERVAL_MINS * 60) # Convert minutes to seconds
         success, message = _perform_single_github_sync_operation()
         log_message(f"Sync result: {message}")
 
@@ -927,10 +950,10 @@ def trigger_github_sync():
     log_message("Received manual GitHub sync request")
     success, message = _perform_single_github_sync_operation()
     if success:
-        return redirect(url_for('logs'))
+        flash("GitHub sync initiated successfully!", "success")
     else:
-        flash(f"Sync failed: {message}", "error")
-        return redirect(url_for('logs'))
+        flash(f"GitHub sync failed: {message}", "error")
+    return redirect(url_for('logs'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
