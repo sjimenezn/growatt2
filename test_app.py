@@ -1,21 +1,22 @@
 import os
 import time
 from datetime import datetime, timedelta
-from flask import Flask, render_template_string # Added render_template_string for console
+from flask import Flask, render_template_string
 from growattServer import GrowattApi
 import pprint
-import json # New import for file operations
-import threading # New import for threading
+import json
+import threading
+from telegram import Update # New imports for Telegram
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # --- File for saving data ---
 data_file = "saved_data.json"
 
 # Ensure the file exists and is initialized as an empty JSON array
-# This block runs when the module is loaded by Gunicorn.
 if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
     try:
         with open(data_file, "w") as f:
-            f.write("[]")  # Initialize with an empty JSON array
+            f.write("[]")
         print(f"Initialized empty data file: {data_file}")
     except Exception as e:
         print(f"Error initializing data file {data_file}: {e}")
@@ -39,8 +40,12 @@ password1 = "Vospina.2025" # REMINDER: Use environment variables in production.
 
 GROWATT_USERNAME = "vospina" # REMINDER: Consider unifying with username1.
 PASSWORD_CRC = "0c4107c238d57d475d4660b07b2f043e"
-PLANT_ID = "2817170" # From your main.py
-STORAGE_SN = "BNG7CH806N" # From your main.py
+PLANT_ID = "2817170"
+STORAGE_SN = "BNG7CH806N"
+
+# IMPORTANT: Replace with your actual Bot Token and Chat ID (from environment variables in production)
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN" # <--- REPLACE THIS!
+TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"     # <--- REPLACE THIS! (Your personal chat ID for testing)
 
 # Growatt API initialization
 api = GrowattApi()
@@ -50,24 +55,18 @@ api.session.headers.update({
 log_message("GrowattApi object initialized with custom headers.")
 
 # --- Shared Data for Growatt ---
-fetched_data = {} # Global dictionary to store fetched Growatt data for debug view
-current_data = {} # Global dictionary to store the latest processed sensor values
-last_processed_time = "Never" # Time the monitor loop last ran
-last_successful_growatt_update_time = "Never" # Time of last *fresh* data received from Growatt
-last_saved_sensor_values = {} # Used to detect stale data from Growatt
+fetched_data = {}
+current_data = {}
+last_processed_time = "Never"
+last_successful_growatt_update_time = "Never"
+last_saved_sensor_values = {}
 
 def login_growatt():
-    """
-    Attempts to log into Growatt and fetch basic plant and inverter info.
-    Stores results in the global 'fetched_data' dictionary.
-    """
     log_message("🔄 Attempting Growatt login...")
-    
-    user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None # Initialize to None
+    user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
     try:
         login_response = api.login(username1, password1)
-        # Store only relevant parts, not the full login_response unless needed for debugging
         fetched_data['login_response_summary'] = {
             'user_id': login_response.get('user', {}).get('id'),
             'accountName': login_response.get('user', {}).get('accountName'),
@@ -81,7 +80,7 @@ def login_growatt():
         log_message("✅ Login successful!")
     except Exception as e:
         log_message(f"❌ Login failed: {e}")
-        return None, None, None, None # Return all Nones on failure
+        return None, None, None, None
 
     try:
         plant_info = api.plant_list(user_id)
@@ -102,8 +101,8 @@ def login_growatt():
         inverter_data = inverter_info[0] if inverter_info else {}
         fetched_data['inverter_sn'] = inverter_data.get('deviceSn', 'N/A')
         fetched_data['datalog_sn'] = inverter_data.get('datalogSn', 'N/A')
-        inverter_sn = fetched_data['inverter_sn']
-        datalog_sn = fetched_data['datalog_sn']
+        inverter_sn = inverter_data.get('deviceSn', 'N/A') # Ensure inverter_sn is updated here for consistency
+        datalog_sn = inverter_data.get('datalogSn', 'N/A')
     except Exception as e:
         log_message(f"❌ Failed to retrieve inverter info: {e}")
         return None, None, None, None
@@ -120,15 +119,11 @@ def login_growatt():
         log_message("⚠️ Inverter SN not available, skipping initial storage detail fetch.")
         fetched_data['initial_storage_detail'] = {}
 
-
     log_message(f"🌿 User ID: {user_id}, Plant ID: {plant_id}, Inverter SN: {inverter_sn}, Datalogger SN: {datalog_sn}")
-
     return user_id, plant_id, inverter_sn, datalog_sn
 
 # Call login_growatt once during app startup
-# These will be used by the monitor_growatt thread
 GROWATT_USER_ID, GROWATT_PLANT_ID, GROWATT_INVERTER_SN, GROWATT_DATALOG_SN = login_growatt()
-
 
 def save_data_to_file(data):
     global last_saved_sensor_values
@@ -153,30 +148,23 @@ def save_data_to_file(data):
                             except json.JSONDecodeError as e:
                                 log_message(f"❌ Error decoding existing JSON line in {data_file}: {stripped_line} - {e}")
         
-        # Add the new data point
         existing_data.append(data)
-
-        # Keep only the last 1200 entries (or your desired limit)
         existing_data = existing_data[-1200:]
 
-        # Write the entire list back as a single JSON array
         with open(data_file, "w") as f:
             json.dump(existing_data, f, indent=None, separators=(',', ':'))
 
         log_message("✅ Saved data to file as a JSON array.")
         
-        # After successful save, update last_saved_sensor_values
         comparable_data = {k: v for k, v in data.items() if k != 'timestamp'}
         last_saved_sensor_values.update(comparable_data)
 
     except Exception as e:
         log_message(f"❌ Error saving data to file: {e}")
 
-
 def monitor_growatt():
     global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values
     
-    # Use the globally available IDs from the initial login
     user_id = GROWATT_USER_ID
     plant_id = GROWATT_PLANT_ID
     inverter_sn = GROWATT_INVERTER_SN
@@ -184,10 +172,8 @@ def monitor_growatt():
 
     if not all([user_id, plant_id, inverter_sn, datalog_sn]):
         log_message("❌ Growatt IDs not available at monitor thread startup. Will attempt re-login.")
-        # Ensure they are None if they failed initially
         user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
-    # On startup, attempt to populate last_saved_sensor_values from the last entry in the file
     if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
         try:
             with open(data_file, "r") as f:
@@ -209,7 +195,7 @@ def monitor_growatt():
     else:
         log_message("No existing data file found or it's empty. last_saved_sensor_values remains empty.")
 
-    loop_counter = 0 # For saving data to file every X cycles
+    loop_counter = 0
 
     while True:
         current_loop_datetime_utc_minus_5 = datetime.now() - timedelta(hours=5)
@@ -219,19 +205,17 @@ def monitor_growatt():
         data_to_save_for_file = {}
 
         try:
-            # Always attempt to (re)login and get IDs if they are missing
             if user_id is None or plant_id is None or inverter_sn is None or datalog_sn is None:
                 log_message("Attempting to acquire Growatt IDs (re-login).")
                 user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
-                if user_id is None: # If login/ID fetching fails, wait and try again
+                if user_id is None:
                     log_message("Growatt re-login/ID fetching failed. Retrying in 60 seconds.")
                     time.sleep(60)
-                    continue # Skip to next loop iteration
+                    continue
             
-            # Ensure inverter_sn is valid before attempting storage_detail
             if not inverter_sn or inverter_sn == 'N/A':
                 log_message("❌ Inverter SN is invalid. Cannot fetch storage detail. Retrying login.")
-                user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None # Force re-login
+                user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
                 time.sleep(60)
                 continue
 
@@ -284,10 +268,6 @@ def monitor_growatt():
 
             last_processed_time = current_loop_time_str
 
-            # Save data to file ONLY IF should_save_to_file_this_cycle is True
-            # AND it's time for the loop_counter to trigger a save.
-            # Your original code has loop_counter >= 7, which means save every 8th cycle (0 to 7)
-            # Assuming 40 second sleep, this is 8 * 40 = 320 seconds = ~5.3 minutes
             if should_save_to_file_this_cycle and loop_counter >= 7:
                 save_data_to_file(data_to_save_for_file)
                 loop_counter = 0
@@ -296,25 +276,71 @@ def monitor_growatt():
 
         except Exception as e_inner:
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
-            user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None # Force re-login
+            user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
-        time.sleep(40) # Wait for 40 seconds before next API call
+        time.sleep(40)
 
 # Start the monitoring thread
 monitor_thread = threading.Thread(target=monitor_growatt, daemon=True)
 monitor_thread.start()
 log_message("Growatt monitor thread started.")
 
+# --- Telegram Bot ---
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    log_message(f"Telegram /start command received from {update.effective_user.id}")
+    await update.message.reply_text("Hello! I'm your Growatt monitor bot. "
+                                    "Use /currentdata to get the latest Growatt inverter data or /status for app status.")
+
+async def current_data_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    log_message(f"Telegram /currentdata command received from {update.effective_user.id}")
+    data_display = pprint.pformat(current_data, indent=2)
+    message = f"**Current Growatt Inverter Data:**\n```json\n{data_display}\n```"
+    await update.message.reply_markdown_v2(message)
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    log_message(f"Telegram /status command received from {update.effective_user.id}")
+    status_message = (
+        f"**App Status:**\n"
+        f"Last Processed: `{last_processed_time}`\n"
+        f"Last Fresh Update: `{last_successful_growatt_update_time}`\n"
+        f"Monitor Thread: {'Running' if monitor_thread.is_alive() else 'Stopped'}\n"
+        f"File: `{data_file}` (Last Saved: {last_saved_sensor_values.get('timestamp', 'N/A')})"
+    )
+    await update.message.reply_markdown_v2(status_message)
+
+
+# The Telegram bot will run in its own thread managed by Application.run_polling()
+# It needs a separate thread to avoid blocking the Flask app.
+def run_telegram_bot():
+    try:
+        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        application.add_handler(CommandHandler("start", start_command))
+        application.add_handler(CommandHandler("currentdata", current_data_command))
+        application.add_handler(CommandHandler("status", status_command))
+
+        log_message("Starting Telegram bot polling...")
+        application.run_polling(poll_interval=1.0) # Poll every 1 second
+        log_message("Telegram bot polling stopped.") # This should ideally not be reached
+    except Exception as e:
+        log_message(f"❌ Error in Telegram bot thread: {e}")
+
+telegram_bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+if TELEGRAM_BOT_TOKEN != "YOUR_TELEGRAM_BOT_TOKEN" and TELEGRAM_CHAT_ID != "YOUR_TELEGRAM_CHAT_ID":
+    telegram_bot_thread.start()
+    log_message("Telegram bot thread initiated (if token/chat ID are set).")
+else:
+    log_message("⚠️ Skipping Telegram bot initiation: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set.")
+
+
 # --- Flask Routes ---
 @app.route("/")
 def home():
-    # Fetch current_data for display on the home page
-    d = current_data.copy() # Use a copy to avoid issues if current_data updates during rendering
+    d = current_data.copy()
     
     return render_template_string("""
         <html>
         <head>
-            <title>Growatt Monitor (Stage 4)</title>
+            <title>Growatt Monitor (Stage 5 - Telegram)</title>
             <meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
             <style>
                 body { font-family: Arial, sans-serif; margin: 20px; }
@@ -324,8 +350,8 @@ def home():
             </style>
         </head>
         <body>
-            <h1>Growatt Monitor (Stage 4)</h1>
-            <p><strong>Status:</strong> Growatt monitor thread is running.</p>
+            <h1>Growatt Monitor (Stage 5 - Telegram)</h1>
+            <p><strong>Status:</strong> Growatt monitor thread is running. Telegram bot is {% if telegram_bot_thread.is_alive() %}running{% else %}stopped/not started{% endif %}.</p>
             <div class="data-box">
                 <h2>Current Growatt Data</h2>
                 <div class="data-item"><strong>Last Processed:</strong> {{ last_processed_time }}</div>
@@ -349,7 +375,8 @@ def home():
     """,
     d=current_data,
     last_processed_time=last_processed_time,
-    last_successful_growatt_update_time=last_successful_growatt_update_time
+    last_successful_growatt_update_time=last_successful_growatt_update_time,
+    telegram_bot_thread=telegram_bot_thread
     )
 
 @app.route("/console")
@@ -375,16 +402,19 @@ def console_view():
             <pre>{{ pprint.pformat(current_data, indent=2) }}</pre>
             <h2>💾 Last Saved Sensor Values (for comparison)</h2>
             <pre>{{ pprint.pformat(last_saved_sensor_values, indent=2) }}</pre>
+            <h2>🤖 Telegram Bot Status</h2>
+            <pre>Thread Alive: {{ telegram_bot_thread.is_alive() }}</pre>
         </body>
         </html>
     """,
-    pprint=pprint, # Pass pprint module to template
-    console_logs=console_logs, # Pass raw logs for join in template
+    pprint=pprint,
+    console_logs=console_logs,
     fetched_data=fetched_data,
     current_data=current_data,
-    last_saved_sensor_values=last_saved_sensor_values
+    last_saved_sensor_values=last_saved_sensor_values,
+    telegram_bot_thread=telegram_bot_thread
     )
 
 # Initial log message when the app starts
-log_message("Flask app initialized and running (Stage 4).")
+log_message("Flask app initialized and running (Stage 5).")
 
