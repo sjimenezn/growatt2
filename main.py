@@ -850,15 +850,4 @@ def download_logs():
         log_message(f"❌ Error downloading file: {e}")
         return f"❌ Error downloading file: {e}", 500
 
-@app.route("/trigger_github_sync", methods=["POST"])
-def trigger_github_sync():
-    """Manual trigger endpoint for GitHub sync"""
-    log_message("Received manual GitHub sync request")
-    success, message = _perform_single_github_sync_operation()
-    # if success:
-    #     flash("GitHub sync initiated successfully!", "success")
-    # else:
-    #     flash(f"GitHub sync failed: {message}", "error")
-    return redirect(url_for('logs'))
-
 
