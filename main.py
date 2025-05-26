@@ -476,7 +476,7 @@ def sync_github_repo():
     log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
     
     while True:
-        time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
+        time.sleep(GIT_PUSH_INTERVAL_MINS * 2)
         success, message = _perform_single_github_sync_operation()
         log_message(f"Sync result: {message}")
 
