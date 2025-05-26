@@ -28,7 +28,7 @@ username1 = "vospina"
 password1 = "Vospina.2025"
 
 # --- Telegram Config ---
-TELEGRAM_TOKEN = "7653969082:AAGJ_8TL2-MA0uCLgtx8UAyfEBRzCmFWyzG" # <--- YOUR CURRENT TOKEN
+TELEGRAM_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo" # <--- YOUR CURRENT TOKEN
 CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
 chat_log = set()
 
@@ -232,26 +232,32 @@ def monitor_growatt():
     if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
         try:
             with open(data_file, "r") as f:
-                existing_data_from_file = json.load(f) # Read as `existing_data_from_file` to avoid name collision
+                existing_data_from_file = json.load(f)
                 if isinstance(existing_data_from_file, list) and existing_data_from_file:
                     last_entry = existing_data_from_file[-1]
-                    # Filter out 'timestamp' and other non-sensor keys and store
+                    # Make sure to handle potential None values from old 'null' entries in file
                     last_saved_sensor_values.update({
-                        'vGrid': last_entry.get('vGrid'),
-                        'outPutVolt': last_entry.get('outPutVolt'),
-                        'activePower': last_entry.get('activePower'),
-                        'capacity': last_entry.get('capacity'),
-                        'freqOutPut': last_entry.get('freqOutPut')
+                        'vGrid': str(last_entry.get('vGrid')) if last_entry.get('vGrid') is not None else None,
+                        'outPutVolt': str(last_entry.get('outPutVolt')) if last_entry.get('outPutVolt') is not None else None,
+                        'activePower': str(last_entry.get('activePower')) if last_entry.get('activePower') is not None else None,
+                        'capacity': str(last_entry.get('capacity')) if last_entry.get('capacity') is not None else None,
+                        'freqOutPut': str(last_entry.get('freqOutPut')) if last_entry.get('freqOutPut') is not None else None
                     })
                     log_message(f"Initialized last_saved_sensor_values from file: {last_saved_sensor_values}")
         except json.JSONDecodeError as e:
             log_message(f"⚠️ Could not load last_saved_sensor_values from {data_file} due to JSON error: {e}")
         except Exception as e:
             log_message(f"⚠️ Could not load last_saved_sensor_values from {data_file}: {e}")
+    else:
+        log_message("No existing data file found or it's empty. last_saved_sensor_values remains empty.")
+
 
     while True:
         current_loop_datetime_utc_minus_5 = datetime.now() - timedelta(hours=5)
         current_loop_time_str = current_loop_datetime_utc_minus_5.strftime("%Y-%m-%d %H:%M:%S")
+
+        should_save_to_file_this_cycle = False # New flag to control file saving
+        data_to_save_for_file = {} # Initialize in case it's not set later
 
         try:
             # Always attempt to (re)login and get IDs if they are missing
@@ -264,7 +270,7 @@ def monitor_growatt():
                     continue # Skip to next loop iteration
 
             # Attempt to fetch storage detail (main data point)
-            raw_growatt_data = api.storage_detail(inverter_sn) # Use a different var name to differentiate from processed data
+            raw_growatt_data = api.storage_detail(inverter_sn)
             log_message(f"Raw Growatt API data received: {raw_growatt_data}")
 
             # Extract new values for comparison and current_data update
@@ -276,8 +282,7 @@ def monitor_growatt():
             new_battery_pct = raw_growatt_data.get("capacity", "N/A")
 
             # Create a dictionary of current sensor values for comparison with `last_saved_sensor_values`
-            # Convert to appropriate types for consistent comparison if possible, or keep as strings.
-            # Using str for consistency if "N/A" is possible.
+            # Convert to string for consistent comparison with `last_saved_sensor_values` (which stores strings/None)
             current_sensor_values_for_comparison = {
                 "vGrid": str(new_ac_input_v),
                 "outPutVolt": str(new_ac_output_v),
@@ -285,30 +290,20 @@ def monitor_growatt():
                 "capacity": str(new_battery_pct),
                 "freqOutPut": str(new_ac_output_f)
             }
-            # Note: freqGrid is not typically saved to file, so excluded from comparison if not needed for file saving.
+            
+            # Note: last_saved_sensor_values will now only contain strings of actual values, or None if the initial load found nulls.
+            # If the inverter has been offline for a long time and `last_saved_sensor_values` holds `None`s,
+            # and the Growatt API returns `N/A` or `0`, then `current_sensor_values_for_comparison != last_saved_sensor_values` will be true.
+            # This is correct, as 'N/A' is different from None.
 
-            data_to_save_for_file = {}
-            growatt_data_is_stale = False
-
-            # Check if the fetched sensor values are IDENTICAL to the last saved ones
-            # Ensure last_saved_sensor_values is not empty before comparison
+            # Check if the fetched sensor values are IDENTICAL to the last *saved actual* ones
+            # If last_saved_sensor_values is empty (e.g., first run), always treat as new data.
             if last_saved_sensor_values and current_sensor_values_for_comparison == last_saved_sensor_values:
-                growatt_data_is_stale = True
-                log_message("⚠️ Detected Growatt data is identical to last saved values (stale). Saving NULLs for charts.")
-                
-                # If data is stale, prepare data_to_save with None for numerical values
-                data_to_save_for_file = {
-                    "timestamp": current_loop_time_str,
-                    "vGrid": None, # Will become null in JSON
-                    "outPutVolt": None,
-                    "activePower": None,
-                    "capacity": None,
-                    "freqOutPut": None, 
-                }
-                # last_successful_growatt_update_time should NOT be updated here.
-                # It should reflect when *fresh* data was last received.
+                log_message("⚠️ Detected Growatt data is identical to last saved values (stale from inverter). Skipping file save.")
+                # DO NOT update last_successful_growatt_update_time.
+                # DO NOT set should_save_to_file_this_cycle to True.
             else:
-                log_message("✅ New Growatt data received.")
+                log_message("✅ New Growatt data received from inverter.")
                 last_successful_growatt_update_time = current_loop_time_str # Update only on fresh data
 
                 # Prepare data to be saved to file with actual values
@@ -320,11 +315,10 @@ def monitor_growatt():
                     "capacity": new_battery_pct,
                     "freqOutPut": new_ac_output_f,
                 }
-                
-                # `last_saved_sensor_values` will be updated by `save_data_to_file` if this data is saved.
+                should_save_to_file_this_cycle = True # Mark for saving
 
             # Always update `current_data` with the most recently *received* values
-            # (even if they are stale), for immediate display on the Flask home page.
+            # for immediate display on the Flask home page.
             current_data.update({
                 "ac_input_voltage": new_ac_input_v,
                 "ac_input_frequency": new_ac_input_f,
@@ -394,20 +388,19 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                             sent_lights_on = True
                             sent_lights_off = False
 
-            # Save data to file every 7 cycles (or approximately every 4.6 minutes)
-            # regardless if it's new data or nulls due to staleness.
-            # This ensures consistent timestamps in the historical data.
-            if loop_counter >= 7:
+            # Save data to file ONLY IF should_save_to_file_this_cycle is True
+            # AND it's time for the loop_counter to trigger a save.
+            if should_save_to_file_this_cycle and loop_counter >= 7:
                 save_data_to_file(data_to_save_for_file)
-                loop_counter = 0
-            else:
-                loop_counter += 1 # Increment counter for non-save cycles
+                loop_counter = 0 # Reset counter only if save actually happened
+            elif should_save_to_file_this_cycle: # Increment even if not saving due to counter
+                loop_counter += 1
+            # If should_save_to_file_this_cycle is False, do nothing for the counter.
 
         except Exception as e_inner:
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
             # If there's an API error, we do NOT update last_successful_growatt_update_time.
             # We also do NOT save a data point for this cycle to the file.
-            # This will result in a real "gap" in the historical data, distinct from "stale data" (which logs nulls).
             
             # Reset IDs to force re-login attempt in next loop
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None 
@@ -418,7 +411,7 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
 GITHUB_USERNAME = "sjimenezn"
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
-GIT_PUSH_INTERVAL_MINS = 1 # Changed to 5 minutes to align with data saving
+GIT_PUSH_INTERVAL_MINS = 5 # Changed to 5 minutes to align with data saving
 LOCAL_REPO_PATH = "."
 
 def _perform_single_github_sync_operation():
