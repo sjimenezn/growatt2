@@ -422,53 +422,57 @@ GIT_PUSH_INTERVAL_MINS = 1
 LOCAL_REPO_PATH = "."
 
 def _perform_single_github_sync_operation():
-    """Performs a Git sync operation that always commits"""
+    """Performs a Git sync operation focusing only on saved_data.json"""
     try:
-        # Config
         if not GITHUB_TOKEN:
             log_message("❌ GITHUB_PAT environment variable not set!")
             return False, "GitHub credentials not set"
 
         TEMP_DIR = "temp_repo"
-        FILE = "saved_data.json"
+        FILE_TO_SYNC = "saved_data.json"
 
-        # Setup
+        # Clean up previous temp directory if it exists
         if os.path.exists(TEMP_DIR):
-            shutil.rmtree(TEMP_DIR)
-        
-        # Clone repo using the Repo class
+            shutil.rmtree(TEMP_DIR, ignore_errors=True)
+
+        # Clone only the specific file using sparse checkout
         repo = Repo.clone_from(
             f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git",
-            TEMP_DIR
+            TEMP_DIR,
+            depth=1,  # Only get latest commit
+            filter='blob:none'  # Don't download file contents yet
         )
-        
-        # Configure git
-        with repo.config_writer() as c:
-            c.set_value("user", "name", "GitHub Uploader")
-            c.set_value("user", "email", "uploader@example.com")
 
-        # File operations
-        file_path = os.path.join(TEMP_DIR, FILE)
+        # Configure sparse checkout to only get our file
+        with repo.config_writer() as c:
+            c.set_value("core", "sparseCheckout", "true")
         
-        # Copy current file to temp repo
-        if os.path.exists(FILE):
-            shutil.copy2(FILE, file_path)
+        # Specify which file we want
+        with open(os.path.join(TEMP_DIR, ".git/info/sparse-checkout"), "w") as f:
+            f.write(FILE_TO_SYNC + "\n")
+        
+        # Now actually checkout the file
+        repo.git.checkout("main")
+
+        # Copy our current data file to the repo
+        if os.path.exists(FILE_TO_SYNC):
+            shutil.copy2(FILE_TO_SYNC, os.path.join(TEMP_DIR, FILE_TO_SYNC))
         else:
-            log_message(f"❌ Local {FILE} not found")
+            log_message(f"❌ Local {FILE_TO_SYNC} not found")
             return False, "Data file not found"
 
-        # Git operations - ALWAYS COMMIT
-        repo.git.add(".")
-        repo.git.commit("-m", f"Update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        repo.git.push()
-        log_message("✅ Changes pushed to GitHub")
+        # Commit and push only this file
+        repo.git.add(FILE_TO_SYNC)
+        repo.git.commit("-m", f"Update {FILE_TO_SYNC} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        repo.git.push("origin", "main")
 
-        shutil.rmtree(TEMP_DIR)
+        log_message("✅ Successfully synced saved_data.json to GitHub")
         return True, "Sync completed"
+    
     except Exception as e:
         log_message(f"❌ GitHub sync failed: {e}")
         if 'TEMP_DIR' in locals() and os.path.exists(TEMP_DIR):
-            shutil.rmtree(TEMP_DIR)
+            shutil.rmtree(TEMP_DIR, ignore_errors=True)
         return False, str(e)
 
 def sync_github_repo():
@@ -929,12 +933,11 @@ def trigger_github_sync():
     """Manual trigger endpoint for GitHub sync"""
     log_message("Received manual GitHub sync request")
     success, message = _perform_single_github_sync_operation()
-    
-    # Instead of returning JSON, redirect back to logs
-    return redirect(url_for('logs'))
-# Start the GitHub sync thread after Flask app is defined and before it runs
-github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
-github_sync_thread.start()
+    if success:
+        return redirect(url_for('logs'))
+    else:
+        flash(f"Sync failed: {message}", "error")
+        return redirect(url_for('logs'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
