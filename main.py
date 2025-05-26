@@ -225,7 +225,7 @@ def save_data_to_file(data):
         log_message(f"❌ Error saving data to file: {e}")
 
 def monitor_growatt():
-    global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values
+    global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values, last_file_save_time
     threshold = 80
     sent_lights_off = False
     sent_lights_on = False
@@ -247,7 +247,14 @@ def monitor_growatt():
                         'capacity': last_entry.get('capacity'),
                         'freqOutPut': last_entry.get('freqOutPut')
                     }
+                    # Try to get the timestamp from the last entry
+                    try:
+                        last_file_save_time = datetime.strptime(last_entry.get('timestamp', ''), "%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        last_file_save_time = datetime.min # Default if timestamp is bad
+                    
                     log_message(f"Initialized last_saved_sensor_values from file: {last_saved_sensor_values}")
+                    log_message(f"Initialized last_file_save_time from file: {last_file_save_time}")
                 else:
                     log_message(f"⚠️ {data_file} is not a list or is empty after load. last_saved_sensor_values remains empty.")
         except json.JSONDecodeError as e:
@@ -273,7 +280,6 @@ def monitor_growatt():
 
             # Attempt to fetch storage detail (main data point)
             raw_growatt_data = api.storage_detail(inverter_sn)
-            # REMOVED: log_message(f"Raw Growatt API data received: {raw_growatt_data}")
 
             # Extract new values for comparison and current_data update
             new_ac_input_v = raw_growatt_data.get("vGrid", "N/A")
@@ -307,10 +313,18 @@ def monitor_growatt():
             last_processed_time = current_loop_time_str
 
             # --- Conditional Data Saving ---
-            # Save data to file ONLY if the sensor values have changed OR if last_saved_sensor_values is empty (first run)
-            if not last_saved_sensor_values or current_fetched_sensor_values != last_saved_sensor_values:
-                log_message("✅ New Growatt data received and different from last saved. Saving to file.")
-                log_message(f"   Raw data: {raw_growatt_data}") # Log raw data only when it's new/different
+            # Check if data has changed OR if it's been more than 5 minutes since last save
+            data_has_changed = (not last_saved_sensor_values) or (current_fetched_sensor_values != last_saved_sensor_values)
+            five_minutes_passed = (datetime.now() - last_file_save_time).total_seconds() >= (5 * 60) # 5 minutes in seconds
+
+            if data_has_changed or five_minutes_passed:
+                if data_has_changed:
+                    log_message("✅ New Growatt data received and different from last saved. Saving to file.")
+                    log_message(f"   Raw data: {raw_growatt_data}") # Log raw data only when it's new/different
+                elif five_minutes_passed:
+                    log_message("⏱️ 5 minutes have passed since last save. Saving current data (even if identical).")
+                    log_message(f"   Raw data: {raw_growatt_data}") # Log raw data for heartbeat save
+                
                 last_successful_growatt_update_time = current_loop_time_str
 
                 data_to_save_for_file = {
@@ -323,7 +337,7 @@ def monitor_growatt():
                 }
                 save_data_to_file(data_to_save_for_file)
             else:
-                log_message("No new data to save (identical to last saved values). Skipping file write.")
+                log_message("No new data to save (identical to last saved values) and less than 5 minutes since last save. Skipping file write.")
 
             # --- Telegram Alerts ---
             if telegram_enabled:
