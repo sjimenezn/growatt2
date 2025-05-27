@@ -10,7 +10,6 @@
             background-color: #f9f9f9;
             margin: 0;
             padding: 0;
-            /* Removed max-height: 100vh; */
             overflow-y: auto; /* Allow vertical scrolling if content exceeds viewport height */
         }
 
@@ -221,22 +220,11 @@
                     },
                     shared: true,
                     positioner: function (labelWidth, labelHeight, point) {
-                        // This specific positioner is kept for acVoltageChart,
-                        // but you could make it common if all shared tooltips need this.
-                        // For now, only acVoltageChart uses 'shared: true' and this logic.
-                        // If other charts become shared, this positioner will affect them too if called from here.
-                        // However, only acVoltageChart uses drawMultiSeriesChart.
-                        let plotX = point.plotX;
-                        // For shared tooltips, point.plotX can be an array if multiple series align.
-                        // We'll take the first one or the average if available.
-                        // For simplicity, Highcharts usually provides a single representative point for positioner.
-                        if (this.shared && this.points && this.points.length > 0) {
-                             plotX = this.points[0].plotX; // Use the first point's plotX for shared
-                        }
-
+                        const chartId = this.chart && this.chart.options && this.chart.options.chart && this.chart.options.chart.renderTo ? this.chart.options.chart.renderTo : 'unknown';
+                        console.log(`Positioner called for chart ID: ${chartId} (shared). Point: x=${point.plotX}, y=${point.plotY}. Label: w=${labelWidth}, h=${labelHeight}`);
                         return {
-                            x: plotX - labelWidth / 2,
-                            y: point.plotY - labelHeight - 30
+                            x: point.plotX - labelWidth / 2,
+                            y: point.plotY - labelHeight - 25 // 25px above the point
                         };
                     }
                 },
@@ -301,17 +289,23 @@
                 },
                 tooltip: {
                     formatter: function () {
-                        const originalTime = displayedTimestampObjects[this.point.index];
-                        const timeStr = originalTime.toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
-                        return `Time: ${timeStr}<br>Value: ${this.y}`;
+                        // Ensure displayedTimestampObjects is valid and this.point.index is within bounds
+                        if (displayedTimestampObjects && typeof this.point.index !== 'undefined' && displayedTimestampObjects[this.point.index]) {
+                            const originalTime = displayedTimestampObjects[this.point.index];
+                            const timeStr = originalTime.toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                            return `Time: ${timeStr}<br>Value: ${this.y}`;
+                        }
+                        return `Value: ${this.y}`; // Fallback formatter
                     },
                     positioner: function (labelWidth, labelHeight, point) {
+                        const chartId = this.chart && this.chart.options && this.chart.options.chart && this.chart.options.chart.renderTo ? this.chart.options.chart.renderTo : 'unknown';
+                        console.log(`Positioner called for chart ID: ${chartId}. Point: x=${point.plotX}, y=${point.plotY}. Label: w=${labelWidth}, h=${labelHeight}`);
                         return {
                             x: point.plotX - labelWidth / 2,
-                            y: point.plotY - labelHeight - 30 // 30px above the point
+                            y: point.plotY - labelHeight - 25 // 25px above the point
                         };
                     }
                 },
@@ -332,23 +326,30 @@
             const selectElement = document.getElementById('timeRangeSelect');
             const hoursToShow = parseInt(selectElement.value);
 
+            console.log("Updating charts for hours:", hoursToShow);
+
             // Combined AC Voltage Chart
             const acVoltageSeries = [
                 { name: "AC Input Voltage", data: allAcInput, color: "blue" },
                 { name: "AC Output Voltage", data: allAcOutput, color: "green" }
             ];
-            // The positioner in drawMultiSeriesChart will apply here
             drawMultiSeriesChart("acVoltageChart", "AC Input & Output Voltages", acVoltageSeries, hoursToShow);
 
             // Single Series Charts
-            // The positioner in drawSingleSeriesChart will apply to these
             drawSingleSeriesChart("activePowerChart", "Active Power", "Power (W)", allActivePower, "red", hoursToShow);
             drawSingleSeriesChart("batteryChart", "Battery Capacity", "Capacity (%)", allBatteryCapacity, "orange", hoursToShow);
         }
 
         // Initial chart drawing on page load
         window.onload = function() {
-            updateCharts();
+            // Ensure data arrays are populated before initial draw
+            // (Assuming they are by the time Flask renders the template)
+            console.log("Initial chart draw on page load.");
+            if (typeof allTimestampsAsDates !== 'undefined' && typeof allAcInput !== 'undefined') {
+                 updateCharts();
+            } else {
+                console.error("Initial data not available for chart drawing.");
+            }
         };
     </script>
 </body>
