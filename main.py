@@ -305,7 +305,7 @@ def monitor_growatt():
 
                 # Save data to file every N *fresh data* cycles
                 # (loop_counter >= 10 means save every 11th fresh data point, adjust as needed, e.g. 10 for approx 5 mins if 30s interval)
-                if loop_counter >= 10: # Approx every 5 minutes (10 * 30s sleep = 300s)
+                if loop_counter >= 5: # Approx every 5 minutes (10 * 30s sleep = 300s)
                     save_data_to_file(data_to_save_for_file)
                     # last_saved_sensor_values is updated inside save_data_to_file after a successful save
                     loop_counter = 0  # Reset counter after saving
@@ -383,7 +383,7 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None 
 
-        time.sleep(30)
+        time.sleep(60)
 
 # --- GitHub Sync Config ---
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
