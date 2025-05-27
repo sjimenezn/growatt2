@@ -160,37 +160,6 @@
             return filteredIndices;
         }
 
-        // --- COMMON TOOLTIP CONFIGURATION FOR ALL CHARTS ---
-        // This object defines the desired tooltip behavior for all charts.
-        const commonTooltipConfig = {
-            // Positioner function to place tooltip 30px above the point
-            positioner: function (labelWidth, labelHeight, point) {
-                const chart = this.chart;
-                let tooltipX = point.plotX + chart.plotLeft - (labelWidth / 2); // Center horizontally
-                let tooltipY = point.plotY + chart.plotTop - labelHeight - 30; // 30px above the point
-
-                // Basic bounds checking to prevent tooltip from going off-screen left/right
-                if (tooltipX < chart.plotLeft) {
-                    tooltipX = chart.plotLeft;
-                } else if (tooltipX + labelWidth > chart.plotWidth + chart.plotLeft) {
-                    tooltipX = chart.plotWidth + chart.plotLeft - labelWidth;
-                }
-
-                // Basic bounds checking for vertical position (if it goes off top, move it below)
-                if (tooltipY < chart.plotTop) {
-                    tooltipY = point.plotY + chart.plotTop + 20; // Move below the point with some padding
-                }
-
-                return { x: tooltipX, y: tooltipY };
-            },
-            // Crucial for mobile: prevents tooltip from following finger, which often obscures it
-            followTouchMove: false,
-            // Renders tooltip outside the SVG, giving it more freedom on the page
-            // This is often necessary when using a custom positioner, especially on small screens.
-            outside: true
-        };
-        // ---------------------------------------------------
-
         // Function to draw a chart with multiple series
         function drawMultiSeriesChart(id, title, seriesConfigs, hoursToShow) {
             const filteredIndices = getFilteredData(hoursToShow);
@@ -220,6 +189,7 @@
 
             Highcharts.chart(id, {
                 chart: {
+                    // type: 'area', // Type is now defined per series if needed, or can be a default here
                     spacingTop: 10,
                     spacingBottom: 10
                 },
@@ -227,38 +197,36 @@
                 xAxis: {
                     categories: timeLabels,
                     title: { text: 'Time' },
-                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))),
+                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))), 
                     labels: {
                         rotation: -45,
                         align: 'right',
                     }
                 },
                 yAxis: {
-                    title: { text: 'Voltage (V)' },
-                    min: 0
+                    title: { text: 'Voltage (V)' }, // More specific Y-axis title
+                    min: 0 // Assuming voltages are positive
                 },
                 tooltip: {
-                    // Inherit common properties
-                    ...commonTooltipConfig, // SPREAD OPERATOR: Copies properties from commonTooltipConfig here
-                    // Custom formatter for multi-series (if different from single series)
                     formatter: function () {
-                        const originalTime = displayedTimestampObjects[this.point.index];
+                        const originalTime = displayedTimestampObjects[this.point.index]; 
                         const timeStr = originalTime.toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit'
                         });
+                        // For shared tooltips, 'this.points' is an array of points
                         let s = `<b>Time: ${timeStr}</b>`;
                         this.points.forEach(function (point) {
                             s += `<br/><span style="color:${point.series.color}">●</span> ${point.series.name}: ${point.y}`;
                         });
                         return s;
                     },
-                    shared: true // This is specific to multi-series charts
+                    shared: true 
                 },
                 series: highchartsSeries,
                 plotOptions: {
                     area: {
-                        stacking: null,
+                        stacking: null, 
                         marker: {
                             enabled: false,
                             symbol: 'circle',
@@ -272,7 +240,7 @@
                     }
                 },
                 legend: {
-                    enabled: true
+                    enabled: true 
                 }
             });
         }
@@ -315,9 +283,6 @@
                     min: 0
                 },
                 tooltip: {
-                    // Inherit common properties
-                    ...commonTooltipConfig, // SPREAD OPERATOR: Copies properties from commonTooltipConfig here
-                    // Custom formatter for single series
                     formatter: function () {
                         const originalTime = displayedTimestampObjects[this.point.index];
                         const timeStr = originalTime.toLocaleTimeString([], {
@@ -326,16 +291,15 @@
                         });
                         return `Time: ${timeStr}<br>Value: ${this.y}`;
                     }
-                    // 'shared: true' is not needed for single series, so it's omitted here
                 },
                 series: [{
-                    name: title,
+                    name: title, // Highcharts uses series name for legend by default
                     data: displayedData,
                     color: color,
                     fillOpacity: 0.2
                 }],
                 legend: {
-                     enabled: false
+                     enabled: false // Usually not needed for single series if title is descriptive
                 }
             });
         }
