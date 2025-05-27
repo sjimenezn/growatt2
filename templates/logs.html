@@ -187,9 +187,8 @@
                 };
             });
 
-            Highcharts.chart(id, {
+            const chartOptions = { // Define chart options object
                 chart: {
-                    // type: 'area', // Type is now defined per series if needed, or can be a default here
                     spacingTop: 10,
                     spacingBottom: 10
                 },
@@ -197,36 +196,38 @@
                 xAxis: {
                     categories: timeLabels,
                     title: { text: 'Time' },
-                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))), 
+                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))),
                     labels: {
                         rotation: -45,
                         align: 'right',
                     }
                 },
                 yAxis: {
-                    title: { text: 'Voltage (V)' }, // More specific Y-axis title
-                    min: 0 // Assuming voltages are positive
+                    title: { text: 'Voltage (V)' },
+                    min: 0
                 },
                 tooltip: {
                     formatter: function () {
-                        const originalTime = displayedTimestampObjects[this.point.index]; 
+                        const originalTime = displayedTimestampObjects[this.point.index];
                         const timeStr = originalTime.toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit'
                         });
-                        // For shared tooltips, 'this.points' is an array of points
                         let s = `<b>Time: ${timeStr}</b>`;
                         this.points.forEach(function (point) {
                             s += `<br/><span style="color:${point.series.color}">●</span> ${point.series.name}: ${point.y}`;
                         });
                         return s;
                     },
-                    shared: true 
+                    shared: true,
+                    // --- Add tooltip.outside for acVoltageChart ---
+                    outside: true
+                    // ---------------------------------------------
                 },
                 series: highchartsSeries,
                 plotOptions: {
                     area: {
-                        stacking: null, 
+                        stacking: null,
                         marker: {
                             enabled: false,
                             symbol: 'circle',
@@ -240,9 +241,16 @@
                     }
                 },
                 legend: {
-                    enabled: true 
+                    enabled: true
                 }
-            });
+            };
+
+            // Apply specific tooltip settings for acVoltageChart
+            if (id === "acVoltageChart") {
+                chartOptions.tooltip.followTouchMove = false; // Add this too for better mobile experience
+            }
+
+            Highcharts.chart(id, chartOptions); // Pass the options object to Highcharts.chart
         }
 
         // Function to draw a single series chart
@@ -290,16 +298,18 @@
                             minute: '2-digit'
                         });
                         return `Time: ${timeStr}<br>Value: ${this.y}`;
-                    }
+                    },
+                    // You might want to add followTouchMove: false here too for general mobile charts
+                    followTouchMove: false
                 },
                 series: [{
-                    name: title, // Highcharts uses series name for legend by default
+                    name: title,
                     data: displayedData,
                     color: color,
                     fillOpacity: 0.2
                 }],
                 legend: {
-                     enabled: false // Usually not needed for single series if title is descriptive
+                     enabled: false
                 }
             });
         }
