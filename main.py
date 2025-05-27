@@ -395,122 +395,174 @@ GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
 GIT_PUSH_INTERVAL_MINS = 15
 LOCAL_REPO_PATH = "."
 
-def _perform_single_github_sync_operation():
-    """Performs a Git sync operation, ensuring a commit even if data hasn't changed."""
-    TEMP_DIR = "temp_repo"
-    FILE_TO_SYNC = "saved_data.json" # The file you are syncing
+def _perform_single_github_sync_operation(context_prefix="SYNC"):
+    """
+    Performs a Git sync operation, robustly handling temporary directories
+    and ensuring a commit even if data hasn't changed.
+    context_prefix helps distinguish logs (e.g., "MANUAL_SYNC", "AUTO_SYNC").
+    """
+    # Use a clear base directory (e.g., current working directory, or /tmp if available and preferred on Koyeb)
+    # On Koyeb, os.getcwd() is typically /app
+    base_working_dir = os.path.abspath(os.getcwd()) 
+    
+    TEMP_REPO_DIR_NAME = f"temp_git_repo_{context_prefix.lower()}"
+    TEMP_REPO_PATH = os.path.join(base_working_dir, TEMP_REPO_DIR_NAME)
 
-    # --- Robustly remove temp directory at the start ---
-    if os.path.exists(TEMP_DIR):
-        log_message(f"Attempting to remove existing TEMP_DIR: {TEMP_DIR}")
+    EMPTY_TEMPLATE_DIR_NAME = f"empty_git_template_{context_prefix.lower()}"
+    EMPTY_TEMPLATE_PATH = os.path.join(base_working_dir, EMPTY_TEMPLATE_DIR_NAME)
+    
+    FILE_TO_SYNC = "saved_data.json" # This is your data file
+    original_git_template_dir_env = os.environ.get('GIT_TEMPLATE_DIR')
+
+    log_message(f"[{context_prefix}] Starting GitHub sync operation.")
+
+    # --- 1. Robustly remove temp repository directory at the start ---
+    if os.path.exists(TEMP_REPO_PATH):
+        log_message(f"[{context_prefix}] Attempting to remove existing TEMP_REPO_PATH: {TEMP_REPO_PATH}")
         try:
-            shutil.rmtree(TEMP_DIR)
-            log_message(f"Successfully removed existing TEMP_DIR: {TEMP_DIR}")
+            shutil.rmtree(TEMP_REPO_PATH)
+            log_message(f"[{context_prefix}] Successfully removed existing TEMP_REPO_PATH.")
         except Exception as e_rm_initial:
-            log_message(f"❌ Error removing existing TEMP_DIR {TEMP_DIR} at start: {e_rm_initial}. Sync may fail.")
-            # If removal fails here, the clone will likely fail.
-            # It's a critical issue if the script can't manage its temporary directory.
+            log_message(f"❌ [{context_prefix}] CRITICAL: Error removing TEMP_REPO_PATH {TEMP_REPO_PATH} at start: {e_rm_initial}. Sync aborted.")
             return False, f"Failed to remove pre-existing temp directory: {e_rm_initial}"
     else:
-        log_message(f"TEMP_DIR {TEMP_DIR} did not exist, no initial removal needed.")
+        log_message(f"[{context_prefix}] TEMP_REPO_PATH {TEMP_REPO_PATH} did not exist, no initial removal needed.")
+
+    # --- 2. Create an empty directory to be used as GIT_TEMPLATE_DIR ---
+    try:
+        os.makedirs(EMPTY_TEMPLATE_PATH, exist_ok=True)
+        os.makedirs(os.path.join(EMPTY_TEMPLATE_PATH, "hooks"), exist_ok=True) # Git might need 'hooks'
+        log_message(f"[{context_prefix}] Ensured empty GIT_TEMPLATE_DIR exists at {EMPTY_TEMPLATE_PATH}")
+        os.environ['GIT_TEMPLATE_DIR'] = EMPTY_TEMPLATE_PATH
+        log_message(f"[{context_prefix}] Set GIT_TEMPLATE_DIR environment variable to: {EMPTY_TEMPLATE_PATH}")
+    except Exception as e_mkdir_template:
+        log_message(f"⚠️ [{context_prefix}] Could not create or set empty template dir {EMPTY_TEMPLATE_PATH}: {e_mkdir_template}. Git clone might use system defaults and could fail if system templates are problematic.")
 
     try:
-        # --- GitHub Credentials Check ---
-        if not GITHUB_TOKEN: # Make sure GITHUB_TOKEN is accessible
-            log_message("❌ GITHUB_PAT (GITHUB_TOKEN) environment variable not set!")
-            return False, "GitHub credentials not set"
-        if not GITHUB_USERNAME: # Make sure GITHUB_USERNAME is accessible
-            log_message("❌ GITHUB_USERNAME is not set!")
-            return False, "GitHub username not set"
+        # --- 3. GitHub Credentials Check ---
+        if not GITHUB_TOKEN:
+            log_message(f"❌ [{context_prefix}] GITHUB_TOKEN (PAT) environment variable not set!")
+            # Attempt to restore GIT_TEMPLATE_DIR before returning on early exit
+            if 'GIT_TEMPLATE_DIR' in os.environ and os.environ.get('GIT_TEMPLATE_DIR') == EMPTY_TEMPLATE_PATH:
+                if original_git_template_dir_env is None: del os.environ['GIT_TEMPLATE_DIR']
+                else: os.environ['GIT_TEMPLATE_DIR'] = original_git_template_dir_env
+            return False, "GitHub credentials not set (GITHUB_TOKEN)"
+        if not GITHUB_USERNAME: 
+            log_message(f"❌ [{context_prefix}] GITHUB_USERNAME is not set!")
+            # Attempt to restore GIT_TEMPLATE_DIR before returning on early exit
+            if 'GIT_TEMPLATE_DIR' in os.environ and os.environ.get('GIT_TEMPLATE_DIR') == EMPTY_TEMPLATE_PATH:
+                if original_git_template_dir_env is None: del os.environ['GIT_TEMPLATE_DIR']
+                else: os.environ['GIT_TEMPLATE_DIR'] = original_git_template_dir_env
+            return False, "GitHub credentials not set (GITHUB_USERNAME)"
 
-        # --- Clone Repository ---
-        repo_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git"
-        log_message(f"Cloning repository {repo_url} into {TEMP_DIR}...")
-        repo = Repo.clone_from(repo_url, TEMP_DIR)
-        log_message("Repository cloned successfully.")
+        # --- 4. Clone Repository ---
+        repo_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git" # Your repo URL
+        log_message(f"[{context_prefix}] Cloning repository {repo_url} into {TEMP_REPO_PATH}...")
+        repo = Repo.clone_from(repo_url, TEMP_REPO_PATH)
+        log_message(f"[{context_prefix}] Repository cloned successfully.")
 
-        # --- Configure Git User ---
+        # --- 5. Configure Git User ---
         with repo.config_writer() as cw:
-            cw.set_value("user", "name", "GitHub Sync Bot")
-            cw.set_value("user", "email", "bot@example.com")
-        log_message("Git user configured in cloned repository.")
+            cw.set_value("user", "name", f"GitHub Sync Bot ({context_prefix})")
+            cw.set_value("user", "email", f"bot-{context_prefix.lower()}@example.com") # Generic email
+        log_message(f"[{context_prefix}] Git user configured in cloned repository.")
 
-        # --- File Operations ---
-        source_file_path = FILE_TO_SYNC
-        destination_file_path = os.path.join(TEMP_DIR, FILE_TO_SYNC)
+        # --- 6. File Operations ---
+        # Assuming FILE_TO_SYNC ("saved_data.json") is in the same directory as your main.py
+        source_file_path = os.path.join(base_working_dir, FILE_TO_SYNC) 
+        destination_file_path = os.path.join(TEMP_REPO_PATH, FILE_TO_SYNC)
 
         if os.path.exists(source_file_path):
-            log_message(f"Copying {source_file_path} to {destination_file_path}...")
+            log_message(f"[{context_prefix}] Copying {source_file_path} to {destination_file_path}...")
             shutil.copy2(source_file_path, destination_file_path)
-            log_message("File copied to repository.")
+            log_message(f"[{context_prefix}] File copied to repository.")
         else:
-            log_message(f"❌ Source file {source_file_path} not found. Cannot sync.")
-            # No need to return False here if you want to commit that the file is missing,
-            # but typically you'd want the file to exist.
-            # For now, let's assume if the file is gone, we commit that absence.
-            # If it must exist, then:
-            # shutil.rmtree(TEMP_DIR) # Clean up cloned repo
-            # return False, f"Source file {source_file_path} not found."
-            # If you want to commit the deletion, ensure git add picks it up if it was tracked.
+            log_message(f"❌ [{context_prefix}] Source file {source_file_path} not found. This will be committed as a deletion if the file was previously tracked.")
+            # If the file MUST exist, you might want to return False here:
+            # return False, f"[{context_prefix}] Source file {source_file_path} not found. Aborted."
 
-        # --- Git Add ---
-        log_message("Adding all changes to Git index...")
+        # --- 7. Git Add ---
+        log_message(f"[{context_prefix}] Adding all changes to Git index...")
         repo.git.add(A=True) # Stages all changes (new, modified, deleted)
-        log_message("Changes added to index.")
+        log_message(f"[{context_prefix}] Changes added to index.")
 
-        # --- Git Commit ---
-        commit_message = f"Automated data sync: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        
-        # Check if there are actual changes staged for commit
-        if repo.is_dirty(index=True, working_tree=False, untracked_files=False):
-            log_message(f"Changes detected. Committing with message: '{commit_message}'")
+        # --- 8. Git Commit ---
+        commit_message = f"Automated data sync ({context_prefix}): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        if repo.is_dirty(index=True, working_tree=False, untracked_files=False): # Check if index has changes
+            log_message(f"[{context_prefix}] Changes detected. Committing with message: '{commit_message}'")
             repo.git.commit("-m", commit_message)
-            log_message("✅ Changes committed.")
+            log_message(f"✅ [{context_prefix}] Changes committed.")
         else:
-            # No actual file changes were staged, but user wants to force a sync.
-            # Create an empty commit with the timestamped message.
-            log_message(f"No file content changes detected. Creating empty commit to mark sync: '{commit_message}'")
+            log_message(f"[{context_prefix}] No file content changes detected. Creating empty commit to mark sync: '{commit_message}'")
             repo.git.commit("--allow-empty", "-m", commit_message)
-            log_message("✅ Empty commit created to mark sync time.")
+            log_message(f"✅ [{context_prefix}] Empty commit created.")
 
-        # --- Git Push ---
-        log_message("Pushing changes to GitHub...")
+        # --- 9. Git Push ---
+        log_message(f"[{context_prefix}] Pushing changes to GitHub...")
         origin = repo.remote(name='origin')
         origin.push()
-        log_message("✅ Changes pushed to GitHub.")
+        log_message(f"✅ [{context_prefix}] Changes pushed to GitHub.")
 
-        return True, "Sync completed successfully"
+        return True, f"[{context_prefix}] Sync completed successfully"
 
     except git.GitCommandError as e_git:
-        error_message = f"GitCommandError: {e_git}. Stderr: {e_git.stderr}. Stdout: {e_git.stdout}"
-        log_message(f"❌ GitHub sync failed due to {error_message}")
-        return False, error_message
+        # Improved error formatting for GitCommandError
+        error_detail = f"Cmd({e_git.command}) failed due to: exit code({e_git.status})\n"
+        error_detail += f"  cmdline: {' '.join(e_git.command)}\n"
+        if e_git.stderr: error_detail += f"  stderr: '{e_git.stderr.strip()}'\n"
+        if e_git.stdout: error_detail += f"  stdout: '{e_git.stdout.strip()}'"
+        log_message(f"❌ [{context_prefix}] GitHub sync failed due to GitCommandError:\n{error_detail}")
+        return False, f"GitCommandError: {error_detail}"
     except Exception as e_general:
-        log_message(f"❌ GitHub sync failed due to a general error: {e_general}")
+        log_message(f"❌ [{context_prefix}] GitHub sync failed due to a general error: {type(e_general).__name__} - {e_general}")
         return False, str(e_general)
     finally:
-        # --- Cleanup Temp Directory ---
-        if os.path.exists(TEMP_DIR):
-            log_message(f"Cleaning up TEMP_DIR: {TEMP_DIR} in finally block.")
+        # --- 10. Restore GIT_TEMPLATE_DIR environment variable ---
+        # Check if we actually set GIT_TEMPLATE_DIR to EMPTY_TEMPLATE_PATH
+        if 'GIT_TEMPLATE_DIR' in os.environ and os.environ.get('GIT_TEMPLATE_DIR') == EMPTY_TEMPLATE_PATH :
+            if original_git_template_dir_env is None:
+                del os.environ['GIT_TEMPLATE_DIR']
+                log_message(f"[{context_prefix}] Cleared GIT_TEMPLATE_DIR environment variable.")
+            else:
+                os.environ['GIT_TEMPLATE_DIR'] = original_git_template_dir_env
+                log_message(f"[{context_prefix}] Restored GIT_TEMPLATE_DIR to: {original_git_template_dir_env or 'None'}.")
+        
+        # --- 11. Cleanup Temporary Directories ---
+        if os.path.exists(TEMP_REPO_PATH):
+            log_message(f"[{context_prefix}] Cleaning up TEMP_REPO_PATH: {TEMP_REPO_PATH} in finally block.")
             try:
-                shutil.rmtree(TEMP_DIR)
-                log_message(f"Successfully removed TEMP_DIR: {TEMP_DIR} in finally block.")
-            except Exception as e_rm_final:
-                log_message(f"❌ Error removing TEMP_DIR {TEMP_DIR} in finally block: {e_rm_final}")
+                shutil.rmtree(TEMP_REPO_PATH)
+                log_message(f"[{context_prefix}] Successfully removed TEMP_REPO_PATH in finally block.")
+            except Exception as e_rm_final_repo:
+                log_message(f"❌ [{context_prefix}] Error removing TEMP_REPO_PATH {TEMP_REPO_PATH} in finally block: {e_rm_final_repo}")
+        
+        if os.path.exists(EMPTY_TEMPLATE_PATH):
+            log_message(f"[{context_prefix}] Cleaning up EMPTY_TEMPLATE_PATH: {EMPTY_TEMPLATE_PATH} in finally block.")
+            try:
+                shutil.rmtree(EMPTY_TEMPLATE_PATH)
+                log_message(f"[{context_prefix}] Successfully removed EMPTY_TEMPLATE_PATH in finally block.")
+            except Exception as e_rm_final_template:
+                log_message(f"⚠️ [{context_prefix}] Error removing EMPTY_TEMPLATE_PATH {EMPTY_TEMPLATE_PATH} in finally block: {e_rm_final_template}")
 
+
+# Ensure GIT_PUSH_INTERVAL_MINS is defined (e.g., GIT_PUSH_INTERVAL_MINS = 5)
+# Ensure log_message function is defined
+# Ensure _perform_single_github_sync_operation is defined above this
 
 def sync_github_repo():
-    """Scheduled thread to sync data with GitHub"""
-    log_message(f"🔁 Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
+    """Scheduled thread to sync data with GitHub."""
+    log_message(f"🔁 [{datetime.now().strftime('%H:%M:%S')}] Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
     
     while True:
-        time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
-        success, message = _perform_single_github_sync_operation()
-        log_message(f"Sync result: {message}")
-
-# Start the GitHub sync thread
-github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
-github_sync_thread.start()
+        # Sleep at the beginning of the loop to wait for the first interval
+        time.sleep(GIT_PUSH_INTERVAL_MINS * 60) 
+        
+        current_time_str = datetime.now().strftime('%H:%M:%S')
+        log_message(f"[{current_time_str}] AUTO_SYNC: Triggering GitHub sync job.")
+        
+        success, message = _perform_single_github_sync_operation(context_prefix="AUTO_SYNC") 
+        
+        log_message(f"[{datetime.now().strftime('%H:%M:%S')}] AUTO_SYNC: Sync job result: Success={success}, Message='{message}'")
 
 
 # Telegram Handlers (unchanged)
@@ -952,17 +1004,27 @@ def download_logs():
         log_message(f"❌ Error downloading file: {e}")
         return f"❌ Error downloading file: {e}", 500
 
+# Ensure app is your Flask app instance (app = Flask(__name__))
+# Ensure url_for, redirect, flash (optional) are imported from flask
+# Ensure log_message function is defined
+# Ensure _perform_single_github_sync_operation is defined above this
+
 @app.route("/trigger_github_sync", methods=["POST"])
 def trigger_github_sync():
-    """Manual trigger endpoint for GitHub sync"""
-    log_message("Received manual GitHub sync request")
-    success, message = _perform_single_github_sync_operation()
+    """Manual trigger endpoint for GitHub sync."""
+    current_time_str = datetime.now().strftime('%H:%M:%S')
+    log_message(f"[{current_time_str}] MANUAL_SYNC: Received manual GitHub sync request from web.")
     
-    # Instead of returning JSON, redirect back to logs
-    return redirect(url_for('logs'))
-# Start the GitHub sync thread after Flask app is defined and before it runs
-github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True)
-github_sync_thread.start()
+    # Call the GitHub sync operation with the "MANUAL_SYNC" context
+    success, message = _perform_single_github_sync_operation(context_prefix="MANUAL_SYNC") 
+        
+    log_message(f"[{datetime.now().strftime('%H:%M:%S')}] MANUAL_SYNC: Manual sync web request result: Success={success}, Message='{message}'")
+    
+    # Redirect to the logs page or any other appropriate page
+    # The user will not see a direct message on the webpage from this action,
+    # but the logs will record the outcome.
+    return redirect(url_for('logs')) 
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
