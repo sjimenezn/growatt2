@@ -233,7 +233,7 @@
                 },
                 yAxis: { title: { text: yAxisTitle }, min: 0 },
                 tooltip: {
-                    followPointer: true, // MODIFIED: Make tooltip follow mouse
+                    followPointer: true, // Keep this to enable mouse tracking
                     formatter: function () {
                         let seriesDisplayName = this.series.name;
                         if (id === "batteryChart") { // Specific label for battery chart if needed
@@ -241,26 +241,49 @@
                         } else if (id === "activePowerChart") {
                            seriesDisplayName = "Power";
                         }
-                        // Use this.series.name for the general case, or customize as above
 
                         if (displayedTimestampObjects && typeof this.point.index !== 'undefined' && displayedTimestampObjects[this.point.index]) {
                             const originalTime = displayedTimestampObjects[this.point.index];
                             const timeStr = originalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                             return `<b>Time: ${timeStr}</b><br/><span style="color:${this.series.color}">●</span> ${seriesDisplayName}: ${this.y} ${unitSymbol}`;
                         }
-                        // Fallback if timestamp info isn't available for some reason
                         return `<span style="color:${this.series.color}">●</span> ${seriesDisplayName}: ${this.y} ${unitSymbol}`;
                     },
                     positioner: function (labelWidth, labelHeight, point) {
-                        // MODIFIED: Use point.x and point.y (mouse coordinates)
-                        return {
-                            x: point.x - labelWidth / 2,       // Center tooltip horizontally on the mouse pointer
-                            y: point.y - labelHeight - 25    // Position tooltip 25px above the mouse pointer
-                        };
+                        // 'this' refers to the Tooltip object
+                        const chart = this.chart;
+
+                        // Ensure chart and pointer objects are available
+                        if (chart && chart.pointer) {
+                            const mouseX = chart.pointer.chartX; // Mouse X relative to chart container
+                            const mouseY = chart.pointer.chartY; // Mouse Y relative to chart container
+
+                            // Position the tooltip centered horizontally to the mouse pointer,
+                            // and 25px above the mouse pointer.
+                            return {
+                                x: mouseX - (labelWidth / 2),
+                                y: mouseY - labelHeight - 25
+                            };
+                        }
+
+                        // Fallback position if chart.pointer is not available.
+                        // This might happen if the tooltip is triggered by API and not mouse,
+                        // or if there's an unexpected state.
+                        // Positioning relative to the data point 'point' is a sensible fallback.
+                        if (point && typeof point.plotX === 'number' && typeof point.plotY === 'number') {
+                            return {
+                                x: point.plotX - (labelWidth / 2),
+                                y: point.plotY - labelHeight - 25
+                            };
+                        }
+                        
+                        // Absolute fallback (should ideally not be reached if chart is interactive)
+                        console.warn("Tooltip positioner could not determine mouse or point coordinates.");
+                        return { x: 0, y: 0 }; // Default to top-left if all else fails
                     }
                 },
                 series: [{
-                    name: title, // This 'name' is used by this.series.name in formatter if not overridden by seriesDisplayName logic
+                    name: title, 
                     data: displayedData,
                     color: color,
                     fillOpacity: 0.2
@@ -279,7 +302,6 @@
             ];
             drawMultiSeriesChart("acVoltageChart", "AC Input & Output Voltages", acVoltageSeries, hoursToShow);
 
-            // Pass the unit symbol to drawSingleSeriesChart
             drawSingleSeriesChart("activePowerChart", "Active Power", "Power (W)", allActivePower, "red", hoursToShow, "W");
             drawSingleSeriesChart("batteryChart", "Battery Capacity", "Capacity (%)", allBatteryCapacity, "orange", hoursToShow, "%");
         }
@@ -289,14 +311,10 @@
                 typeof allAcInput !== 'undefined' &&
                 typeof allAcOutput !== 'undefined' &&
                 typeof allActivePower !== 'undefined' &&
-                typeof allBatteryCapacity !== 'undefined') { // Added checks for all data arrays
+                typeof allBatteryCapacity !== 'undefined') {
                  updateCharts();
             } else {
                 console.error("Initial data not available for chart drawing. Ensure all data variables (timestamps, ac_input, ac_output, active_power, battery_capacity) are correctly passed from the server.");
-                // Optionally, display a message to the user on the page
-                // document.getElementById('acVoltageChart').innerHTML = '<h2>Data loading error. Please try again later.</h2>';
-                // document.getElementById('activePowerChart').innerHTML = '<h2>Data loading error. Please try again later.</h2>';
-                // document.getElementById('batteryChart').innerHTML = '<h2>Data loading error. Please try again later.</h2>';
             }
         };
     </script>
