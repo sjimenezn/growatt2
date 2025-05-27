@@ -197,7 +197,7 @@
                 xAxis: {
                     categories: timeLabels,
                     title: { text: 'Time' },
-                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))), 
+                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))),
                     labels: {
                         rotation: -45,
                         align: 'right',
@@ -209,7 +209,7 @@
                 },
                 tooltip: {
                     formatter: function () {
-                        const originalTime = displayedTimestampObjects[this.point.index]; 
+                        const originalTime = displayedTimestampObjects[this.point.index];
                         const timeStr = originalTime.toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit'
@@ -221,12 +221,21 @@
                         });
                         return s;
                     },
-                    shared: true 
+                    shared: true,
+                    // Add the positioner function for the first chart
+                    ...(id === "acVoltageChart" && {
+                        positioner: function (labelWidth, labelHeight, point) {
+                            return {
+                                x: point.plotX - labelWidth / 2, // Centers the tooltip horizontally
+                                y: point.plotY - labelHeight - 30 // Positions the tooltip 30px above the point
+                            };
+                        }
+                    })
                 },
                 series: highchartsSeries,
                 plotOptions: {
                     area: {
-                        stacking: null, 
+                        stacking: null,
                         marker: {
                             enabled: false,
                             symbol: 'circle',
@@ -240,7 +249,7 @@
                     }
                 },
                 legend: {
-                    enabled: true 
+                    enabled: true
                 }
             });
         }
