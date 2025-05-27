@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -131,8 +130,7 @@
             </form>
         </div>
 
-        <div class="chart-container" id="acInputChart"></div>
-        <div class="chart-container" id="acOutputChart"></div>
+        <div class="chart-container" id="acVoltageChart"></div> {/* <-- Combined chart container */}
         <div class="chart-container" id="activePowerChart"></div>
         <div class="chart-container" id="batteryChart"></div>
     </div>
@@ -146,40 +144,123 @@
         const allActivePower = {{ active_power | tojson }};
         const allBatteryCapacity = {{ battery_capacity | tojson }};
 
-        // Function to draw a single chart, now taking 'hoursToShow' as an argument
-        function drawChart(id, title, data, color, hoursToShow) {
-            // Determine the reference time: use the latest timestamp in the data
-            // This ensures "last X hours" is relative to the end of the loaded data.
+        // Function to filter data based on the selected time range
+        function getFilteredData(hoursToShow) {
             const referenceTime = allTimestampsAsDates.length > 0 ?
                                   allTimestampsAsDates[allTimestampsAsDates.length - 1] :
-                                  new Date(); // Fallback to current time if no data
+                                  new Date();
+            const cutoffTime = new Date(referenceTime.getTime() - (hoursToShow * 60 * 60 * 1000));
 
-            const cutoffTime = new Date(referenceTime.getTime() - (hoursToShow * 60 * 60 * 1000)); // hours * minutes * seconds * milliseconds
-
-            // Filter data based on timestamps
             const filteredIndices = [];
             for (let i = 0; i < allTimestampsAsDates.length; i++) {
                 if (allTimestampsAsDates[i] >= cutoffTime) {
                     filteredIndices.push(i);
                 }
             }
+            return filteredIndices;
+        }
 
-            // If no data found for the period, or data is invalid, display empty chart
+        // Function to draw a chart with multiple series
+        function drawMultiSeriesChart(id, title, seriesConfigs, hoursToShow) {
+            const filteredIndices = getFilteredData(hoursToShow);
+
+            if (filteredIndices.length === 0) {
+                console.warn(`No data found for the last ${hoursToShow} hours for multi-series chart: ${title}`);
+                Highcharts.chart(id, {
+                    title: { text: title + ' (No Data Available)' },
+                    series: []
+                });
+                return;
+            }
+
+            const displayedTimestampObjects = filteredIndices.map(index => allTimestampsAsDates[index]);
+            const timeLabels = displayedTimestampObjects.map(date => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
+            const highchartsSeries = seriesConfigs.map(config => {
+                const displayedData = filteredIndices.map(index => config.data[index]);
+                return {
+                    name: config.name,
+                    data: displayedData,
+                    color: config.color,
+                    fillOpacity: 0.2,
+                    type: 'area' // Assuming area chart type for all series in this combined chart
+                };
+            });
+
+            Highcharts.chart(id, {
+                chart: {
+                    // type: 'area', // Type is now defined per series if needed, or can be a default here
+                    spacingTop: 10,
+                    spacingBottom: 10
+                },
+                title: { text: title },
+                xAxis: {
+                    categories: timeLabels,
+                    title: { text: 'Time' },
+                    tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))), 
+                    labels: {
+                        rotation: -45,
+                        align: 'right',
+                    }
+                },
+                yAxis: {
+                    title: { text: 'Voltage (V)' }, // More specific Y-axis title
+                    min: 0 // Assuming voltages are positive
+                },
+                tooltip: {
+                    formatter: function () {
+                        const originalTime = displayedTimestampObjects[this.point.index]; 
+                        const timeStr = originalTime.toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                        // For shared tooltips, 'this.points' is an array of points
+                        let s = `<b>Time: ${timeStr}</b>`;
+                        this.points.forEach(function (point) {
+                            s += `<br/><span style="color:${point.series.color}">●</span> ${point.series.name}: ${point.y}`;
+                        });
+                        return s;
+                    },
+                    shared: true 
+                },
+                series: highchartsSeries,
+                plotOptions: {
+                    area: {
+                        stacking: null, 
+                        marker: {
+                            enabled: false,
+                            symbol: 'circle',
+                            radius: 2,
+                            states: {
+                                hover: {
+                                    enabled: true
+                                }
+                            }
+                        }
+                    }
+                },
+                legend: {
+                    enabled: true 
+                }
+            });
+        }
+
+        // Function to draw a single series chart
+        function drawSingleSeriesChart(id, title, yAxisTitle, data, color, hoursToShow) {
+            const filteredIndices = getFilteredData(hoursToShow);
+
             if (filteredIndices.length === 0) {
                 console.warn(`No data found for the last ${hoursToShow} hours for chart: ${title}`);
                 Highcharts.chart(id, {
                     title: { text: title + ' (No Data Available)' },
                     series: []
                 });
-                return; // Exit function if no data
+                return;
             }
 
-            // Get the actual data and labels for the filtered indices
-            const displayedLabels = filteredIndices.map(index => allTimestampsAsDates[index]);
+            const displayedTimestampObjects = filteredIndices.map(index => allTimestampsAsDates[index]);
+            const timeLabels = displayedTimestampObjects.map(date => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
             const displayedData = filteredIndices.map(index => data[index]);
-
-            // Generate time labels for x-axis categories from the displayedLabels
-            const timeLabels = displayedLabels.map(date => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 
             Highcharts.chart(id, {
                 chart: {
@@ -198,12 +279,12 @@
                     }
                 },
                 yAxis: {
-                    title: { text: 'Value' },
+                    title: { text: yAxisTitle },
                     min: 0
                 },
                 tooltip: {
                     formatter: function () {
-                        const originalTime = displayedLabels[this.point.index];
+                        const originalTime = displayedTimestampObjects[this.point.index];
                         const timeStr = originalTime.toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit'
@@ -212,11 +293,14 @@
                     }
                 },
                 series: [{
-                    name: title,
+                    name: title, // Highcharts uses series name for legend by default
                     data: displayedData,
                     color: color,
                     fillOpacity: 0.2
-                }]
+                }],
+                legend: {
+                     enabled: false // Usually not needed for single series if title is descriptive
+                }
             });
         }
 
@@ -225,10 +309,16 @@
             const selectElement = document.getElementById('timeRangeSelect');
             const hoursToShow = parseInt(selectElement.value);
 
-            drawChart("acInputChart", "AC Input Voltage", allAcInput, "blue", hoursToShow);
-            drawChart("acOutputChart", "AC Output Voltage", allAcOutput, "green", hoursToShow);
-            drawChart("activePowerChart", "Active Power", allActivePower, "red", hoursToShow);
-            drawChart("batteryChart", "Battery Capacity", allBatteryCapacity, "orange", hoursToShow);
+            // Combined AC Voltage Chart
+            const acVoltageSeries = [
+                { name: "AC Input Voltage", data: allAcInput, color: "blue" },
+                { name: "AC Output Voltage", data: allAcOutput, color: "green" }
+            ];
+            drawMultiSeriesChart("acVoltageChart", "AC Input & Output Voltages", acVoltageSeries, hoursToShow);
+
+            // Single Series Charts
+            drawSingleSeriesChart("activePowerChart", "Active Power", "Power (W)", allActivePower, "red", hoursToShow);
+            drawSingleSeriesChart("batteryChart", "Battery Capacity", "Capacity (%)", allBatteryCapacity, "orange", hoursToShow);
         }
 
         // Initial chart drawing on page load
