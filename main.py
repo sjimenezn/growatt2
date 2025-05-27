@@ -420,7 +420,7 @@ def _perform_single_github_sync_operation(context_prefix="SYNC"):
             log_message(f"❌ [{context_prefix}] CRITICAL: Error removing TEMP_REPO_PATH {TEMP_REPO_PATH} at start: {e_rm_initial}. Sync aborted.")
             return False, f"Failed to remove pre-existing temp directory: {e_rm_initial}"
     else:
-        log_message(f"[{context_prefix}] TEMP_REPO_PATH {TEMP_REPO_PATH} did not exist, no initial removal needed.")
+        #log_message(f"[{context_prefix}] TEMP_REPO_PATH {TEMP_REPO_PATH} did not exist, no initial removal needed.")
 
     try:
         os.makedirs(EMPTY_TEMPLATE_PATH, exist_ok=True)
@@ -530,11 +530,11 @@ def sync_github_repo():
         time.sleep(GIT_PUSH_INTERVAL_MINS * 60) 
         
         current_time_str = datetime.now().strftime('%H:%M:%S')
-        log_message(f"[{current_time_str}] AUTO_SYNC: Triggering GitHub sync job.")
+        log_message(f"[{current_time_str}] 🔁AUTO_SYNC: Triggering GitHub sync job.")
         
         success, message = _perform_single_github_sync_operation(context_prefix="AUTO_SYNC") 
         
-        log_message(f"[{datetime.now().strftime('%H:%M:%S')}] AUTO_SYNC: Sync job result: Success={success}, Message='{message}'")
+        log_message(f"[{datetime.now().strftime('%H:%M:%S')}] ✅AUTO_SYNC: Sync job result: Success={success}, Message='{message}'")
 
 
 # Telegram Handlers
