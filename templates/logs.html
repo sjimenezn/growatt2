@@ -136,20 +136,17 @@
 
     <script>
         // These global variables will hold the full dataset received from Flask
-        // Timestamps will be converted to Date objects for easier manipulation
         const allTimestampsAsDates = {{ timestamps | tojson }}.map(ts => new Date(ts));
         const allAcInput = {{ ac_input | tojson }};
         const allAcOutput = {{ ac_output | tojson }};
         const allActivePower = {{ active_power | tojson }};
         const allBatteryCapacity = {{ battery_capacity | tojson }};
 
-        // Function to filter data based on the selected time range
         function getFilteredData(hoursToShow) {
             const referenceTime = allTimestampsAsDates.length > 0 ?
                                   allTimestampsAsDates[allTimestampsAsDates.length - 1] :
                                   new Date();
             const cutoffTime = new Date(referenceTime.getTime() - (hoursToShow * 60 * 60 * 1000));
-
             const filteredIndices = [];
             for (let i = 0; i < allTimestampsAsDates.length; i++) {
                 if (allTimestampsAsDates[i] >= cutoffTime) {
@@ -159,59 +156,36 @@
             return filteredIndices;
         }
 
-        // Function to draw a chart with multiple series
         function drawMultiSeriesChart(id, title, seriesConfigs, hoursToShow) {
             const filteredIndices = getFilteredData(hoursToShow);
-
             if (filteredIndices.length === 0) {
-                console.warn(`No data found for the last ${hoursToShow} hours for multi-series chart: ${title}`);
-                Highcharts.chart(id, {
-                    title: { text: title + ' (No Data Available)' },
-                    series: []
-                });
+                Highcharts.chart(id, { title: { text: title + ' (No Data Available)' }, series: [] });
                 return;
             }
-
             const displayedTimestampObjects = filteredIndices.map(index => allTimestampsAsDates[index]);
             const timeLabels = displayedTimestampObjects.map(date => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-
-            const highchartsSeries = seriesConfigs.map(config => {
-                const displayedData = filteredIndices.map(index => config.data[index]);
-                return {
-                    name: config.name,
-                    data: displayedData,
-                    color: config.color,
-                    fillOpacity: 0.2,
-                    type: 'area'
-                };
-            });
+            const highchartsSeries = seriesConfigs.map(config => ({
+                name: config.name,
+                data: filteredIndices.map(index => config.data[index]),
+                color: config.color,
+                fillOpacity: 0.2,
+                type: 'area'
+            }));
 
             Highcharts.chart(id, {
-                chart: {
-                    spacingTop: 10,
-                    spacingBottom: 10
-                },
+                chart: { spacingTop: 10, spacingBottom: 10 },
                 title: { text: title },
                 xAxis: {
                     categories: timeLabels,
                     title: { text: 'Time' },
                     tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))),
-                    labels: {
-                        rotation: -45,
-                        align: 'right',
-                    }
+                    labels: { rotation: -45, align: 'right' }
                 },
-                yAxis: {
-                    title: { text: 'Voltage (V)' },
-                    min: 0
-                },
+                yAxis: { title: { text: 'Voltage (V)' }, min: 0 },
                 tooltip: {
                     formatter: function () {
                         const originalTime = displayedTimestampObjects[this.point.index];
-                        const timeStr = originalTime.toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
+                        const timeStr = originalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         let s = `<b>Time: ${timeStr}</b>`;
                         this.points.forEach(function (point) {
                             s += `<br/><span style="color:${point.series.color}">●</span> ${point.series.name}: ${point.y}`;
@@ -220,8 +194,6 @@
                     },
                     shared: true,
                     positioner: function (labelWidth, labelHeight, point) {
-                        const chartId = this.chart && this.chart.options && this.chart.options.chart && this.chart.options.chart.renderTo ? this.chart.options.chart.renderTo : 'unknown';
-                        console.log(`Positioner called for chart ID: ${chartId} (shared). Point: x=${point.plotX}, y=${point.plotY}. Label: w=${labelWidth}, h=${labelHeight}`);
                         return {
                             x: point.plotX - labelWidth / 2,
                             y: point.plotY - labelHeight - 25 // 25px above the point
@@ -232,77 +204,53 @@
                 plotOptions: {
                     area: {
                         stacking: null,
-                        marker: {
-                            enabled: false,
-                            symbol: 'circle',
-                            radius: 2,
-                            states: {
-                                hover: {
-                                    enabled: true
-                                }
-                            }
-                        }
+                        marker: { enabled: false, symbol: 'circle', radius: 2, states: { hover: { enabled: true } } }
                     }
                 },
-                legend: {
-                    enabled: true
-                }
+                legend: { enabled: true }
             });
         }
 
-        // Function to draw a single series chart
-        function drawSingleSeriesChart(id, title, yAxisTitle, data, color, hoursToShow) {
+        // Added 'unitSymbol' parameter
+        function drawSingleSeriesChart(id, title, yAxisTitle, data, color, hoursToShow, unitSymbol) {
             const filteredIndices = getFilteredData(hoursToShow);
-
             if (filteredIndices.length === 0) {
-                console.warn(`No data found for the last ${hoursToShow} hours for chart: ${title}`);
-                Highcharts.chart(id, {
-                    title: { text: title + ' (No Data Available)' },
-                    series: []
-                });
+                Highcharts.chart(id, { title: { text: title + ' (No Data Available)' }, series: [] });
                 return;
             }
-
             const displayedTimestampObjects = filteredIndices.map(index => allTimestampsAsDates[index]);
             const timeLabels = displayedTimestampObjects.map(date => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
             const displayedData = filteredIndices.map(index => data[index]);
 
             Highcharts.chart(id, {
-                chart: {
-                    type: 'area',
-                    spacingTop: 10,
-                    spacingBottom: 10
-                },
+                chart: { type: 'area', spacingTop: 10, spacingBottom: 10 },
                 title: { text: title },
                 xAxis: {
                     categories: timeLabels,
                     title: { text: 'Time' },
                     tickInterval: Math.max(1, Math.floor(timeLabels.length / (hoursToShow * 0.5))),
-                    labels: {
-                        rotation: -45,
-                        align: 'right',
-                    }
+                    labels: { rotation: -45, align: 'right' }
                 },
-                yAxis: {
-                    title: { text: yAxisTitle },
-                    min: 0
-                },
+                yAxis: { title: { text: yAxisTitle }, min: 0 },
                 tooltip: {
                     formatter: function () {
-                        // Ensure displayedTimestampObjects is valid and this.point.index is within bounds
+                        let seriesDisplayName = this.series.name;
+                        if (id === "batteryChart") { // Specific label for battery chart if needed
+                           seriesDisplayName = "SoC";
+                        } else if (id === "activePowerChart") {
+                           seriesDisplayName = "Power";
+                        }
+                        // Use this.series.name for the general case, or customize as above
+
                         if (displayedTimestampObjects && typeof this.point.index !== 'undefined' && displayedTimestampObjects[this.point.index]) {
                             const originalTime = displayedTimestampObjects[this.point.index];
-                            const timeStr = originalTime.toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            });
-                            return `Time: ${timeStr}<br>Value: ${this.y}`;
+                            const timeStr = originalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            return `<b>Time: ${timeStr}</b><br/><span style="color:${this.series.color}">●</span> ${seriesDisplayName}: ${this.y} ${unitSymbol}`;
                         }
-                        return `Value: ${this.y}`; // Fallback formatter
+                        // Fallback if timestamp info isn't available for some reason
+                        return `<span style="color:${this.series.color}">●</span> ${seriesDisplayName}: ${this.y} ${unitSymbol}`;
                     },
                     positioner: function (labelWidth, labelHeight, point) {
-                        const chartId = this.chart && this.chart.options && this.chart.options.chart && this.chart.options.chart.renderTo ? this.chart.options.chart.renderTo : 'unknown';
-                        console.log(`Positioner called for chart ID: ${chartId}. Point: x=${point.plotX}, y=${point.plotY}. Label: w=${labelWidth}, h=${labelHeight}`);
                         return {
                             x: point.plotX - labelWidth / 2,
                             y: point.plotY - labelHeight - 25 // 25px above the point
@@ -310,41 +258,31 @@
                     }
                 },
                 series: [{
-                    name: title,
+                    name: title, // This 'name' is used by this.series.name in formatter if not overridden by seriesDisplayName logic
                     data: displayedData,
                     color: color,
                     fillOpacity: 0.2
                 }],
-                legend: {
-                     enabled: false
-                }
+                legend: { enabled: false }
             });
         }
 
-        // Function to update all charts based on the selected time range
         function updateCharts() {
             const selectElement = document.getElementById('timeRangeSelect');
             const hoursToShow = parseInt(selectElement.value);
 
-            console.log("Updating charts for hours:", hoursToShow);
-
-            // Combined AC Voltage Chart
             const acVoltageSeries = [
                 { name: "AC Input Voltage", data: allAcInput, color: "blue" },
                 { name: "AC Output Voltage", data: allAcOutput, color: "green" }
             ];
             drawMultiSeriesChart("acVoltageChart", "AC Input & Output Voltages", acVoltageSeries, hoursToShow);
 
-            // Single Series Charts
-            drawSingleSeriesChart("activePowerChart", "Active Power", "Power (W)", allActivePower, "red", hoursToShow);
-            drawSingleSeriesChart("batteryChart", "Battery Capacity", "Capacity (%)", allBatteryCapacity, "orange", hoursToShow);
+            // Pass the unit symbol to drawSingleSeriesChart
+            drawSingleSeriesChart("activePowerChart", "Active Power", "Power (W)", allActivePower, "red", hoursToShow, "W");
+            drawSingleSeriesChart("batteryChart", "Battery Capacity", "Capacity (%)", allBatteryCapacity, "orange", hoursToShow, "%");
         }
 
-        // Initial chart drawing on page load
         window.onload = function() {
-            // Ensure data arrays are populated before initial draw
-            // (Assuming they are by the time Flask renders the template)
-            console.log("Initial chart draw on page load.");
             if (typeof allTimestampsAsDates !== 'undefined' && typeof allAcInput !== 'undefined') {
                  updateCharts();
             } else {
