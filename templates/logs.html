@@ -233,6 +233,7 @@
                 },
                 yAxis: { title: { text: yAxisTitle }, min: 0 },
                 tooltip: {
+                    followPointer: true, // MODIFIED: Make tooltip follow mouse
                     formatter: function () {
                         let seriesDisplayName = this.series.name;
                         if (id === "batteryChart") { // Specific label for battery chart if needed
@@ -251,9 +252,10 @@
                         return `<span style="color:${this.series.color}">●</span> ${seriesDisplayName}: ${this.y} ${unitSymbol}`;
                     },
                     positioner: function (labelWidth, labelHeight, point) {
+                        // MODIFIED: Use point.x and point.y (mouse coordinates)
                         return {
-                            x: point.plotX - labelWidth / 2,
-                            y: point.plotY - labelHeight - 25 // 25px above the point
+                            x: point.x - labelWidth / 2,       // Center tooltip horizontally on the mouse pointer
+                            y: point.y - labelHeight - 25    // Position tooltip 25px above the mouse pointer
                         };
                     }
                 },
@@ -283,10 +285,18 @@
         }
 
         window.onload = function() {
-            if (typeof allTimestampsAsDates !== 'undefined' && typeof allAcInput !== 'undefined') {
+            if (typeof allTimestampsAsDates !== 'undefined' && 
+                typeof allAcInput !== 'undefined' &&
+                typeof allAcOutput !== 'undefined' &&
+                typeof allActivePower !== 'undefined' &&
+                typeof allBatteryCapacity !== 'undefined') { // Added checks for all data arrays
                  updateCharts();
             } else {
-                console.error("Initial data not available for chart drawing.");
+                console.error("Initial data not available for chart drawing. Ensure all data variables (timestamps, ac_input, ac_output, active_power, battery_capacity) are correctly passed from the server.");
+                // Optionally, display a message to the user on the page
+                // document.getElementById('acVoltageChart').innerHTML = '<h2>Data loading error. Please try again later.</h2>';
+                // document.getElementById('activePowerChart').innerHTML = '<h2>Data loading error. Please try again later.</h2>';
+                // document.getElementById('batteryChart').innerHTML = '<h2>Data loading error. Please try again later.</h2>';
             }
         };
     </script>
