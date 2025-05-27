@@ -189,7 +189,7 @@
                         if (displayedTimestampObjects && typeof pointForTime.index !== 'undefined' && displayedTimestampObjects[pointForTime.index]) {
                              const originalTime = displayedTimestampObjects[pointForTime.index];
                              timeStr = originalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                        } else if (typeof this.x === 'string' && this.x.includes(':')) {
+                        } else if (typeof this.x === 'string' && this.x.includes(':')) { // Fallback if categories are strings
                             timeStr = this.x;
                         }
                         let s = `<b>Time: ${timeStr || 'N/A'}</b>`;
@@ -198,13 +198,17 @@
                         });
                         return s;
                     },
-                    shared: true, // First chart's original setting
+                    shared: true, // Key setting from the first chart
                     positioner: function (labelWidth, labelHeight, point) {
+                        // This is the positioner from the first chart
+                        // 'point.plotX' is the x-coordinate on the chart for the shared tooltip
+                        // 'point.plotY' is the y-coordinate of the anchor point (e.g., first series' point)
                         return {
                             x: point.plotX - labelWidth / 2,
                             y: point.plotY - labelHeight - 25
                         };
                     }
+                    // followPointer is implicitly false here
                 },
                 series: highchartsSeries,
                 plotOptions: {
@@ -238,66 +242,49 @@
                 },
                 yAxis: { title: { text: yAxisTitle }, min: 0 },
                 tooltip: {
-                    followPointer: true, // <<< Enable true mouse/finger following
+                    shared: true, // MODIFIED: Mirror the first chart's setting
+                    // followPointer: false, // Implicitly false, mirroring the first chart
                     formatter: function () {
-                        // This formatter should still work, as 'this.point' refers to the data point
-                        // under the cursor for content, even if the tooltip box follows the pointer.
-                        let seriesDisplayName = this.series.name;
-                        if (id === "batteryChart") {
+                        // For a shared tooltip on a single series chart, this.points will have 1 element.
+                        const point = this.points[0]; // Get the single point from the shared context
+                        let seriesDisplayName = point.series.name; // Use point's series name
+
+                        if (id === "batteryChart") { // 'id' is from the outer function's scope
                            seriesDisplayName = "SoC";
                         } else if (id === "activePowerChart") {
                            seriesDisplayName = "Power";
                         }
 
-                        if (displayedTimestampObjects && typeof this.point.index !== 'undefined' && displayedTimestampObjects[this.point.index]) {
-                            const originalTime = displayedTimestampObjects[this.point.index];
-                            const timeStr = originalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                            return `<b>Time: ${timeStr}</b><br/><span style="color:${this.series.color}">●</span> ${seriesDisplayName}: ${this.y} ${unitSymbol}`;
+                        let timeStr = '';
+                        if (displayedTimestampObjects && typeof point.index !== 'undefined' && displayedTimestampObjects[point.index]) {
+                            const originalTime = displayedTimestampObjects[point.index];
+                            timeStr = originalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        } else if (typeof this.x === 'string' && this.x.includes(':')) { // Fallback for string categories
+                            timeStr = this.x;
                         }
-                        return `<span style="color:${this.series.color}">●</span> ${seriesDisplayName}: ${this.y} ${unitSymbol}`;
+                        // 'unitSymbol' is from the outer function's scope
+                        return `<b>Time: ${timeStr || 'N/A'}</b><br/><span style="color:${point.series.color}">●</span> ${seriesDisplayName}: ${point.y} ${unitSymbol}`;
                     },
                     positioner: function (labelWidth, labelHeight, point) {
-                        // 'this' refers to the Tooltip object
-                        const chart = this.chart;
-                        let mouseX = 0;
-                        let mouseY = 0;
+                        // MODIFIED: Use the exact same positioner logic as the first chart
+                        // For a single series chart with shared:true, point.plotX and point.plotY
+                        // will refer to that single point's coordinates at the hovered X value.
+                        // If this setup makes the first chart's tooltip "stick on top of your finger",
+                        // it should do the same here.
 
-                        // console.log("Positioner called. LW:", labelWidth, "LH:", labelHeight, "Point arg:", point);
+                        // console.log("SingleSeriesChart Positioner - Args:", { labelWidth, labelHeight, point });
+                        // console.log("SingleSeriesChart Positioner - point.plotX:", point.plotX, "point.plotY:", point.plotY);
 
-                        if (chart && chart.pointer) {
-                            // Use mouse coordinates relative to the chart container
-                            mouseX = chart.pointer.chartX;
-                            mouseY = chart.pointer.chartY;
-
-                            // console.log("Mouse from chart.pointer: X=", mouseX, "Y=", mouseY);
-
-                            // Ensure coordinates and dimensions are numbers
-                            if (typeof mouseX !== 'number' || typeof mouseY !== 'number' || typeof labelWidth !== 'number' || typeof labelHeight !== 'number') {
-                                // console.warn("Invalid coordinates or dimensions for positioner. Tooltip may be misplaced.");
-                                // Fallback if something is not a number, position at mouseX, mouseY or 0,0 if those also bad
-                                return { x: typeof mouseX === 'number' ? mouseX : 0, y: typeof mouseY === 'number' ? mouseY - 25 : -25 };
-                            }
-
-                            return {
-                                x: mouseX - (labelWidth / 2),    // Center tooltip horizontally on the mouse pointer
-                                y: mouseY - labelHeight - 25     // Position tooltip with its bottom 25px above the mouse pointer
-                            };
+                        if (typeof point.plotX !== 'number' || typeof point.plotY !== 'number' || typeof labelWidth !== 'number' || typeof labelHeight !== 'number') {
+                            // console.warn("SingleSeriesChart Positioner: Invalid input for positioning. plotX/plotY may be undefined.");
+                            // Fallback to prevent errors, though this will likely result in a stuck tooltip if inputs are bad.
+                            return { x: 0, y: 0 };
                         }
 
-                        // Fallback if chart.pointer is somehow not available
-                        // console.warn("chart.pointer not available in positioner.");
-                        // Try using the 'point' argument passed to positioner - as per docs, point.x/y should be mouse coords with followPointer:true
-                        if (point && typeof point.x === 'number' && typeof point.y === 'number' && typeof labelWidth === 'number' && typeof labelHeight === 'number') {
-                             // console.log("Using point.x, point.y from argument: X=", point.x, "Y=", point.y);
-                             return {
-                                x: point.x - (labelWidth / 2),
-                                y: point.y - labelHeight - 25
-                            };
-                        }
-                        
-                        // Absolute fallback (should ideally not be reached)
-                        // console.error("Tooltip positioner could not determine valid coordinates.");
-                        return { x: 0, y: 0 }; // Default to top-left if all else fails
+                        return {
+                            x: point.plotX - labelWidth / 2,
+                            y: point.plotY - labelHeight - 25
+                        };
                     }
                 },
                 series: [{
@@ -312,7 +299,7 @@
 
         function updateCharts() {
             const selectElement = document.getElementById('timeRangeSelect');
-            const hoursToShow = parseInt(selectElement.value);
+            const hoursToShow = parseInt(select.value);
 
             const acVoltageSeries = [
                 { name: "AC Input Voltage", data: allAcInput, color: "blue" },
