@@ -160,6 +160,30 @@
             return filteredIndices;
         }
 
+        // --- Common Tooltip Positioner for all charts ---
+        // This function will be used by all tooltips to position them 30px above the point
+        function commonTooltipPositioner(labelWidth, labelHeight, point) {
+            const chart = this.chart;
+            let tooltipX = point.plotX + chart.plotLeft - (labelWidth / 2); // Center horizontally
+            let tooltipY = point.plotY + chart.plotTop - labelHeight - 30; // 30px above the point
+
+            // Basic bounds checking to prevent tooltip from going off-screen left/right
+            if (tooltipX < chart.plotLeft) {
+                tooltipX = chart.plotLeft;
+            } else if (tooltipX + labelWidth > chart.plotWidth + chart.plotLeft) {
+                tooltipX = chart.plotWidth + chart.plotLeft - labelWidth;
+            }
+
+            // Basic bounds checking for vertical position (if it goes off top, move it below)
+            if (tooltipY < chart.plotTop) {
+                tooltipY = point.plotY + chart.plotTop + 20; // Move below the point with some padding
+            }
+
+            return { x: tooltipX, y: tooltipY };
+        }
+        // -------------------------------------------------
+
+
         // Function to draw a chart with multiple series
         function drawMultiSeriesChart(id, title, seriesConfigs, hoursToShow) {
             const filteredIndices = getFilteredData(hoursToShow);
@@ -183,11 +207,11 @@
                     data: displayedData,
                     color: config.color,
                     fillOpacity: 0.2,
-                    type: 'area' // Assuming area chart type for all series in this combined chart
+                    type: 'area'
                 };
             });
 
-            const chartOptions = { // Define chart options object
+            Highcharts.chart(id, {
                 chart: {
                     spacingTop: 10,
                     spacingBottom: 10
@@ -201,10 +225,6 @@
                         rotation: -45,
                         align: 'right',
                     }
-                },
-                yAxis: {
-                    title: { text: 'Voltage (V)' },
-                    min: 0
                 },
                 tooltip: {
                     formatter: function () {
@@ -220,9 +240,12 @@
                         return s;
                     },
                     shared: true,
-                    // --- Add tooltip.outside for acVoltageChart ---
-                    outside: true
-                    // ---------------------------------------------
+                    positioner: commonTooltipPositioner, // Use the common positioner
+                    followTouchMove: false              // Apply for all charts
+                },
+                yAxis: {
+                    title: { text: 'Voltage (V)' },
+                    min: 0
                 },
                 series: highchartsSeries,
                 plotOptions: {
@@ -243,14 +266,7 @@
                 legend: {
                     enabled: true
                 }
-            };
-
-            // Apply specific tooltip settings for acVoltageChart
-            if (id === "acVoltageChart") {
-                chartOptions.tooltip.followTouchMove = false; // Add this too for better mobile experience
-            }
-
-            Highcharts.chart(id, chartOptions); // Pass the options object to Highcharts.chart
+            });
         }
 
         // Function to draw a single series chart
@@ -299,8 +315,8 @@
                         });
                         return `Time: ${timeStr}<br>Value: ${this.y}`;
                     },
-                    // You might want to add followTouchMove: false here too for general mobile charts
-                    followTouchMove: false
+                    positioner: commonTooltipPositioner, // Use the common positioner
+                    followTouchMove: false              // Apply for all charts
                 },
                 series: [{
                     name: title,
