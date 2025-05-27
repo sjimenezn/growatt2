@@ -305,7 +305,7 @@ def monitor_growatt():
 
                 # Save data to file every N *fresh data* cycles
                 # (loop_counter >= 2 means save every 3rd fresh data point, adjust as needed)
-                if loop_counter >= 2: 
+                if loop_counter >= 10: 
                     save_data_to_file(data_to_save_for_file)
                     # last_saved_sensor_values is updated inside save_data_to_file after a successful save
                     loop_counter = 0  # Reset counter after saving
@@ -392,7 +392,7 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
 GITHUB_USERNAME = "sjimenezn"
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
-GIT_PUSH_INTERVAL_MINS = 5
+GIT_PUSH_INTERVAL_MINS = 15
 LOCAL_REPO_PATH = "."
 
 def _perform_single_github_sync_operation():
