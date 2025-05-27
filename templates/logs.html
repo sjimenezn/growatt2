@@ -184,31 +184,36 @@
                 yAxis: { title: { text: 'Voltage (V)' }, min: 0 },
                 tooltip: {
                     formatter: function () {
+                        if (!this.points || this.points.length === 0) {
+                            return false; // Don't show tooltip if no points
+                        }
                         const pointForTime = this.points[0];
                         let timeStr = '';
-                        if (displayedTimestampObjects && typeof pointForTime.index !== 'undefined' && displayedTimestampObjects[pointForTime.index]) {
+                        if (pointForTime && displayedTimestampObjects && typeof pointForTime.index !== 'undefined' && displayedTimestampObjects[pointForTime.index]) {
                              const originalTime = displayedTimestampObjects[pointForTime.index];
                              timeStr = originalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                        } else if (typeof this.x === 'string' && this.x.includes(':')) { // Fallback if categories are strings
+                        } else if (typeof this.x === 'string' && this.x.includes(':')) {
                             timeStr = this.x;
                         }
                         let s = `<b>Time: ${timeStr || 'N/A'}</b>`;
                         this.points.forEach(function (point) {
-                            s += `<br/><span style="color:${point.series.color}">●</span> ${point.series.name}: ${point.y}`;
+                            if (point && point.series) {
+                                s += `<br/><span style="color:${point.series.color}">●</span> ${point.series.name}: ${point.y}`;
+                            }
                         });
                         return s;
                     },
-                    shared: true, // Key setting from the first chart
+                    shared: true,
                     positioner: function (labelWidth, labelHeight, point) {
-                        // This is the positioner from the first chart
-                        // 'point.plotX' is the x-coordinate on the chart for the shared tooltip
-                        // 'point.plotY' is the y-coordinate of the anchor point (e.g., first series' point)
+                        if (!point || typeof point.plotX !== 'number' || typeof point.plotY !== 'number' ||
+                            typeof labelWidth !== 'number' || typeof labelHeight !== 'number' || labelWidth <= 0 || labelHeight <= 0) {
+                            return { x: -9999, y: -9999 }; // Position off-screen if inputs are invalid
+                        }
                         return {
                             x: point.plotX - labelWidth / 2,
                             y: point.plotY - labelHeight - 25
                         };
                     }
-                    // followPointer is implicitly false here
                 },
                 series: highchartsSeries,
                 plotOptions: {
@@ -242,14 +247,20 @@
                 },
                 yAxis: { title: { text: yAxisTitle }, min: 0 },
                 tooltip: {
-                    shared: true, // MODIFIED: Mirror the first chart's setting
-                    // followPointer: false, // Implicitly false, mirroring the first chart
+                    shared: true, // Mirror the first chart's setting
                     formatter: function () {
-                        // For a shared tooltip on a single series chart, this.points will have 1 element.
-                        const point = this.points[0]; // Get the single point from the shared context
-                        let seriesDisplayName = point.series.name; // Use point's series name
+                        if (!this.points || this.points.length === 0) {
+                            return false; // Don't show tooltip if no points
+                        }
+                        const point = this.points[0];
 
-                        if (id === "batteryChart") { // 'id' is from the outer function's scope
+                        if (!point || !point.series) {
+                            // console.error("SingleSeriesChart Tooltip formatter: point or point.series is undefined.", point);
+                            return "Error in tooltip";
+                        }
+
+                        let seriesDisplayName = point.series.name;
+                        if (id === "batteryChart") {
                            seriesDisplayName = "SoC";
                         } else if (id === "activePowerChart") {
                            seriesDisplayName = "Power";
@@ -259,28 +270,19 @@
                         if (displayedTimestampObjects && typeof point.index !== 'undefined' && displayedTimestampObjects[point.index]) {
                             const originalTime = displayedTimestampObjects[point.index];
                             timeStr = originalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                        } else if (typeof this.x === 'string' && this.x.includes(':')) { // Fallback for string categories
+                        } else if (typeof this.x === 'string' && this.x.includes(':')) {
                             timeStr = this.x;
                         }
-                        // 'unitSymbol' is from the outer function's scope
                         return `<b>Time: ${timeStr || 'N/A'}</b><br/><span style="color:${point.series.color}">●</span> ${seriesDisplayName}: ${point.y} ${unitSymbol}`;
                     },
                     positioner: function (labelWidth, labelHeight, point) {
-                        // MODIFIED: Use the exact same positioner logic as the first chart
-                        // For a single series chart with shared:true, point.plotX and point.plotY
-                        // will refer to that single point's coordinates at the hovered X value.
-                        // If this setup makes the first chart's tooltip "stick on top of your finger",
-                        // it should do the same here.
-
                         // console.log("SingleSeriesChart Positioner - Args:", { labelWidth, labelHeight, point });
-                        // console.log("SingleSeriesChart Positioner - point.plotX:", point.plotX, "point.plotY:", point.plotY);
-
-                        if (typeof point.plotX !== 'number' || typeof point.plotY !== 'number' || typeof labelWidth !== 'number' || typeof labelHeight !== 'number') {
-                            // console.warn("SingleSeriesChart Positioner: Invalid input for positioning. plotX/plotY may be undefined.");
-                            // Fallback to prevent errors, though this will likely result in a stuck tooltip if inputs are bad.
-                            return { x: 0, y: 0 };
+                        if (!point || typeof point.plotX !== 'number' || typeof point.plotY !== 'number' ||
+                            typeof labelWidth !== 'number' || typeof labelHeight !== 'number' || labelWidth <= 0 || labelHeight <= 0) {
+                            // console.warn("SingleSeriesChart Positioner: Invalid input for positioning.", { point, labelWidth, labelHeight });
+                            return { x: -9999, y: -9999 }; // Position off-screen
                         }
-
+                        // console.log("SingleSeriesChart Positioner - plotX:", point.plotX, "plotY:", point.plotY);
                         return {
                             x: point.plotX - labelWidth / 2,
                             y: point.plotY - labelHeight - 25
@@ -299,7 +301,8 @@
 
         function updateCharts() {
             const selectElement = document.getElementById('timeRangeSelect');
-            const hoursToShow = parseInt(select.value);
+            // CORRECTED TYPO HERE: Was 'select.value', now 'selectElement.value'
+            const hoursToShow = parseInt(selectElement.value);
 
             const acVoltageSeries = [
                 { name: "AC Input Voltage", data: allAcInput, color: "blue" },
@@ -312,16 +315,18 @@
         }
 
         window.onload = function() {
-            if (typeof allTimestampsAsDates !== 'undefined' &&
-                typeof allAcInput !== 'undefined' &&
-                typeof allAcOutput !== 'undefined' &&
-                typeof allActivePower !== 'undefined' &&
-                typeof allBatteryCapacity !== 'undefined') {
+            // Ensure all data arrays are actually defined before proceeding
+            if (typeof allTimestampsAsDates !== 'undefined' && allTimestampsAsDates &&
+                typeof allAcInput !== 'undefined' && allAcInput &&
+                typeof allAcOutput !== 'undefined' && allAcOutput &&
+                typeof allActivePower !== 'undefined' && allActivePower &&
+                typeof allBatteryCapacity !== 'undefined' && allBatteryCapacity) {
                  updateCharts();
             } else {
-                console.error("Initial data not available for chart drawing. Ensure all data variables are correctly passed from the server.");
+                console.error("Initial data not available for chart drawing. At least one data array is undefined. Ensure all data variables (timestamps, ac_input, ac_output, active_power, battery_capacity) are correctly passed from the server and are not null/undefined before .map() or other operations.");
+                // You could also display a message on the page itself
+                document.body.innerHTML = '<h2>Error: Data for charts is missing or invalid. Please check the server logs or data source.</h2>' + document.body.innerHTML;
             }
         };
-    </script>
-</body>
+    </script></body>
 </html>
