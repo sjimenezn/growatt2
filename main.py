@@ -263,7 +263,7 @@ def monitor_growatt():
                     continue
 
             raw_growatt_data = api.storage_detail(inverter_sn)
-            log_message(f"Raw Growatt API data received: {raw_growatt_data}")
+            #log_message(f"Raw Growatt API data received: {raw_growatt_data}")
 
             new_ac_input_v = raw_growatt_data.get("vGrid", "N/A")
             new_ac_input_f = raw_growatt_data.get("freqGrid", "N/A")
@@ -288,7 +288,7 @@ def monitor_growatt():
                 # Data is stale, so we don't prepare data_to_save_for_file or call save_data_to_file.
             else:
                 # Data is new/different
-                log_message("✅ New Growatt data received.")
+                #log_message("✅ New Growatt data received.")
                 last_successful_growatt_update_time = current_loop_time_str # Update only on fresh data
 
                 data_to_save_for_file = {
