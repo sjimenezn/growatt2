@@ -219,12 +219,12 @@ def save_data_to_file(data):
         log_message(f"❌ Error saving data to file: {e}")
 
 def monitor_growatt():
-    global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values
+    global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values, current_data
     threshold = 80
     sent_lights_off = False
     sent_lights_on = False
 
-    loop_counter = 0
+    loop_counter = 0  # Counter for saving fresh data
 
     user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
@@ -232,10 +232,9 @@ def monitor_growatt():
     if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
         try:
             with open(data_file, "r") as f:
-                existing_data_from_file = json.load(f) # Read as `existing_data_from_file` to avoid name collision
+                existing_data_from_file = json.load(f)
                 if isinstance(existing_data_from_file, list) and existing_data_from_file:
                     last_entry = existing_data_from_file[-1]
-                    # Filter out 'timestamp' and other non-sensor keys and store
                     last_saved_sensor_values.update({
                         'vGrid': last_entry.get('vGrid'),
                         'outPutVolt': last_entry.get('outPutVolt'),
@@ -252,22 +251,20 @@ def monitor_growatt():
     while True:
         current_loop_datetime_utc_minus_5 = datetime.now() - timedelta(hours=5)
         current_loop_time_str = current_loop_datetime_utc_minus_5.strftime("%Y-%m-%d %H:%M:%S")
+        growatt_data_is_stale = False # Initialize for this loop iteration
 
         try:
-            # Always attempt to (re)login and get IDs if they are missing
             if user_id is None or plant_id is None or inverter_sn is None or datalog_sn is None:
                 log_message("Attempting to acquire Growatt IDs (re-login or initial login).")
                 user_id, plant_id, inverter_sn, datalog_sn = login_growatt()
-                if user_id is None: # If login/ID fetching fails, wait and try again
+                if user_id is None:
                     log_message("Growatt login/ID fetching failed. Retrying in 60 seconds.")
                     time.sleep(60)
-                    continue # Skip to next loop iteration
+                    continue
 
-            # Attempt to fetch storage detail (main data point)
-            raw_growatt_data = api.storage_detail(inverter_sn) # Use a different var name to differentiate from processed data
+            raw_growatt_data = api.storage_detail(inverter_sn)
             log_message(f"Raw Growatt API data received: {raw_growatt_data}")
 
-            # Extract new values for comparison and current_data update
             new_ac_input_v = raw_growatt_data.get("vGrid", "N/A")
             new_ac_input_f = raw_growatt_data.get("freqGrid", "N/A")
             new_ac_output_v = raw_growatt_data.get("outPutVolt", "N/A")
@@ -275,9 +272,6 @@ def monitor_growatt():
             new_load_w = raw_growatt_data.get("activePower", "N/A")
             new_battery_pct = raw_growatt_data.get("capacity", "N/A")
 
-            # Create a dictionary of current sensor values for comparison with `last_saved_sensor_values`
-            # Convert to appropriate types for consistent comparison if possible, or keep as strings.
-            # Using str for consistency if "N/A" is possible.
             current_sensor_values_for_comparison = {
                 "vGrid": str(new_ac_input_v),
                 "outPutVolt": str(new_ac_output_v),
@@ -285,35 +279,20 @@ def monitor_growatt():
                 "capacity": str(new_battery_pct),
                 "freqOutPut": str(new_ac_output_f)
             }
-            # Note: freqGrid is not typically saved to file, so excluded from comparison if not needed for file saving.
-
-            data_to_save_for_file = {}
-            growatt_data_is_stale = False
 
             # Check if the fetched sensor values are IDENTICAL to the last saved ones
-            # Ensure last_saved_sensor_values is not empty before comparison
             if last_saved_sensor_values and current_sensor_values_for_comparison == last_saved_sensor_values:
                 growatt_data_is_stale = True
-                log_message("⚠️ Detected Growatt data is identical to last saved values (stale). Saving NULLs for charts.")
-                
-                # If data is stale, prepare data_to_save with None for numerical values
-                data_to_save_for_file = {
-                    "timestamp": current_loop_time_str,
-                    "vGrid": None, # Will become null in JSON
-                    "outPutVolt": None,
-                    "activePower": None,
-                    "capacity": None,
-                    "freqOutPut": None, 
-                }
+                log_message("⚠️ Detected Growatt data is identical to last saved values. Skipping file save for this cycle.")
                 # last_successful_growatt_update_time should NOT be updated here.
-                # It should reflect when *fresh* data was last received.
+                # Data is stale, so we don't prepare data_to_save_for_file or call save_data_to_file.
             else:
+                # Data is new/different
                 log_message("✅ New Growatt data received.")
                 last_successful_growatt_update_time = current_loop_time_str # Update only on fresh data
 
-                # Prepare data to be saved to file with actual values
                 data_to_save_for_file = {
-                    "timestamp": last_successful_growatt_update_time, # Use the time when fresh data was received
+                    "timestamp": last_successful_growatt_update_time,
                     "vGrid": new_ac_input_v,
                     "outPutVolt": new_ac_output_v,
                     "activePower": new_load_w,
@@ -321,8 +300,18 @@ def monitor_growatt():
                     "freqOutPut": new_ac_output_f,
                 }
                 
-                # `last_saved_sensor_values` will be updated by `save_data_to_file` if this data is saved.
+                # `last_saved_sensor_values` will be updated by `save_data_to_file`
+                # when it's called.
 
+                # Save data to file every N *fresh data* cycles
+                # (loop_counter >= 2 means save every 3rd fresh data point, adjust as needed)
+                if loop_counter >= 2: 
+                    save_data_to_file(data_to_save_for_file)
+                    # last_saved_sensor_values is updated inside save_data_to_file after a successful save
+                    loop_counter = 0  # Reset counter after saving
+                else:
+                    loop_counter += 1 # Increment counter for fresh data that wasn't saved this cycle
+            
             # Always update `current_data` with the most recently *received* values
             # (even if they are stale), for immediate display on the Flask home page.
             current_data.update({
@@ -341,32 +330,29 @@ def monitor_growatt():
             last_processed_time = current_loop_time_str # This always updates as the loop processed.
 
             # --- Telegram Alerts ---
-            # Telegram alerts should still use the *latest* available data from current_data,
-            # even if stale, but their timestamp should reflect the last time *fresh* data arrived.
             if telegram_enabled:
                 if current_data.get("ac_input_voltage") != "N/A":
-                    try: # Convert to float for comparison if possible
+                    try:
                         current_ac_input_v_float = float(current_data.get("ac_input_voltage"))
                     except ValueError:
-                            current_ac_input_v_float = 0.0 # Default if N/A
+                        current_ac_input_v_float = 0.0
 
                     alert_timestamp = last_successful_growatt_update_time # Use the time of last *fresh* data
                     
                     if current_ac_input_v_float < threshold and not sent_lights_off:
-                        # Re-fetch confirmation logic
-                        time.sleep(110) # Wait a bit to confirm
-                        data_confirm = api.storage_detail(inverter_sn) # Re-fetch to confirm
-                        ac_input_v_confirm = data_confirm.get("vGrid", "0") # Default to "0"
+                        time.sleep(110) 
+                        data_confirm = api.storage_detail(inverter_sn)
+                        ac_input_v_confirm = data_confirm.get("vGrid", "0")
                         try:
                             current_ac_input_v_confirm = float(ac_input_v_confirm)
                         except ValueError:
                             current_ac_input_v_confirm = 0.0
 
-                        if current_ac_input_v_confirm < threshold: # Confirm again
+                        if current_ac_input_v_confirm < threshold:
                             msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
-        🕒 Hora--> {alert_timestamp}
-Nivel de batería      : {current_data.get('battery_capacity', 'N/A')} %
-Voltaje de la red     : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
+    🕒 Hora--> {alert_timestamp}
+Nivel de batería     : {current_data.get('battery_capacity', 'N/A')} %
+Voltaje de la red    : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                             send_telegram_message(msg)
@@ -374,45 +360,33 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                             sent_lights_on = False
 
                     elif current_ac_input_v_float >= threshold and not sent_lights_on:
-                        # Re-fetch confirmation logic
-                        time.sleep(110) # Wait a bit to confirm
-                        data_confirm = api.storage_detail(inverter_sn) # Re-fetch to confirm
-                        ac_input_v_confirm = data_confirm.get("vGrid", "0") # Default to "0"
+                        time.sleep(110)
+                        data_confirm = api.storage_detail(inverter_sn)
+                        ac_input_v_confirm = data_confirm.get("vGrid", "0")
                         try:
                             current_ac_input_v_confirm = float(ac_input_v_confirm)
                         except ValueError:
                             current_ac_input_v_confirm = 0.0
-
-                        if current_ac_input_v_confirm >= threshold: # Confirm again
+                        
+                        if current_ac_input_v_confirm >= threshold:
                             msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
-        🕒 Hora--> {alert_timestamp}
-Nivel de batería      : {current_data.get('battery_capacity', 'N/A')} %
-Voltaje de la red     : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
+    🕒 Hora--> {alert_timestamp}
+Nivel de batería     : {current_data.get('battery_capacity', 'N/A')} %
+Voltaje de la red    : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                             send_telegram_message(msg)
                             sent_lights_on = True
                             sent_lights_off = False
-
-            # Save data to file every 10 cycles (or approximately every 5 minutes)
-            # regardless if it's new data or nulls due to staleness.
-            # This ensures consistent timestamps in the historical data.
-            if loop_counter >= 2:
-                save_data_to_file(data_to_save_for_file)
-                loop_counter = 0
-            else:
-                loop_counter += 1 # Increment counter for non-save cycles
+            
+            # The saving logic is now handled within the 'else' block for non-stale data.
+            # The previous standalone 'if loop_counter >= 2:' block for saving is no longer needed here.
 
         except Exception as e_inner:
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
-            # If there's an API error, we do NOT update last_successful_growatt_update_time.
-            # We also do NOT save a data point for this cycle to the file.
-            # This will result in a real "gap" in the historical data, distinct from "stale data" (which logs nulls).
-            
-            # Reset IDs to force re-login attempt in next loop
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None 
 
-        time.sleep(30) # Wait for 30 seconds before next API call
+        time.sleep(30)
 
 # --- GitHub Sync Config ---
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
@@ -422,54 +396,108 @@ GIT_PUSH_INTERVAL_MINS = 5
 LOCAL_REPO_PATH = "."
 
 def _perform_single_github_sync_operation():
-    """Performs a Git sync operation that always commits"""
+    """Performs a Git sync operation, ensuring a commit even if data hasn't changed."""
+    TEMP_DIR = "temp_repo"
+    FILE_TO_SYNC = "saved_data.json" # The file you are syncing
+
+    # --- Robustly remove temp directory at the start ---
+    if os.path.exists(TEMP_DIR):
+        log_message(f"Attempting to remove existing TEMP_DIR: {TEMP_DIR}")
+        try:
+            shutil.rmtree(TEMP_DIR)
+            log_message(f"Successfully removed existing TEMP_DIR: {TEMP_DIR}")
+        except Exception as e_rm_initial:
+            log_message(f"❌ Error removing existing TEMP_DIR {TEMP_DIR} at start: {e_rm_initial}. Sync may fail.")
+            # If removal fails here, the clone will likely fail.
+            # It's a critical issue if the script can't manage its temporary directory.
+            return False, f"Failed to remove pre-existing temp directory: {e_rm_initial}"
+    else:
+        log_message(f"TEMP_DIR {TEMP_DIR} did not exist, no initial removal needed.")
+
     try:
-        # Config
-        if not GITHUB_TOKEN:
-            log_message("❌ GITHUB_PAT environment variable not set!")
+        # --- GitHub Credentials Check ---
+        if not GITHUB_TOKEN: # Make sure GITHUB_TOKEN is accessible
+            log_message("❌ GITHUB_PAT (GITHUB_TOKEN) environment variable not set!")
             return False, "GitHub credentials not set"
+        if not GITHUB_USERNAME: # Make sure GITHUB_USERNAME is accessible
+            log_message("❌ GITHUB_USERNAME is not set!")
+            return False, "GitHub username not set"
 
-        TEMP_DIR = "temp_repo"
-        FILE = "saved_data.json"
+        # --- Clone Repository ---
+        repo_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git"
+        log_message(f"Cloning repository {repo_url} into {TEMP_DIR}...")
+        repo = Repo.clone_from(repo_url, TEMP_DIR)
+        log_message("Repository cloned successfully.")
 
-        # Setup
-        if os.path.exists(TEMP_DIR):
-            shutil.rmtree(TEMP_DIR)
-        
-        # Clone repo using the Repo class
-        repo = Repo.clone_from(
-            f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@github.com/sjimenezn/growatt2.git",
-            TEMP_DIR
-        )
-        
-        # Configure git
-        with repo.config_writer() as c:
-            c.set_value("user", "name", "GitHub Uploader")
-            c.set_value("user", "email", "uploader@example.com")
+        # --- Configure Git User ---
+        with repo.config_writer() as cw:
+            cw.set_value("user", "name", "GitHub Sync Bot")
+            cw.set_value("user", "email", "bot@example.com")
+        log_message("Git user configured in cloned repository.")
 
-        # File operations
-        file_path = os.path.join(TEMP_DIR, FILE)
-        
-        # Copy current file to temp repo
-        if os.path.exists(FILE):
-            shutil.copy2(FILE, file_path)
+        # --- File Operations ---
+        source_file_path = FILE_TO_SYNC
+        destination_file_path = os.path.join(TEMP_DIR, FILE_TO_SYNC)
+
+        if os.path.exists(source_file_path):
+            log_message(f"Copying {source_file_path} to {destination_file_path}...")
+            shutil.copy2(source_file_path, destination_file_path)
+            log_message("File copied to repository.")
         else:
-            log_message(f"❌ Local {FILE} not found")
-            return False, "Data file not found"
+            log_message(f"❌ Source file {source_file_path} not found. Cannot sync.")
+            # No need to return False here if you want to commit that the file is missing,
+            # but typically you'd want the file to exist.
+            # For now, let's assume if the file is gone, we commit that absence.
+            # If it must exist, then:
+            # shutil.rmtree(TEMP_DIR) # Clean up cloned repo
+            # return False, f"Source file {source_file_path} not found."
+            # If you want to commit the deletion, ensure git add picks it up if it was tracked.
 
-        # Git operations - ALWAYS COMMIT
-        repo.git.add(".")
-        repo.git.commit("-m", f"Update {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        repo.git.push()
-        log_message("✅ Changes pushed to GitHub")
+        # --- Git Add ---
+        log_message("Adding all changes to Git index...")
+        repo.git.add(A=True) # Stages all changes (new, modified, deleted)
+        log_message("Changes added to index.")
 
-        shutil.rmtree(TEMP_DIR)
-        return True, "Sync completed"
-    except Exception as e:
-        log_message(f"❌ GitHub sync failed: {e}")
-        if 'TEMP_DIR' in locals() and os.path.exists(TEMP_DIR):
-            shutil.rmtree(TEMP_DIR)
-        return False, str(e)
+        # --- Git Commit ---
+        commit_message = f"Automated data sync: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        # Check if there are actual changes staged for commit
+        if repo.is_dirty(index=True, working_tree=False, untracked_files=False):
+            log_message(f"Changes detected. Committing with message: '{commit_message}'")
+            repo.git.commit("-m", commit_message)
+            log_message("✅ Changes committed.")
+        else:
+            # No actual file changes were staged, but user wants to force a sync.
+            # Create an empty commit with the timestamped message.
+            log_message(f"No file content changes detected. Creating empty commit to mark sync: '{commit_message}'")
+            repo.git.commit("--allow-empty", "-m", commit_message)
+            log_message("✅ Empty commit created to mark sync time.")
+
+        # --- Git Push ---
+        log_message("Pushing changes to GitHub...")
+        origin = repo.remote(name='origin')
+        origin.push()
+        log_message("✅ Changes pushed to GitHub.")
+
+        return True, "Sync completed successfully"
+
+    except git.GitCommandError as e_git:
+        error_message = f"GitCommandError: {e_git}. Stderr: {e_git.stderr}. Stdout: {e_git.stdout}"
+        log_message(f"❌ GitHub sync failed due to {error_message}")
+        return False, error_message
+    except Exception as e_general:
+        log_message(f"❌ GitHub sync failed due to a general error: {e_general}")
+        return False, str(e_general)
+    finally:
+        # --- Cleanup Temp Directory ---
+        if os.path.exists(TEMP_DIR):
+            log_message(f"Cleaning up TEMP_DIR: {TEMP_DIR} in finally block.")
+            try:
+                shutil.rmtree(TEMP_DIR)
+                log_message(f"Successfully removed TEMP_DIR: {TEMP_DIR} in finally block.")
+            except Exception as e_rm_final:
+                log_message(f"❌ Error removing TEMP_DIR {TEMP_DIR} in finally block: {e_rm_final}")
+
 
 def sync_github_repo():
     """Scheduled thread to sync data with GitHub"""
