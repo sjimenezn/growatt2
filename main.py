@@ -305,7 +305,7 @@ def monitor_growatt():
 
                 # Save data to file every N *fresh data* cycles
                 # (loop_counter >= 10 means save every 11th fresh data point, adjust as needed, e.g. 10 for approx 5 mins if 30s interval)
-                if loop_counter >= 5: # Approx every 5 minutes (10 * 30s sleep = 300s)
+                if loop_counter >= 4: # Approx every 5 minutes (10 * 30s sleep = 300s)
                     save_data_to_file(data_to_save_for_file)
                     # last_saved_sensor_values is updated inside save_data_to_file after a successful save
                     loop_counter = 0  # Reset counter after saving
@@ -409,10 +409,10 @@ def _perform_single_github_sync_operation(context_prefix="SYNC"):
     FILE_TO_SYNC = "saved_data.json" 
     original_git_template_dir_env = os.environ.get('GIT_TEMPLATE_DIR')
 
-    log_message(f"[{context_prefix}] Starting GitHub sync operation.")
+   # log_message(f"[{context_prefix}] Starting GitHub sync operation.")
 
     if os.path.exists(TEMP_REPO_PATH):
-        log_message(f"[{context_prefix}] Attempting to remove existing TEMP_REPO_PATH: {TEMP_REPO_PATH}")
+       # log_message(f"[{context_prefix}] Attempting to remove existing TEMP_REPO_PATH: {TEMP_REPO_PATH}")
         try:
             shutil.rmtree(TEMP_REPO_PATH)
             log_message(f"[{context_prefix}] Successfully removed existing TEMP_REPO_PATH.")
@@ -425,9 +425,9 @@ def _perform_single_github_sync_operation(context_prefix="SYNC"):
     try:
         os.makedirs(EMPTY_TEMPLATE_PATH, exist_ok=True)
         os.makedirs(os.path.join(EMPTY_TEMPLATE_PATH, "hooks"), exist_ok=True) 
-        log_message(f"[{context_prefix}] Ensured empty GIT_TEMPLATE_DIR exists at {EMPTY_TEMPLATE_PATH}")
+        #log_message(f"[{context_prefix}] Ensured empty GIT_TEMPLATE_DIR exists at {EMPTY_TEMPLATE_PATH}")
         os.environ['GIT_TEMPLATE_DIR'] = EMPTY_TEMPLATE_PATH
-        log_message(f"[{context_prefix}] Set GIT_TEMPLATE_DIR environment variable to: {EMPTY_TEMPLATE_PATH}")
+       # log_message(f"[{context_prefix}] Set GIT_TEMPLATE_DIR environment variable to: {EMPTY_TEMPLATE_PATH}")
     except Exception as e_mkdir_template:
         log_message(f"⚠️ [{context_prefix}] Could not create or set empty template dir {EMPTY_TEMPLATE_PATH}: {e_mkdir_template}. Git clone might use system defaults and could fail if system templates are problematic.")
 
@@ -446,43 +446,43 @@ def _perform_single_github_sync_operation(context_prefix="SYNC"):
             return False, "GitHub credentials not set (GITHUB_USERNAME)"
 
         repo_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('//')[1]}" # Construct carefully
-        log_message(f"[{context_prefix}] Cloning repository {repo_url} into {TEMP_REPO_PATH}...")
+       # log_message(f"[{context_prefix}] Cloning repository {repo_url} into {TEMP_REPO_PATH}...")
         repo = Repo.clone_from(repo_url, TEMP_REPO_PATH)
-        log_message(f"[{context_prefix}] Repository cloned successfully.")
+        #log_message(f"[{context_prefix}] Repository cloned successfully.")
 
         with repo.config_writer() as cw:
             cw.set_value("user", "name", f"GitHub Sync Bot ({context_prefix})")
             cw.set_value("user", "email", f"bot-{context_prefix.lower()}@example.com")
-        log_message(f"[{context_prefix}] Git user configured in cloned repository.")
+        #log_message(f"[{context_prefix}] Git user configured in cloned repository.")
 
         source_file_path = os.path.join(base_working_dir, FILE_TO_SYNC) 
         destination_file_path = os.path.join(TEMP_REPO_PATH, FILE_TO_SYNC)
 
         if os.path.exists(source_file_path):
-            log_message(f"[{context_prefix}] Copying {source_file_path} to {destination_file_path}...")
+            #log_message(f"[{context_prefix}] Copying {source_file_path} to {destination_file_path}...")
             shutil.copy2(source_file_path, destination_file_path)
-            log_message(f"[{context_prefix}] File copied to repository.")
+            #log_message(f"[{context_prefix}] File copied to repository.")
         else:
             log_message(f"❌ [{context_prefix}] Source file {source_file_path} not found. This will be committed as a deletion if the file was previously tracked.")
 
-        log_message(f"[{context_prefix}] Adding all changes to Git index...")
+        #log_message(f"[{context_prefix}] Adding all changes to Git index...")
         repo.git.add(A=True) 
-        log_message(f"[{context_prefix}] Changes added to index.")
+        #log_message(f"[{context_prefix}] Changes added to index.")
 
         commit_message = f"Automated data sync ({context_prefix}): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         if repo.is_dirty(index=True, working_tree=False, untracked_files=False): 
-            log_message(f"[{context_prefix}] Changes detected. Committing with message: '{commit_message}'")
+            #log_message(f"[{context_prefix}] Changes detected. Committing with message: '{commit_message}'")
             repo.git.commit("-m", commit_message)
-            log_message(f"✅ [{context_prefix}] Changes committed.")
+            #log_message(f"✅ [{context_prefix}] Changes committed.")
         else:
             log_message(f"[{context_prefix}] No file content changes detected. Creating empty commit to mark sync: '{commit_message}'")
             repo.git.commit("--allow-empty", "-m", commit_message)
             log_message(f"✅ [{context_prefix}] Empty commit created.")
 
-        log_message(f"[{context_prefix}] Pushing changes to GitHub...")
+        #log_message(f"[{context_prefix}] Pushing changes to GitHub...")
         origin = repo.remote(name='origin')
         origin.push()
-        log_message(f"✅ [{context_prefix}] Changes pushed to GitHub.")
+        #log_message(f"✅ [{context_prefix}] Changes pushed to GitHub.")
 
         return True, f"[{context_prefix}] Sync completed successfully"
 
@@ -500,24 +500,24 @@ def _perform_single_github_sync_operation(context_prefix="SYNC"):
         if 'GIT_TEMPLATE_DIR' in os.environ and os.environ.get('GIT_TEMPLATE_DIR') == EMPTY_TEMPLATE_PATH :
             if original_git_template_dir_env is None:
                 del os.environ['GIT_TEMPLATE_DIR']
-                log_message(f"[{context_prefix}] Cleared GIT_TEMPLATE_DIR environment variable.")
+               # log_message(f"[{context_prefix}] Cleared GIT_TEMPLATE_DIR environment variable.")
             else:
                 os.environ['GIT_TEMPLATE_DIR'] = original_git_template_dir_env
                 log_message(f"[{context_prefix}] Restored GIT_TEMPLATE_DIR to: {original_git_template_dir_env or 'None'}.")
         
         if os.path.exists(TEMP_REPO_PATH):
-            log_message(f"[{context_prefix}] Cleaning up TEMP_REPO_PATH: {TEMP_REPO_PATH} in finally block.")
+           # log_message(f"[{context_prefix}] Cleaning up TEMP_REPO_PATH: {TEMP_REPO_PATH} in finally block.")
             try:
                 shutil.rmtree(TEMP_REPO_PATH)
-                log_message(f"[{context_prefix}] Successfully removed TEMP_REPO_PATH in finally block.")
+               # log_message(f"[{context_prefix}] Successfully removed TEMP_REPO_PATH in finally block.")
             except Exception as e_rm_final_repo:
                 log_message(f"❌ [{context_prefix}] Error removing TEMP_REPO_PATH {TEMP_REPO_PATH} in finally block: {e_rm_final_repo}")
         
         if os.path.exists(EMPTY_TEMPLATE_PATH):
-            log_message(f"[{context_prefix}] Cleaning up EMPTY_TEMPLATE_PATH: {EMPTY_TEMPLATE_PATH} in finally block.")
+            #log_message(f"[{context_prefix}] Cleaning up EMPTY_TEMPLATE_PATH: {EMPTY_TEMPLATE_PATH} in finally block.")
             try:
                 shutil.rmtree(EMPTY_TEMPLATE_PATH)
-                log_message(f"[{context_prefix}] Successfully removed EMPTY_TEMPLATE_PATH in finally block.")
+               # log_message(f"[{context_prefix}] Successfully removed EMPTY_TEMPLATE_PATH in finally block.")
             except Exception as e_rm_final_template:
                 log_message(f"⚠️ [{context_prefix}] Error removing EMPTY_TEMPLATE_PATH {EMPTY_TEMPLATE_PATH} in finally block: {e_rm_final_template}")
 
@@ -573,28 +573,67 @@ def stop_bot_telegram_command(update: Update, context: CallbackContext):
     else:
         log_message("Telegram bot not running to be stopped.")
 
+# Add this function globally in your main.py
+def telegram_error_handler(update: object, context: CallbackContext) -> None:
+    """Log Errors caused by Updates."""
+    # Try to get more specific info if available
+    if update and hasattr(update, 'effective_chat') and update.effective_chat:
+        chat_info = f"Chat ID: {update.effective_chat.id}"
+    elif update and hasattr(update, 'effective_user') and update.effective_user:
+        chat_info = f"User ID: {update.effective_user.id}"
+    else:
+        chat_info = "N/A"
+
+    error_message = f'Telegram error processing update (Update: "{update}", Chat/User Info: "{chat_info}"): {context.error}'
+    log_message(error_message)  # Use your existing log_message function
+    # Consider more detailed logging for specific error types if needed in the future
+    # e.g., if isinstance(context.error, telegram.error.NetworkError):
+    # log_message("A network error occurred with Telegram.")
+
+
 def initialize_telegram_bot():
     global updater, dp, TELEGRAM_TOKEN, telegram_enabled
     if not TELEGRAM_TOKEN:
         log_message("❌ Cannot start Telegram bot: TELEGRAM_TOKEN is empty.")
+        telegram_enabled = False # Ensure it's false if token is missing
         return False
     if updater and updater.running:
         log_message("Telegram bot is already running.")
+        telegram_enabled = True # It's already running, so it's enabled
         return True
     try:
         log_message("Initializing Telegram bot...")
-        updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
+        # For python-telegram-bot v13.x, you might want to configure request timeouts
+        # This is optional but can sometimes help with network flakiness.
+        # from telegram.utils.request import Request
+        # req = Request(connect_timeout=7.0, read_timeout=15.0) # Example: 7s connect, 15s read
+        # updater = Updater(token=TELEGRAM_TOKEN, use_context=True, request=req)
+        updater = Updater(token=TELEGRAM_TOKEN, use_context=True) # Your original way, also fine
+
         dp = updater.dispatcher
+
+        # Add command handlers (as you had them)
         dp.add_handler(CommandHandler("start", start))
         dp.add_handler(CommandHandler("status", send_status))
         dp.add_handler(CommandHandler("chatlog", send_chatlog))
         dp.add_handler(CommandHandler("stop", stop_bot_telegram_command))
-        updater.start_polling()
-        log_message("Telegram bot polling started.")
+
+        # Add the crucial error handler
+        dp.add_error_handler(telegram_error_handler)
+
+        # Start polling (you can adjust timeout and read_latency if needed)
+        # Default timeout is 10s, default read_latency is 2s for Updater in v13.x
+        updater.start_polling(timeout=20, read_latency=5.0)
+        # Or, stick to defaults if you prefer: updater.start_polling()
+
+        log_message("✅ Telegram bot polling started successfully.")
+        telegram_enabled = True # Set the flag to True upon successful start
         return True
     except Exception as e:
-        log_message(f"❌ Error starting Telegram bot (check token): {e}")
-        updater = None; dp = None; telegram_enabled = False
+        log_message(f"❌ Error starting Telegram bot: {e}")
+        updater = None
+        dp = None
+        telegram_enabled = False # Ensure it's false on any exception during init
         return False
 
 # Start Growatt Monitor Thread
