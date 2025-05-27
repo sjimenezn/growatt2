@@ -421,7 +421,7 @@ def _perform_single_github_sync_operation(context_prefix="SYNC"):
             return False, f"Failed to remove pre-existing temp directory: {e_rm_initial}"
     else:
         #log_message(f"[{context_prefix}] TEMP_REPO_PATH {TEMP_REPO_PATH} did not exist, no initial removal needed.")
-
+        pass
     try:
         os.makedirs(EMPTY_TEMPLATE_PATH, exist_ok=True)
         os.makedirs(os.path.join(EMPTY_TEMPLATE_PATH, "hooks"), exist_ok=True) 
