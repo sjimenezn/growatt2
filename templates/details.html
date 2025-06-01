@@ -1,1 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Growatt Inverter Details</title> <meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+            width: 100%;
+            overflow-x: auto;
+        }
 
+        nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            width: 100%;
+            background-color: black;
+        }
+
+        nav ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: space-evenly;
+            align-items: center;
+            flex-wrap: nowrap;
+        }
+
+        nav ul li {
+            flex: 1 1 auto;
+            text-align: center;
+        }
+
+        nav ul li a {
+            display: block;
+            padding: 14px 8px;
+            text-decoration: none;
+            font-size: clamp(10px, 2vw, 18px);
+            color: white;
+        }
+
+        nav ul li a.active {
+            font-weight: bold;
+            color: #cccccc;
+        }
+
+        #controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            font-size: 24px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        #controls input[type="date"] {
+            font-size: 20px;
+            padding: 4px;
+            max-width: 160px;
+        }
+
+        button.arrow {
+            font-size: 28px;
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
+
+        #charts-wrapper {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px auto;
+            max-width: 1200px; /* Adjust as needed */
+            width: 100%;
+            overflow: hidden; /* Hide overflow of the wrapper itself */
+        }
+
+        #chart-container,
+        #energy-chart-container {
+            width: 580px; /* Explicit width - adjust as needed, considering gap */
+            height: 400px;
+            overflow: hidden;
+            position: relative; /* For absolute positioning of timestamp */
+        }
+
+        /* Specifically target SVG elements that might cause overflow */
+        #chart-container svg,
+        #energy-chart-container svg {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* Further prevent overflow within the SVG */
+        #chart-container svg *[clip-path^="url("],
+        #energy-chart-container svg *[clip-path^="url("] {
+            overflow: hidden !important;
+        }
+
+        .timestamp-below-chart {
+            position: absolute;
+            bottom: -20px; /* Adjust as needed for spacing */
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.9em;
+            color: #777;
+        }
+
+        /* Media query for smaller screens */
+        @media (max-width: 600px) {
+            #charts-wrapper {
+                max-width: 100%;
+                flex-direction: column; /* Stack charts on smaller screens */
+                align-items: center;
+            }
+            #chart-container,
+            #energy-chart-container {
+                width: 100%; /* Full width on smaller screens */
+            }
+            .timestamp-below-chart {
+                bottom: -30px; /* Adjust for stacked layout */
+            }
+        }
+    </style>
+</head>
+<body>
+<nav>
+    <ul>
+        <li><a href="/">Home</a></li>
+        <li><a href="/logs">Logs</a></li>
+        <li><a href="/chatlog">Chatlog</a></li>
+        <li><a href="/console">Console</a></li>
+        <li><a href="/details" class="active">Details</a></li> <li><a href="/battery-chart">Battery Chart</a></li>
+    </ul>
+</nav>
+
+<h2>Inverter Details for {{ selected_date }}</h2> <form method="post" id="dateForm">
+    <div id="controls">
+        <button class="arrow" type="button" onclick="shiftDate(-1)">←</button>
+        <input type="date" name="date" id="datePicker" value="{{ selected_date }}" required onchange="submitForm()">
+        <button class="arrow" type="button" onclick="shiftDate(1)">→</button>
+    </div>
+</form>
+
+<div id="charts-wrapper">
+    <div id="chart-container"></div>
+    <div id="energy-chart-container">
+        <div class="timestamp-below-chart">
+            Última actualización de Growatt: {{ last_growatt_update }}
+        </div>
+    </div>
+</div>
+
+<script>
+    // Function to get today's date in YYYY-MM-DD format
+    function getTodayDate() {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    window.onload = function() {
+        window.scrollTo(0, 0);
+        const datePicker = document.getElementById('datePicker');
+        if (!datePicker.value) {
+            if (performance.navigation.type === 0 || performance.navigation.type === 2 || performance.navigation.type === undefined) {
+                datePicker.value = getTodayDate();
+            }
+        }
+    };
+
+    function submitForm() {
+        document.getElementById('dateForm').submit();
+    }
+
+    function shiftDate(offset) {
+        const picker = document.getElementById('datePicker');
+        const current = new Date(picker.value);
+        current.setDate(current.getDate() + offset);
+        picker.valueAsDate = current;
+        submitForm();
+    }
+
+    // Constants for chart data from Flask
+    const chart1DataSeries = {{ chart1_data_series | tojson }}; // For Voltage Chart
+    const chart2DataSeries = {{ chart2_data_series | tojson }}; // For Current Chart
+
+    const timeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+    const tickPositions = Array.from({ length: 24 }, (_, i) => i * 12);
+
+    // --- First Chart: Voltage Data ---
+    Highcharts.chart('chart-container', {
+        chart: { type: 'area', spacingTop: 10, spacingBottom: 10 },
+        title: { text: 'Voltage Data on {{ selected_date }}' },
+        xAxis: {
+            categories: timeLabels,
+            tickPositions: tickPositions,
+            labels: {
+                formatter: function() {
+                    return this.axis.categories[this.pos / 12];
+                }
+            },
+            title: { text: 'Hour' }
+        },
+        yAxis: {
+            title: { text: 'Voltage (V)' },
+            labels: { format: '{value} V' }, // Added V suffix to labels
+            gridLineColor: '#e1e1e1' // Kept grid line color consistent
+            // min: 0, max: 100 removed for auto-scaling
+        },
+        tooltip: {
+            shared: true,
+            formatter: function () {
+                const pointIndex = this.points[0].point.index;
+                const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
+                const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
+                let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
+                this.points.forEach(p => {
+                    tooltipHtml += `${p.series.name}: ${Highcharts.numberFormat(p.y, 2)} V<br/>`;
+                });
+                return tooltipHtml;
+            },
+            positioner: function (labelWidth, labelHeight, point) { // Copied positioner for consistency
+                return {
+                    x: point.plotX - labelWidth / 2,
+                    y: point.plotY - labelHeight - 20 
+                };
+            },
+            shadow: false, // Copied style for consistency
+            borderWidth: 1  // Copied style for consistency
+        },
+        legend: { // Added legend configuration
+            layout: 'horizontal',
+            align: 'center',
+            verticalAlign: 'bottom'
+        },
+        series: chart1DataSeries // Use the new data structure directly
+    });
+
+    // --- Second Chart: Current Data ---
+    // Note: energyTimeLabels and energyTickPositions are identical to timeLabels and tickPositions
+    // We can reuse timeLabels and tickPositions for simplicity if preferred.
+    // const energyTimeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+    // const energyTickPositions = Array.from({ length: 24 }, (_, i) => i * 12);
+
+    Highcharts.chart('energy-chart-container', {
+        chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
+        title: { text: 'Current Data on {{ selected_date }}' },
+        xAxis: {
+            categories: timeLabels, // Reused timeLabels
+            tickPositions: tickPositions, // Reused tickPositions
+            labels: {
+                formatter: function() {
+                    return this.axis.categories[this.pos / 12];
+                }
+            },
+            title: { text: 'Hour' }
+        },
+        yAxis: {
+            title: { text: 'Current (A)' },
+            labels: { format: '{value} A' },
+            gridLineColor: '#e1e1e1'
+            // max: 1000 removed for auto-scaling
+        },
+        tooltip: {
+            shared: true,
+            // valueSuffix: ' A', // Suffix added in formatter instead for precision control
+            formatter: function () {
+                const pointIndex = this.points[0].point.index;
+                const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
+                const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
+                let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
+                this.points.forEach(p => {
+                    tooltipHtml += `${p.series.name}: ${Highcharts.numberFormat(p.y, 2)} A<br/>`;
+                });
+                return tooltipHtml;
+            },
+            positioner: function (labelWidth, labelHeight, point) {
+                return {
+                    x: point.plotX - labelWidth / 2,
+                    y: point.plotY - labelHeight - 20
+                };
+            },
+            shadow: false,
+            borderWidth: 1
+        },
+        legend: {
+            layout: 'horizontal',
+            align: 'center',
+            verticalAlign: 'bottom'
+        },
+        series: chart2DataSeries // Use the new data structure directly
+    });
+</script>
+</body>
+</html>
