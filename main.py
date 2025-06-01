@@ -803,134 +803,136 @@ def details():
 
     growatt_login2()
 
-    # Constants for the new API requests
     NEW_API_PLANT_ID = '2817170'
-    NEW_API_STORAGE_SN = 'BNG7CH806N'
+    NEW_API_STORAGE_SN = 'BNG7CH806N' # Used in payload, not directly for parsing this response structure
     DEVICES_DAY_CHART_URL = "https://server.growatt.com/energy/compare/getDevicesDayChart"
 
-    # --- Helper function provided in the original code ---
     def prepare_series(dl, n, c):
-        # Convert data points to float, None if not convertible
+        if not isinstance(dl, list):
+            log_message(f"‼️ Warning: Data for series '{n}' is not a list. Received type: {type(dl)}. Treating as empty.")
+            dl = []
         cd = [float(x) if (isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.', '', 1).isdigit())) else None for x in dl]
-        # Return series object if there's any valid data, otherwise None
         if any(x is not None for x in cd):
             return {"name": n, "data": cd, "color": c, "fillOpacity": 0.2, "lineWidth": 1}
         return None
 
-    # --- First Chart: Voltage Data (Grid Voltage & Output Voltage) ---
     volt_series_data = []
-    raw_json_volts_response = {} # To store the raw JSON response for this chart
-
+    raw_json_volts_response = {}
     volt_request_jsonData = [{"type": "storage", "sn": NEW_API_STORAGE_SN, "params": "vGrid,outPutVolt"}]
-    volt_payload = {
-        'plantId': NEW_API_PLANT_ID,
-        'date': selected_date,
-        'jsonData': json.dumps(volt_request_jsonData) # jsonData must be a string
-    }
+    volt_payload = {'plantId': NEW_API_PLANT_ID, 'date': selected_date, 'jsonData': json.dumps(volt_request_jsonData)}
 
     try:
         response_volts = session.post(DEVICES_DAY_CHART_URL, headers=HEADERS, data=volt_payload, timeout=10)
         response_volts.raise_for_status()
         raw_json_volts_response = response_volts.json()
         
-        # Extract data based on assumed response structure.
-        # The data might be directly under "obj" or nested under "obj" -> NEW_API_STORAGE_SN
-        # This part may need adjustment based on the exact structure of the API response.
-        data_container_volts = raw_json_volts_response.get("obj", {})
-        if NEW_API_STORAGE_SN in data_container_volts: # Check if data is nested under SN
-            actual_volt_data = data_container_volts.get(NEW_API_STORAGE_SN, {})
-        else: # Assume data is directly under 'obj' if SN is not a key
-            actual_volt_data = data_container_volts
-
-        vGrid_values = actual_volt_data.get("vGrid", [])
-        outPutVolt_values = actual_volt_data.get("outPutVolt", [])
+        vGrid_values = []
+        outPutVolt_values = []
+        
+        obj_list_volts = raw_json_volts_response.get("obj")
+        if isinstance(obj_list_volts, list) and len(obj_list_volts) > 0:
+            first_item_volts = obj_list_volts[0]
+            if isinstance(first_item_volts, dict):
+                datas_dict_volts = first_item_volts.get("datas")
+                if isinstance(datas_dict_volts, dict):
+                    # Assuming keys are "vGrid" and "outPutVolt" based on your request.
+                    # Ensure these exact keys (case-sensitive) are present in the 'datas' dict.
+                    vGrid_values = datas_dict_volts.get("vGrid", [])
+                    outPutVolt_values = datas_dict_volts.get("outPutVolt", [])
+                    
+                    if not isinstance(vGrid_values, list):
+                        log_message(f"‼️ Warning: 'vGrid' data is not a list. Type: {type(vGrid_values)}. Defaulting to [].")
+                        vGrid_values = []
+                    if not isinstance(outPutVolt_values, list):
+                        log_message(f"‼️ Warning: 'outPutVolt' data is not a list. Type: {type(outPutVolt_values)}. Defaulting to [].")
+                        outPutVolt_values = []
+                else:
+                    log_message(f"⚠️ 'datas' key for volts is not a dict or missing. Response: {raw_json_volts_response}")
+            else:
+                log_message(f"⚠️ First item in 'obj' list for volts is not a dict. Response: {raw_json_volts_response}")
+        else:
+            log_message(f"⚠️ 'obj' key for volts is not a list, is empty, or missing. Response: {raw_json_volts_response}")
 
         if not vGrid_values and not outPutVolt_values:
-            log_message(f"⚠️ No 'vGrid' or 'outPutVolt' data received for {selected_date} from {DEVICES_DAY_CHART_URL}. Response: {raw_json_volts_response}")
+            log_message(f"⚠️ No 'vGrid' or 'outPutVolt' data extracted for {selected_date}. Check response structure and keys. Response: {raw_json_volts_response}")
         
         prepared_series_list = []
-        series_vgrid = prepare_series(vGrid_values, "Grid Voltage (V)", "#FF5733") # Example color
-        if series_vgrid:
-            prepared_series_list.append(series_vgrid)
-        
-        series_outputvolt = prepare_series(outPutVolt_values, "Output Voltage (V)", "#33FF57") # Example color
-        if series_outputvolt:
-            prepared_series_list.append(series_outputvolt)
-            
+        series_vgrid = prepare_series(vGrid_values, "Grid Voltage (V)", "#FF5733")
+        if series_vgrid: prepared_series_list.append(series_vgrid)
+        series_outputvolt = prepare_series(outPutVolt_values, "Output Voltage (V)", "#33FF57")
+        if series_outputvolt: prepared_series_list.append(series_outputvolt)
         volt_series_data = prepared_series_list
 
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch voltage data for {selected_date}: {e}")
-        raw_json_volts_response = {"error": str(e)} # Store error in raw response
+        raw_json_volts_response = {"error_request": str(e)}
     except json.JSONDecodeError as e:
-        log_message(f"❌ Failed to decode JSON for voltage data for {selected_date}: {e}. Response text: {response_volts.text if 'response_volts' in locals() else 'N/A'}")
-        raw_json_volts_response = {"error": "JSONDecodeError", "responseText": response_volts.text if 'response_volts' in locals() else 'N/A'}
+        log_message(f"❌ Failed to decode JSON for voltage data: {e}. Text: {response_volts.text if 'response_volts' in locals() else 'N/A'}")
+        raw_json_volts_response = {"error_json_decode": str(e), "responseText": response_volts.text if 'response_volts' in locals() else 'N/A'}
+    except Exception as e: # Catch any other unexpected errors during parsing
+        log_message(f"❌ Unexpected error processing voltage data: {e}")
+        raw_json_volts_response = {"error_processing": str(e)}
 
 
-    # --- Second Chart: Current Data (ppv) ---
     amp_series_data = []
-    raw_json_amps_response = {} # To store the raw JSON response for this chart
-
-    amp_request_jsonData = [{"type": "storage", "sn": NEW_API_STORAGE_SN, "params": "ppv"}]
-    amp_payload = {
-        'plantId': NEW_API_PLANT_ID,
-        'date': selected_date,
-        'jsonData': json.dumps(amp_request_jsonData) # jsonData must be a string
-    }
+    raw_json_amps_response = {}
+    amp_request_jsonData = [{"type": "storage", "sn": NEW_API_STORAGE_SN, "params": "ppv"}] # Using "ppv"
+    amp_payload = {'plantId': NEW_API_PLANT_ID, 'date': selected_date, 'jsonData': json.dumps(amp_request_jsonData)}
 
     try:
         response_amps = session.post(DEVICES_DAY_CHART_URL, headers=HEADERS, data=amp_payload, timeout=10)
         response_amps.raise_for_status()
         raw_json_amps_response = response_amps.json()
+        
+        ppv_values = []
 
-        # Extract data, similar assumptions as for volts data.
-        data_container_amps = raw_json_amps_response.get("obj", {})
-        if NEW_API_STORAGE_SN in data_container_amps: # Check if data is nested under SN
-            actual_amp_data = data_container_amps.get(NEW_API_STORAGE_SN, {})
-        else: # Assume data is directly under 'obj'
-            actual_amp_data = data_container_amps
+        obj_list_amps = raw_json_amps_response.get("obj")
+        if isinstance(obj_list_amps, list) and len(obj_list_amps) > 0:
+            first_item_amps = obj_list_amps[0]
+            if isinstance(first_item_amps, dict):
+                datas_dict_amps = first_item_amps.get("datas")
+                if isinstance(datas_dict_amps, dict):
+                    ppv_values = datas_dict_amps.get("PPV", []) # Using "PPV" (uppercase) from your example
+                    if not isinstance(ppv_values, list):
+                        log_message(f"‼️ Warning: 'PPV' data is not a list. Type: {type(ppv_values)}. Defaulting to [].")
+                        ppv_values = []
+                else:
+                    log_message(f"⚠️ 'datas' key for amps is not a dict or missing. Response: {raw_json_amps_response}")
+            else:
+                log_message(f"⚠️ First item in 'obj' list for amps is not a dict. Response: {raw_json_amps_response}")
+        else:
+            log_message(f"⚠️ 'obj' key for amps is not a list, is empty, or missing. Response: {raw_json_amps_response}")
 
-        ppv_values = actual_amp_data.get("ppv", [])
-
-        if not ppv_values:
-            log_message(f"⚠️ No 'ppv' data received for {selected_date} from {DEVICES_DAY_CHART_URL}. Response: {raw_json_amps_response}")
+        if not ppv_values: # Checks if the list is empty after attempting to parse
+             log_message(f"⚠️ No 'PPV' data extracted for {selected_date}. Check response structure and 'PPV' key. Response: {raw_json_amps_response}")
 
         prepared_series_list_amps = []
-        series_ppv = prepare_series(ppv_values, "PV2 Current (A)", "#3357FF") # Example color
-        if series_ppv:
-            prepared_series_list_amps.append(series_ppv)
-        
+        series_ppv = prepare_series(ppv_values, "PV Current (A)", "#3357FF")
+        if series_ppv: prepared_series_list_amps.append(series_ppv)
         amp_series_data = prepared_series_list_amps
 
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch amperage data for {selected_date}: {e}")
-        raw_json_amps_response = {"error": str(e)}
+        raw_json_amps_response = {"error_request": str(e)}
     except json.JSONDecodeError as e:
-        log_message(f"❌ Failed to decode JSON for amperage data for {selected_date}: {e}. Response text: {response_amps.text if 'response_amps' in locals() else 'N/A'}")
-        raw_json_amps_response = {"error": "JSONDecodeError", "responseText": response_amps.text if 'response_amps' in locals() else 'N/A'}
+        log_message(f"❌ Failed to decode JSON for amperage data: {e}. Text: {response_amps.text if 'response_amps' in locals() else 'N/A'}")
+        raw_json_amps_response = {"error_json_decode": str(e), "responseText": response_amps.text if 'response_amps' in locals() else 'N/A'}
+    except Exception as e: # Catch any other unexpected errors during parsing
+        log_message(f"❌ Unexpected error processing amperage data: {e}")
+        raw_json_amps_response = {"error_processing": str(e)}
 
-    # --- Pad data for all series to 288 data points ---
-    # (This matches the padding logic from the original energy_series)
+
     for series_list_to_pad in [volt_series_data, amp_series_data]:
-        for s_object in series_list_to_pad: # s_object is a dictionary like {"name": ..., "data": ...}
-            if s_object and "data" in s_object: # Ensure s_object is valid and has 'data' key
+        for s_object in series_list_to_pad:
+            if s_object and "data" in s_object:
                 current_data_list = s_object["data"] if s_object["data"] else []
-                # Ensure current_data_list is actually a list before using len()
-                if not isinstance(current_data_list, list):
-                    current_data_list = []
+                if not isinstance(current_data_list, list): current_data_list = []
                 s_object["data"] = current_data_list + [None] * (288 - len(current_data_list))
     
-    # Pass the new data to the template.
-    # 'volt_series_data' replaces the concept of 'soc_data' for the first chart.
-    #   Note: Its structure is a list of series, not a flat list like old soc_data.
-    # 'amp_series_data' replaces the concept of 'energy_series' for the second chart.
-    #   Its structure is a list of series, same as old energy_series.
-    # The 'energy_titles' variable is no longer explicitly passed as titles are in series names.
-    # Raw JSON responses are passed for potential debugging or other uses in the template.
     return render_template("details.html",
                            selected_date=selected_date,
-                           chart1_data_series=volt_series_data,  # For the first chart (Volts)
-                           chart2_data_series=amp_series_data,  # For the second chart (Amps)
+                           chart1_data_series=volt_series_data,
+                           chart2_data_series=amp_series_data,
                            raw_json_chart1=raw_json_volts_response,
                            raw_json_chart2=raw_json_amps_response,
                            last_growatt_update=last_successful_growatt_update_time)
