@@ -576,7 +576,7 @@ def start(update: Update, context: CallbackContext):
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     timestamp = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
-    msg = f"""⚡ /status Estado del Inversor /stop⚡
+    msg = f"""⚡ /status Estado del Inversor ⚡
         🕒 Hora--> {timestamp} 
 Voltaje Red          : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor   : {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
