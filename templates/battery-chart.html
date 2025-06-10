@@ -162,7 +162,7 @@
 </div>
 
 <script>
-    // Function to get today's date in YYYY-MM-DD format
+    // Function to get today's date in<x_bin_342>-MM-DD format
     function getTodayDate() {
         const today = new Date();
         const year = today.getFullYear();
@@ -198,7 +198,7 @@
         submitForm();
     }
 
-    // SoC Chart (No changes here)
+    // SoC Chart Data
     const socData = {{ soc_data | tojson }};
     const timeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
     const tickPositions = Array.from({ length: 24 }, (_, i) => i * 12);
@@ -222,10 +222,39 @@
             title: { text: 'SoC (%)' }
         },
         tooltip: {
+            useHTML: true, // Required for HTML in formatter
             formatter: function () {
                 const hour = Math.floor(this.point.index / 12).toString().padStart(2, '0');
                 const minute = ((this.point.index % 12) * 5).toString().padStart(2, '0');
                 return `Time: ${hour}:${minute}<br>SoC: ${this.y}%`;
+            },
+            positioner: function (labelWidth, labelHeight, point) {
+                let tooltipX, tooltipY;
+                const chart = this.chart;
+                const spacing = 15;
+
+                // Horizontal Positioning
+                tooltipX = chart.plotLeft + point.plotX - (labelWidth / 2);
+                if (tooltipX + labelWidth > chart.plotLeft + chart.plotWidth) {
+                    tooltipX = chart.plotLeft + chart.plotWidth - labelWidth - spacing;
+                }
+                if (tooltipX < chart.plotLeft) {
+                    tooltipX = chart.plotLeft + spacing;
+                }
+
+                // Vertical Positioning
+                tooltipY = chart.plotTop + point.plotY - labelHeight - spacing;
+                if (tooltipY < chart.plotTop) {
+                    tooltipY = chart.plotTop + point.plotY + spacing;
+                }
+                if (tooltipY + labelHeight > chart.plotTop + chart.plotHeight) {
+                    tooltipY = chart.plotTop + chart.plotHeight - labelHeight - spacing;
+                }
+
+                return {
+                    x: tooltipX,
+                    y: tooltipY
+                };
             }
         },
         series: [{
@@ -236,7 +265,7 @@
         }]
     });
 
-    // Energy Chart (Modified yAxis)
+    // Energy Chart
     const energySeries = {{ energy_series | tojson }};
     const energyTimeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
     const energyTickPositions = Array.from({ length: 24 }, (_, i) => i * 12);
@@ -258,11 +287,11 @@
             title: { text: 'Power (W)' },
             labels: { format: '{value} W' },
             gridLineColor: '#e1e1e1',
-            max: 1000 // Set the maximum value for the y-axis
+            max: 1000
         },
         tooltip: {
             shared: true,
-            valueSuffix: ' W',
+            useHTML: true, // Required for HTML in formatter
             formatter: function () {
                 const pointIndex = this.points[0].point.index;
                 const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
@@ -274,9 +303,31 @@
                 return tooltipHtml;
             },
             positioner: function (labelWidth, labelHeight, point) {
+                let tooltipX, tooltipY;
+                const chart = this.chart;
+                const spacing = 15;
+
+                // Horizontal Positioning
+                tooltipX = chart.plotLeft + point.plotX - (labelWidth / 2);
+                if (tooltipX + labelWidth > chart.plotLeft + chart.plotWidth) {
+                    tooltipX = chart.plotLeft + chart.plotWidth - labelWidth - spacing;
+                }
+                if (tooltipX < chart.plotLeft) {
+                    tooltipX = chart.plotLeft + spacing;
+                }
+
+                // Vertical Positioning
+                tooltipY = chart.plotTop + point.plotY - labelHeight - spacing;
+                if (tooltipY < chart.plotTop) {
+                    tooltipY = chart.plotTop + point.plotY + spacing;
+                }
+                if (tooltipY + labelHeight > chart.plotTop + chart.plotHeight) {
+                    tooltipY = chart.plotTop + chart.plotHeight - labelHeight - spacing;
+                }
+                
                 return {
-                    x: point.plotX - labelWidth / 2,
-                    y: point.plotY - labelHeight - 20
+                    x: tooltipX,
+                    y: tooltipY
                 };
             },
             shadow: false,
