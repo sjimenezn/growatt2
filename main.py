@@ -221,8 +221,15 @@ def save_data_to_file(data):
 def monitor_growatt():
     global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values, current_data
     threshold = 80
+    
+    # Initialize these flags to reflect the *unknown* state initially,
+    # or a known state based on initial readings.
     sent_lights_off = False
     sent_lights_on = False
+    
+    # NEW: State variable to track if the grid was previously considered "up"
+    # Initialize to None to indicate the initial state is unknown.
+    grid_was_up = None 
 
     loop_counter = 0  # Counter for saving fresh data
 
@@ -243,6 +250,21 @@ def monitor_growatt():
                         'freqOutPut': last_entry.get('freqOutPut')
                     })
                     log_message(f"Initialized last_saved_sensor_values from file: {last_saved_sensor_values}")
+                    
+                    # NEW: Try to set initial grid_was_up state from the file
+                    # If vGrid from the last entry is above threshold, set grid_was_up to True
+                    if 'vGrid' in last_entry and last_entry['vGrid'] is not None:
+                        try:
+                            if float(last_entry['vGrid']) >= threshold:
+                                grid_was_up = True
+                                log_message("Initialized 'grid_was_up' to True based on last saved vGrid.")
+                            else:
+                                grid_was_up = False
+                                log_message("Initialized 'grid_was_up' to False based on last saved vGrid.")
+                        except ValueError:
+                            log_message("Could not convert last saved vGrid to float for initial grid status.")
+                            grid_was_up = None # Keep as None if conversion fails
+                            
         except json.JSONDecodeError as e:
             log_message(f"⚠️ Could not load last_saved_sensor_values from {data_file} due to JSON error: {e}")
         except Exception as e:
@@ -339,51 +361,60 @@ def monitor_growatt():
 
                     alert_timestamp = last_successful_growatt_update_time # Use the time of last *fresh* data
                     
-                    if current_ac_input_v_float < threshold and not sent_lights_off:
-                        time.sleep(110) 
-                        data_confirm = api.storage_detail(inverter_sn)
-                        ac_input_v_confirm = data_confirm.get("vGrid", "0")
-                        try:
-                            current_ac_input_v_confirm = float(ac_input_v_confirm)
-                        except ValueError:
-                            current_ac_input_v_confirm = 0.0
+                    # Logic for Grid Down
+                    if current_ac_input_v_float < threshold:
+                        # If grid was previously up (or unknown) and now it's down, send "lights off"
+                        if grid_was_up is None or grid_was_up is True:
+                            time.sleep(110) 
+                            data_confirm = api.storage_detail(inverter_sn)
+                            ac_input_v_confirm = data_confirm.get("vGrid", "0")
+                            try:
+                                current_ac_input_v_confirm = float(ac_input_v_confirm)
+                            except ValueError:
+                                current_ac_input_v_confirm = 0.0
 
-                        if current_ac_input_v_confirm < threshold:
-                            msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
+                            if current_ac_input_v_confirm < threshold:
+                                msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
     🕒 Hora--> {alert_timestamp}
 Nivel de batería     : {current_data.get('battery_capacity', 'N/A')} %
 Voltaje de la red    : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
-                            send_telegram_message(msg)
-                            sent_lights_off = True
-                            sent_lights_on = False
-
-                    elif current_ac_input_v_float >= threshold and not sent_lights_on:
-                        time.sleep(110)
-                        data_confirm = api.storage_detail(inverter_sn)
-                        ac_input_v_confirm = data_confirm.get("vGrid", "0")
-                        try:
-                            current_ac_input_v_confirm = float(ac_input_v_confirm)
-                        except ValueError:
-                            current_ac_input_v_confirm = 0.0
-                        
-                        if current_ac_input_v_confirm >= threshold:
-                            msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
+                                send_telegram_message(msg)
+                                sent_lights_off = True
+                                sent_lights_on = False # Reset 'on' flag
+                        grid_was_up = False # Update state
+                    
+                    # Logic for Grid Up
+                    elif current_ac_input_v_float >= threshold:
+                        # If grid was previously down (or unknown) and now it's up, send "lights on"
+                        if grid_was_up is None or grid_was_up is False:
+                            time.sleep(110)
+                            data_confirm = api.storage_detail(inverter_sn)
+                            ac_input_v_confirm = data_confirm.get("vGrid", "0")
+                            try:
+                                current_ac_input_v_confirm = float(ac_input_v_confirm)
+                            except ValueError:
+                                current_ac_input_v_confirm = 0.0
+                            
+                            if current_ac_input_v_confirm >= threshold:
+                                msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
     🕒 Hora--> {alert_timestamp}
 Nivel de batería     : {current_data.get('battery_capacity', 'N/A')} %
 Voltaje de la red    : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
-                            send_telegram_message(msg)
-                            sent_lights_on = True
-                            sent_lights_off = False
+                                send_telegram_message(msg)
+                                sent_lights_on = True
+                                sent_lights_off = False # Reset 'off' flag
+                        grid_was_up = True # Update state
             
         except Exception as e_inner:
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None 
 
         time.sleep(60)
+
 
 # --- GitHub Sync Config ---
 GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
@@ -545,7 +576,7 @@ def start(update: Update, context: CallbackContext):
 def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     timestamp = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
-    msg = f"""⚡ /status Estado del Inversor /stop⚡
+    msg = f"""⚡ /status Estado del Inversor ⚡
         🕒 Hora--> {timestamp} 
 Voltaje Red          : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor   : {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
