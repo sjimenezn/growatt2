@@ -29,7 +29,7 @@ password1 = "Vospina.2025"
 
 # --- Telegram Config ---
 TELEGRAM_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo" # <--- YOUR CURRENT TOKEN
-CHAT_IDS = ["5715745951"]  # Only sends messages to 'sergiojim' chat ID
+CHAT_IDS = ["5715745951", "7524705169", "7812545729", "7862573365", "7650630450"]
 chat_log = set()
 
 # Global variable to control Telegram bot state
