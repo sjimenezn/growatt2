@@ -168,7 +168,7 @@
         const year = today.getFullYear();
         const month = String(today.getMonth() + 1).padStart(2, '0');
         const day = String(today.getDate()).padStart(2, '0');
-        return `<span class="math-inline">\{year\}\-</span>{month}-${day}`;
+        return `${year}-${month}-${day}`;
     }
 
     window.onload = function() {
@@ -225,7 +225,7 @@
                 const pointIndex = this.points[0].point.index;
                 const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
                 const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
-                let tooltipHtml = `Time: <span class="math-inline">\{hour\}\:</span>{minute}<br/>`;
+                let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
                 this.points.forEach(p => {
                     tooltipHtml += `${p.series.name}: ${Highcharts.numberFormat(p.y, 2)} V<br/>`;
                 });
@@ -285,4 +285,60 @@
             title: { text: 'Hour' }
         },
         yAxis: {
-            title: { text: '
+            title: { text: 'Current (A)' },
+            labels: { format: '{value} A' },
+            gridLineColor: '#e1e1e1'
+        },
+        tooltip: {
+            shared: true,
+            formatter: function () {
+                const pointIndex = this.points[0].point.index;
+                const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
+                const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
+                let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
+                this.points.forEach(p => {
+                    tooltipHtml += `${p.series.name}: ${Highcharts.numberFormat(p.y, 2)} A<br/>`;
+                });
+                return tooltipHtml;
+            },
+            positioner: function (labelWidth, labelHeight, point) {
+                let tooltipX, tooltipY;
+                const chart = this.chart;
+                const spacing = 15;
+
+                // HORIZONTAL POSITIONING
+                tooltipX = chart.plotLeft + point.plotX - (labelWidth / 2);
+                if (tooltipX + labelWidth > chart.plotLeft + chart.plotWidth) {
+                    tooltipX = chart.plotLeft + chart.plotWidth - labelWidth - spacing;
+                }
+                if (tooltipX < chart.plotLeft) {
+                    tooltipX = chart.plotLeft + spacing;
+                }
+
+                // VERTICAL POSITIONING
+                tooltipY = chart.plotTop + point.plotY - labelHeight - spacing;
+                if (tooltipY < chart.plotTop) {
+                    tooltipY = chart.plotTop + point.plotY + spacing;
+                }
+                if (tooltipY + labelHeight > chart.plotTop + chart.plotHeight) {
+                    tooltipY = chart.plotTop + chart.plotHeight - labelHeight - spacing;
+                }
+                
+                return {
+                    x: tooltipX,
+                    y: tooltipY
+                };
+            },
+            shadow: false,
+            borderWidth: 1
+        },
+        legend: {
+            layout: 'horizontal',
+            align: 'center',
+            verticalAlign: 'bottom'
+        },
+        series: chart2DataSeries
+    });
+</script>
+</body>
+</html>
