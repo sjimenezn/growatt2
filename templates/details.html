@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Growatt Inverter Details</title> <meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
+    <title>Growatt Inverter Details</title>
+    <meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
     <script src="https://code.highcharts.com/highcharts.js"></script>
     <style>
         body {
@@ -137,11 +138,13 @@
         <li><a href="/logs">Logs</a></li>
         <li><a href="/chatlog">Chatlog</a></li>
         <li><a href="/console">Console</a></li>
-        <li><a href="/details" class="active">Details</a></li> <li><a href="/battery-chart">Battery Chart</a></li>
+        <li><a href="/details" class="active">Details</a></li>
+        <li><a href="/battery-chart">Battery Chart</a></li>
     </ul>
 </nav>
 
-<h2>Inverter Details for {{ selected_date }}</h2> <form method="post" id="dateForm">
+<h2>Inverter Details for {{ selected_date }}</h2>
+<form method="post" id="dateForm">
     <div id="controls">
         <button class="arrow" type="button" onclick="shiftDate(-1)">←</button>
         <input type="date" name="date" id="datePicker" value="{{ selected_date }}" required onchange="submitForm()">
@@ -165,7 +168,7 @@
         const year = today.getFullYear();
         const month = String(today.getMonth() + 1).padStart(2, '0');
         const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
+        return `<span class="math-inline">\{year\}\-</span>{month}-${day}`;
     }
 
     window.onload = function() {
@@ -215,7 +218,6 @@
             title: { text: 'Voltage (V)' },
             labels: { format: '{value} V' }, // Added V suffix to labels
             gridLineColor: '#e1e1e1' // Kept grid line color consistent
-            // min: 0, max: 100 removed for auto-scaling
         },
         tooltip: {
             shared: true,
@@ -223,71 +225,38 @@
                 const pointIndex = this.points[0].point.index;
                 const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
                 const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
-                let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
+                let tooltipHtml = `Time: <span class="math-inline">\{hour\}\:</span>{minute}<br/>`;
                 this.points.forEach(p => {
                     tooltipHtml += `${p.series.name}: ${Highcharts.numberFormat(p.y, 2)} V<br/>`;
                 });
                 return tooltipHtml;
             },
-            positioner: function (labelWidth, labelHeight, point) { // Copied positioner for consistency
-                return {
-                    x: point.plotX - labelWidth / 2,
-                    y: point.plotY - labelHeight - 20 
-                };
-            },
-            shadow: false, // Copied style for consistency
-            borderWidth: 1  // Copied style for consistency
-        },
-        legend: { // Added legend configuration
-            layout: 'horizontal',
-            align: 'center',
-            verticalAlign: 'bottom'
-        },
-        series: chart1DataSeries // Use the new data structure directly
-    });
-
-    // --- Second Chart: Current Data ---
-    // Note: energyTimeLabels and energyTickPositions are identical to timeLabels and tickPositions
-    // We can reuse timeLabels and tickPositions for simplicity if preferred.
-    // const energyTimeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-    // const energyTickPositions = Array.from({ length: 24 }, (_, i) => i * 12);
-
-    Highcharts.chart('energy-chart-container', {
-        chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
-        title: { text: 'Current Data on {{ selected_date }}' },
-        xAxis: {
-            categories: timeLabels, // Reused timeLabels
-            tickPositions: tickPositions, // Reused tickPositions
-            labels: {
-                formatter: function() {
-                    return this.axis.categories[this.pos / 12];
-                }
-            },
-            title: { text: 'Hour' }
-        },
-        yAxis: {
-            title: { text: 'Current (A)' },
-            labels: { format: '{value} A' },
-            gridLineColor: '#e1e1e1'
-            // max: 1000 removed for auto-scaling
-        },
-        tooltip: {
-            shared: true,
-            // valueSuffix: ' A', // Suffix added in formatter instead for precision control
-            formatter: function () {
-                const pointIndex = this.points[0].point.index;
-                const hour = Math.floor(pointIndex / 12).toString().padStart(2, '0');
-                const minute = ((pointIndex % 12) * 5).toString().padStart(2, '0');
-                let tooltipHtml = `Time: ${hour}:${minute}<br/>`;
-                this.points.forEach(p => {
-                    tooltipHtml += `${p.series.name}: ${Highcharts.numberFormat(p.y, 2)} A<br/>`;
-                });
-                return tooltipHtml;
-            },
             positioner: function (labelWidth, labelHeight, point) {
+                let tooltipX, tooltipY;
+                const chart = this.chart;
+                const spacing = 15;
+
+                // HORIZONTAL POSITIONING
+                tooltipX = chart.plotLeft + point.plotX - (labelWidth / 2);
+                if (tooltipX + labelWidth > chart.plotLeft + chart.plotWidth) {
+                    tooltipX = chart.plotLeft + chart.plotWidth - labelWidth - spacing;
+                }
+                if (tooltipX < chart.plotLeft) {
+                    tooltipX = chart.plotLeft + spacing;
+                }
+
+                // VERTICAL POSITIONING
+                tooltipY = chart.plotTop + point.plotY - labelHeight - spacing;
+                if (tooltipY < chart.plotTop) {
+                    tooltipY = chart.plotTop + point.plotY + spacing;
+                }
+                if (tooltipY + labelHeight > chart.plotTop + chart.plotHeight) {
+                    tooltipY = chart.plotTop + chart.plotHeight - labelHeight - spacing;
+                }
+
                 return {
-                    x: point.plotX - labelWidth / 2,
-                    y: point.plotY - labelHeight - 20
+                    x: tooltipX,
+                    y: tooltipY
                 };
             },
             shadow: false,
@@ -298,8 +267,22 @@
             align: 'center',
             verticalAlign: 'bottom'
         },
-        series: chart2DataSeries // Use the new data structure directly
+        series: chart1DataSeries
     });
-</script>
-</body>
-</html>
+
+    // --- Second Chart: Current Data ---
+    Highcharts.chart('energy-chart-container', {
+        chart: { type: 'areaspline', spacingTop: 10, spacingBottom: 10 },
+        title: { text: 'Current Data on {{ selected_date }}' },
+        xAxis: {
+            categories: timeLabels,
+            tickPositions: tickPositions,
+            labels: {
+                formatter: function() {
+                    return this.axis.categories[this.pos / 12];
+                }
+            },
+            title: { text: 'Hour' }
+        },
+        yAxis: {
+            title: { text: '
