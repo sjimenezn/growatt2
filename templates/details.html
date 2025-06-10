@@ -194,8 +194,8 @@
     }
 
     // Constants for chart data from Flask
-    const chart1DataSeries = {{ chart1_data_series | tojson }}; // For Voltage Chart
-    const chart2DataSeries = {{ chart2_data_series | tojson }}; // For Current Chart
+    const chart1DataSeries = {{ chart1_data_series | tojson }};
+    const chart2DataSeries = {{ chart2_data_series | tojson }};
 
     const timeLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
     const tickPositions = Array.from({ length: 24 }, (_, i) => i * 12);
@@ -216,8 +216,8 @@
         },
         yAxis: {
             title: { text: 'Voltage (V)' },
-            labels: { format: '{value} V' }, // Added V suffix to labels
-            gridLineColor: '#e1e1e1' // Kept grid line color consistent
+            labels: { format: '{value} V' },
+            gridLineColor: '#e1e1e1'
         },
         tooltip: {
             shared: true,
