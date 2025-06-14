@@ -14,10 +14,62 @@ from telegram.ext import Updater, CommandHandler, CallbackContext
 import git # New import for GitPython
 from git import Repo
 
+# --- Pre-computation Logging ---
+# This function is used by startup logic, so it needs to be defined early.
+console_logs = []
+def log_message(message):
+    timestamped = f"{(datetime.now() - timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
+    print(timestamped)
+    console_logs.append((time.time(), timestamped))
+    now = time.time()
+    console_logs[:] = [(t, m) for t, m in console_logs if now - t < 6000]
+
 # --- File for saving data ---
 data_file = "saved_data.json"
 
-# Ensure the file exists and is initialized as an empty JSON array
+### NEW: Function to pull the single data file from the 'growatt' data repository on startup ###
+def pull_data_file_from_repo():
+    """
+    Attempts to download the latest saved_data.json from the 'growatt' data repository.
+    This is called on application startup to ensure the app has the latest data.
+    """
+    DATA_REPO_OWNER = "sjimenezn"
+    DATA_REPO_NAME = "growatt"
+    DATA_FILE_PATH = "saved_data.json"
+    BRANCH = "main"  # Or "master", ensure this matches your repository's default branch
+
+    token = os.getenv("GITHUB_PAT")
+    if not token:
+        log_message("⚠️ GITHUB_PAT not set. Cannot pull data file from remote. Will use local version if it exists.")
+        return
+
+    url = f"https://raw.githubusercontent.com/{DATA_REPO_OWNER}/{DATA_REPO_NAME}/{BRANCH}/{DATA_FILE_PATH}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3.raw"
+    }
+
+    log_message(f"Attempting to pull '{DATA_FILE_PATH}' from the '{DATA_REPO_NAME}' data repository...")
+
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            with open(data_file, "wb") as f:  # Use 'wb' to write the binary content
+                f.write(response.content)
+            log_message(f"✅ Successfully pulled and saved '{DATA_FILE_PATH}' from '{DATA_REPO_NAME}'.")
+        elif response.status_code == 404:
+            log_message(f"⚠️ '{DATA_FILE_PATH}' not found in the data repository (404). A new file will be created locally if needed.")
+        else:
+            log_message(f"❌ Failed to pull '{DATA_FILE_PATH}'. Status Code: {response.status_code}. Response: {response.text[:200]}")
+    except requests.exceptions.RequestException as e:
+        log_message(f"❌ Network error while trying to pull '{DATA_FILE_PATH}': {e}")
+
+
+### NEW: Call the pull function on startup ###
+pull_data_file_from_repo()
+
+
+# Ensure the file exists and is initialized as an empty JSON array if the pull failed and file doesn't exist
 if not os.path.exists(data_file) or os.path.getsize(data_file) == 0:
     with open(data_file, "w") as f:
         f.write("[]")  # Initialize with an empty JSON array
@@ -76,20 +128,11 @@ api.session.headers.update({
 
 # --- Shared Data ---
 current_data = {}
-last_processed_time = "Never" 
+last_processed_time = "Never"
 last_successful_growatt_update_time = "Never" # This will be the time of the last *fresh* data received
 
 # NEW: Store the last successfully saved sensor values for comparison
 last_saved_sensor_values = {}
-
-console_logs = []
-
-def log_message(message):
-    timestamped = f"{(datetime.now() - timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
-    print(timestamped)
-    console_logs.append((time.time(), timestamped))
-    now = time.time()
-    console_logs[:] = [(t, m) for t, m in console_logs if now - t < 6000]
 
 
 def send_telegram_message(message):
@@ -113,7 +156,7 @@ fetched_data = {}
 
 def login_growatt():
     log_message("🔄 Attempting Growatt login...")
-    
+
     try:
         login_response = api.login(username1, password1)
         fetched_data['login_response'] = login_response
@@ -197,7 +240,7 @@ def save_data_to_file(data):
                                 existing_data.append(json.loads(stripped_line))
                             except json.JSONDecodeError as e:
                                 log_message(f"❌ Error decoding existing JSON line in {data_file}: {stripped_line} - {e}")
-        
+
         # Add the new data point
         existing_data.append(data)
 
@@ -209,7 +252,7 @@ def save_data_to_file(data):
             json.dump(existing_data, f, indent=None, separators=(',', ':'))
 
         log_message("✅ Saved data to file as a JSON array.")
-        
+
         # After successful save, update last_saved_sensor_values
         # Filter out 'timestamp' for comparison purposes for the next cycle
         comparable_data = {k: v for k, v in data.items() if k != 'timestamp'}
@@ -221,21 +264,15 @@ def save_data_to_file(data):
 def monitor_growatt():
     global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values, current_data
     threshold = 80
-    
-    # Initialize these flags to reflect the *unknown* state initially,
-    # or a known state based on initial readings.
+
     sent_lights_off = False
     sent_lights_on = False
-    
-    # NEW: State variable to track if the grid was previously considered "up"
-    # Initialize to None to indicate the initial state is unknown.
-    grid_was_up = None 
+    grid_was_up = None
 
-    loop_counter = 0  # Counter for saving fresh data
+    loop_counter = 0
 
     user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
-    # On startup, attempt to populate last_saved_sensor_values from the last entry in the file
     if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
         try:
             with open(data_file, "r") as f:
@@ -250,9 +287,7 @@ def monitor_growatt():
                         'freqOutPut': last_entry.get('freqOutPut')
                     })
                     log_message(f"Initialized last_saved_sensor_values from file: {last_saved_sensor_values}")
-                    
-                    # NEW: Try to set initial grid_was_up state from the file
-                    # If vGrid from the last entry is above threshold, set grid_was_up to True
+
                     if 'vGrid' in last_entry and last_entry['vGrid'] is not None:
                         try:
                             if float(last_entry['vGrid']) >= threshold:
@@ -263,8 +298,8 @@ def monitor_growatt():
                                 log_message("Initialized 'grid_was_up' to False based on last saved vGrid.")
                         except ValueError:
                             log_message("Could not convert last saved vGrid to float for initial grid status.")
-                            grid_was_up = None # Keep as None if conversion fails
-                            
+                            grid_was_up = None
+
         except json.JSONDecodeError as e:
             log_message(f"⚠️ Could not load last_saved_sensor_values from {data_file} due to JSON error: {e}")
         except Exception as e:
@@ -273,7 +308,7 @@ def monitor_growatt():
     while True:
         current_loop_datetime_utc_minus_5 = datetime.now() - timedelta(hours=5)
         current_loop_time_str = current_loop_datetime_utc_minus_5.strftime("%Y-%m-%d %H:%M:%S")
-        growatt_data_is_stale = False # Initialize for this loop iteration
+        growatt_data_is_stale = False
 
         try:
             if user_id is None or plant_id is None or inverter_sn is None or datalog_sn is None:
@@ -285,7 +320,6 @@ def monitor_growatt():
                     continue
 
             raw_growatt_data = api.storage_detail(inverter_sn)
-            #log_message(f"Raw Growatt API data received: {raw_growatt_data}")
 
             new_ac_input_v = raw_growatt_data.get("vGrid", "N/A")
             new_ac_input_f = raw_growatt_data.get("freqGrid", "N/A")
@@ -302,16 +336,11 @@ def monitor_growatt():
                 "freqOutPut": str(new_ac_output_f)
             }
 
-            # Check if the fetched sensor values are IDENTICAL to the last saved ones
             if last_saved_sensor_values and current_sensor_values_for_comparison == last_saved_sensor_values:
                 growatt_data_is_stale = True
                 log_message("⚠️ Detected Growatt data is identical to last saved values. Skipping file save for this cycle.")
-                # last_successful_growatt_update_time should NOT be updated here.
-                # Data is stale, so we don't prepare data_to_save_for_file or call save_data_to_file.
             else:
-                # Data is new/different
-                #log_message("✅ New Growatt data received.")
-                last_successful_growatt_update_time = current_loop_time_str # Update only on fresh data
+                last_successful_growatt_update_time = current_loop_time_str
 
                 data_to_save_for_file = {
                     "timestamp": last_successful_growatt_update_time,
@@ -321,21 +350,13 @@ def monitor_growatt():
                     "capacity": new_battery_pct,
                     "freqOutPut": new_ac_output_f,
                 }
-                
-                # `last_saved_sensor_values` will be updated by `save_data_to_file`
-                # when it's called.
 
-                # Save data to file every N *fresh data* cycles
-                # (loop_counter >= 10 means save every 11th fresh data point, adjust as needed, e.g. 10 for approx 5 mins if 30s interval)
-                if loop_counter >= 4: # Approx every 5 minutes (10 * 30s sleep = 300s)
+                if loop_counter >= 4:
                     save_data_to_file(data_to_save_for_file)
-                    # last_saved_sensor_values is updated inside save_data_to_file after a successful save
-                    loop_counter = 0  # Reset counter after saving
+                    loop_counter = 0
                 else:
-                    loop_counter += 1 # Increment counter for fresh data that wasn't saved this cycle
-            
-            # Always update `current_data` with the most recently *received* values
-            # (even if they are stale), for immediate display on the Flask home page.
+                    loop_counter += 1
+
             current_data.update({
                 "ac_input_voltage": new_ac_input_v,
                 "ac_input_frequency": new_ac_input_f,
@@ -349,9 +370,8 @@ def monitor_growatt():
                 "datalog_sn": datalog_sn
             })
 
-            last_processed_time = current_loop_time_str # This always updates as the loop processed.
+            last_processed_time = current_loop_time_str
 
-            # --- Telegram Alerts ---
             if telegram_enabled:
                 if current_data.get("ac_input_voltage") != "N/A":
                     try:
@@ -359,13 +379,11 @@ def monitor_growatt():
                     except ValueError:
                         current_ac_input_v_float = 0.0
 
-                    alert_timestamp = last_successful_growatt_update_time # Use the time of last *fresh* data
-                    
-                    # Logic for Grid Down
+                    alert_timestamp = last_successful_growatt_update_time
+
                     if current_ac_input_v_float < threshold:
-                        # If grid was previously up (or unknown) and now it's down, send "lights off"
                         if grid_was_up is None or grid_was_up is True:
-                            time.sleep(110) 
+                            time.sleep(110)
                             data_confirm = api.storage_detail(inverter_sn)
                             ac_input_v_confirm = data_confirm.get("vGrid", "0")
                             try:
@@ -382,12 +400,10 @@ Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {curren
 Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                                 send_telegram_message(msg)
                                 sent_lights_off = True
-                                sent_lights_on = False # Reset 'on' flag
-                        grid_was_up = False # Update state
-                    
-                    # Logic for Grid Up
+                                sent_lights_on = False
+                        grid_was_up = False
+
                     elif current_ac_input_v_float >= threshold:
-                        # If grid was previously down (or unknown) and now it's up, send "lights on"
                         if grid_was_up is None or grid_was_up is False:
                             time.sleep(110)
                             data_confirm = api.storage_detail(inverter_sn)
@@ -396,7 +412,7 @@ Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                                 current_ac_input_v_confirm = float(ac_input_v_confirm)
                             except ValueError:
                                 current_ac_input_v_confirm = 0.0
-                            
+
                             if current_ac_input_v_confirm >= threshold:
                                 msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
     🕒 Hora--> {alert_timestamp}
@@ -406,114 +422,91 @@ Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {curren
 Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
                                 send_telegram_message(msg)
                                 sent_lights_on = True
-                                sent_lights_off = False # Reset 'off' flag
-                        grid_was_up = True # Update state
-            
+                                sent_lights_off = False
+                        grid_was_up = True
+
         except Exception as e_inner:
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
-            user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None 
+            user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
         time.sleep(60)
 
 
 # --- GitHub Sync Config ---
-GITHUB_REPO_URL = "https://github.com/sjimenezn/growatt2.git"
+### MODIFIED: Changed the repo URL to point to the 'growatt' data repository ###
+DATA_REPO_URL = "https://github.com/sjimenezn/growatt.git"
 GITHUB_USERNAME = "sjimenezn"
-GITHUB_TOKEN = os.getenv("GITHUB_PAT")  # Get from environment variable
+GITHUB_TOKEN = os.getenv("GITHUB_PAT")
 GIT_PUSH_INTERVAL_MINS = 15
-# LOCAL_REPO_PATH = "." # This seems unused, can be removed if not needed elsewhere
 
 def _perform_single_github_sync_operation(context_prefix="SYNC"):
     """
-    Performs a Git sync operation, robustly handling temporary directories
-    and ensuring a commit even if data hasn't changed.
-    context_prefix helps distinguish logs (e.g., "MANUAL_SYNC", "AUTO_SYNC").
+    Performs a Git sync operation, pushing saved_data.json to the DATA_REPO_URL.
     """
-    base_working_dir = os.path.abspath(os.getcwd()) 
-    
+    base_working_dir = os.path.abspath(os.getcwd())
+
     TEMP_REPO_DIR_NAME = f"temp_git_repo_{context_prefix.lower()}"
     TEMP_REPO_PATH = os.path.join(base_working_dir, TEMP_REPO_DIR_NAME)
 
     EMPTY_TEMPLATE_DIR_NAME = f"empty_git_template_{context_prefix.lower()}"
     EMPTY_TEMPLATE_PATH = os.path.join(base_working_dir, EMPTY_TEMPLATE_DIR_NAME)
-    
-    FILE_TO_SYNC = "saved_data.json" 
+
+    FILE_TO_SYNC = "saved_data.json"
     original_git_template_dir_env = os.environ.get('GIT_TEMPLATE_DIR')
 
-   # log_message(f"[{context_prefix}] Starting GitHub sync operation.")
-
     if os.path.exists(TEMP_REPO_PATH):
-       # log_message(f"[{context_prefix}] Attempting to remove existing TEMP_REPO_PATH: {TEMP_REPO_PATH}")
         try:
             shutil.rmtree(TEMP_REPO_PATH)
             log_message(f"[{context_prefix}] Successfully removed existing TEMP_REPO_PATH.")
         except Exception as e_rm_initial:
             log_message(f"❌ [{context_prefix}] CRITICAL: Error removing TEMP_REPO_PATH {TEMP_REPO_PATH} at start: {e_rm_initial}. Sync aborted.")
             return False, f"Failed to remove pre-existing temp directory: {e_rm_initial}"
-    else:
-        #log_message(f"[{context_prefix}] TEMP_REPO_PATH {TEMP_REPO_PATH} did not exist, no initial removal needed.")
-        pass
+
     try:
         os.makedirs(EMPTY_TEMPLATE_PATH, exist_ok=True)
-        os.makedirs(os.path.join(EMPTY_TEMPLATE_PATH, "hooks"), exist_ok=True) 
-        #log_message(f"[{context_prefix}] Ensured empty GIT_TEMPLATE_DIR exists at {EMPTY_TEMPLATE_PATH}")
+        os.makedirs(os.path.join(EMPTY_TEMPLATE_PATH, "hooks"), exist_ok=True)
         os.environ['GIT_TEMPLATE_DIR'] = EMPTY_TEMPLATE_PATH
-       # log_message(f"[{context_prefix}] Set GIT_TEMPLATE_DIR environment variable to: {EMPTY_TEMPLATE_PATH}")
     except Exception as e_mkdir_template:
-        log_message(f"⚠️ [{context_prefix}] Could not create or set empty template dir {EMPTY_TEMPLATE_PATH}: {e_mkdir_template}. Git clone might use system defaults and could fail if system templates are problematic.")
+        log_message(f"⚠️ [{context_prefix}] Could not create or set empty template dir {EMPTY_TEMPLATE_PATH}: {e_mkdir_template}.")
 
     try:
         if not GITHUB_TOKEN:
             log_message(f"❌ [{context_prefix}] GITHUB_TOKEN (PAT) environment variable not set!")
-            if 'GIT_TEMPLATE_DIR' in os.environ and os.environ.get('GIT_TEMPLATE_DIR') == EMPTY_TEMPLATE_PATH:
-                if original_git_template_dir_env is None: del os.environ['GIT_TEMPLATE_DIR']
-                else: os.environ['GIT_TEMPLATE_DIR'] = original_git_template_dir_env
             return False, "GitHub credentials not set (GITHUB_TOKEN)"
-        if not GITHUB_USERNAME: 
+        if not GITHUB_USERNAME:
             log_message(f"❌ [{context_prefix}] GITHUB_USERNAME is not set!")
-            if 'GIT_TEMPLATE_DIR' in os.environ and os.environ.get('GIT_TEMPLATE_DIR') == EMPTY_TEMPLATE_PATH:
-                if original_git_template_dir_env is None: del os.environ['GIT_TEMPLATE_DIR']
-                else: os.environ['GIT_TEMPLATE_DIR'] = original_git_template_dir_env
             return False, "GitHub credentials not set (GITHUB_USERNAME)"
 
-        repo_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{GITHUB_REPO_URL.split('//')[1]}" # Construct carefully
-       # log_message(f"[{context_prefix}] Cloning repository {repo_url} into {TEMP_REPO_PATH}...")
+        ### MODIFIED: Construct the clone URL using the new DATA_REPO_URL variable ###
+        repo_url = f"https://{GITHUB_USERNAME}:{GITHUB_TOKEN}@{DATA_REPO_URL.split('//')[1]}"
         repo = Repo.clone_from(repo_url, TEMP_REPO_PATH)
-        #log_message(f"[{context_prefix}] Repository cloned successfully.")
 
         with repo.config_writer() as cw:
             cw.set_value("user", "name", f"GitHub Sync Bot ({context_prefix})")
             cw.set_value("user", "email", f"bot-{context_prefix.lower()}@example.com")
-        #log_message(f"[{context_prefix}] Git user configured in cloned repository.")
 
-        source_file_path = os.path.join(base_working_dir, FILE_TO_SYNC) 
+        source_file_path = os.path.join(base_working_dir, FILE_TO_SYNC)
         destination_file_path = os.path.join(TEMP_REPO_PATH, FILE_TO_SYNC)
 
         if os.path.exists(source_file_path):
-            #log_message(f"[{context_prefix}] Copying {source_file_path} to {destination_file_path}...")
             shutil.copy2(source_file_path, destination_file_path)
-            #log_message(f"[{context_prefix}] File copied to repository.")
         else:
             log_message(f"❌ [{context_prefix}] Source file {source_file_path} not found. This will be committed as a deletion if the file was previously tracked.")
 
-        #log_message(f"[{context_prefix}] Adding all changes to Git index...")
-        repo.git.add(A=True) 
-        #log_message(f"[{context_prefix}] Changes added to index.")
+        repo.git.add(A=True)
 
         commit_message = f"Automated data sync ({context_prefix}): {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        if repo.is_dirty(index=True, working_tree=False, untracked_files=False): 
-            #log_message(f"[{context_prefix}] Changes detected. Committing with message: '{commit_message}'")
+        if repo.is_dirty(index=True, working_tree=False, untracked_files=False):
             repo.git.commit("-m", commit_message)
-            #log_message(f"✅ [{context_prefix}] Changes committed.")
+            log_message(f"✅ [{context_prefix}] Changes committed.")
         else:
             log_message(f"[{context_prefix}] No file content changes detected. Creating empty commit to mark sync: '{commit_message}'")
             repo.git.commit("--allow-empty", "-m", commit_message)
             log_message(f"✅ [{context_prefix}] Empty commit created.")
 
-        #log_message(f"[{context_prefix}] Pushing changes to GitHub...")
         origin = repo.remote(name='origin')
         origin.push()
-        #log_message(f"✅ [{context_prefix}] Changes pushed to GitHub.")
+        log_message(f"✅ [{context_prefix}] Changes pushed to GitHub.")
 
         return True, f"[{context_prefix}] Sync completed successfully"
 
@@ -531,24 +524,19 @@ def _perform_single_github_sync_operation(context_prefix="SYNC"):
         if 'GIT_TEMPLATE_DIR' in os.environ and os.environ.get('GIT_TEMPLATE_DIR') == EMPTY_TEMPLATE_PATH :
             if original_git_template_dir_env is None:
                 del os.environ['GIT_TEMPLATE_DIR']
-               # log_message(f"[{context_prefix}] Cleared GIT_TEMPLATE_DIR environment variable.")
             else:
                 os.environ['GIT_TEMPLATE_DIR'] = original_git_template_dir_env
                 log_message(f"[{context_prefix}] Restored GIT_TEMPLATE_DIR to: {original_git_template_dir_env or 'None'}.")
-        
+
         if os.path.exists(TEMP_REPO_PATH):
-           # log_message(f"[{context_prefix}] Cleaning up TEMP_REPO_PATH: {TEMP_REPO_PATH} in finally block.")
             try:
                 shutil.rmtree(TEMP_REPO_PATH)
-               # log_message(f"[{context_prefix}] Successfully removed TEMP_REPO_PATH in finally block.")
             except Exception as e_rm_final_repo:
                 log_message(f"❌ [{context_prefix}] Error removing TEMP_REPO_PATH {TEMP_REPO_PATH} in finally block: {e_rm_final_repo}")
-        
+
         if os.path.exists(EMPTY_TEMPLATE_PATH):
-            #log_message(f"[{context_prefix}] Cleaning up EMPTY_TEMPLATE_PATH: {EMPTY_TEMPLATE_PATH} in finally block.")
             try:
                 shutil.rmtree(EMPTY_TEMPLATE_PATH)
-               # log_message(f"[{context_prefix}] Successfully removed EMPTY_TEMPLATE_PATH in finally block.")
             except Exception as e_rm_final_template:
                 log_message(f"⚠️ [{context_prefix}] Error removing EMPTY_TEMPLATE_PATH {EMPTY_TEMPLATE_PATH} in finally block: {e_rm_final_template}")
 
@@ -556,19 +544,19 @@ def _perform_single_github_sync_operation(context_prefix="SYNC"):
 def sync_github_repo():
     """Scheduled thread to sync data with GitHub."""
     log_message(f"🔁 [{datetime.now().strftime('%H:%M:%S')}] Starting GitHub sync thread (interval: {GIT_PUSH_INTERVAL_MINS} mins)")
-    
+
     while True:
-        time.sleep(GIT_PUSH_INTERVAL_MINS * 60) 
-        
+        time.sleep(GIT_PUSH_INTERVAL_MINS * 60)
+
         current_time_str = datetime.now().strftime('%H:%M:%S')
         log_message(f"[{current_time_str}] 🔁AUTO_SYNC: Triggering GitHub sync job.")
-        
-        success, message = _perform_single_github_sync_operation(context_prefix="AUTO_SYNC") 
-        
+
+        success, message = _perform_single_github_sync_operation(context_prefix="AUTO_SYNC")
+
         log_message(f"[{datetime.now().strftime('%H:%M:%S')}] ✅AUTO_SYNC: Sync job result: Success={success}, Message='{message}'")
 
 
-# Telegram Handlers
+# Telegram Handlers (No changes in this section)
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     update.message.reply_text("¡Bienvenido al monitor Growatt! Usa /status para ver el estado del inversor.")
@@ -577,7 +565,7 @@ def send_status(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
     timestamp = (datetime.now() - timedelta(hours=5)).strftime("%H:%M:%S")
     msg = f"""⚡ /status Estado del Inversor ⚡
-        🕒 Hora--> {timestamp} 
+        🕒 Hora--> {timestamp}
 Voltaje Red          : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
 Voltaje Inversor   : {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
 Consumo             : {current_data.get('load_power', 'N/A')} W
@@ -604,10 +592,8 @@ def stop_bot_telegram_command(update: Update, context: CallbackContext):
     else:
         log_message("Telegram bot not running to be stopped.")
 
-# Add this function globally in your main.py
 def telegram_error_handler(update: object, context: CallbackContext) -> None:
     """Log Errors caused by Updates."""
-    # Try to get more specific info if available
     if update and hasattr(update, 'effective_chat') and update.effective_chat:
         chat_info = f"Chat ID: {update.effective_chat.id}"
     elif update and hasattr(update, 'effective_user') and update.effective_user:
@@ -616,69 +602,50 @@ def telegram_error_handler(update: object, context: CallbackContext) -> None:
         chat_info = "N/A"
 
     error_message = f'Telegram error processing update (Update: "{update}", Chat/User Info: "{chat_info}"): {context.error}'
-    log_message(error_message)  # Use your existing log_message function
-    # Consider more detailed logging for specific error types if needed in the future
-    # e.g., if isinstance(context.error, telegram.error.NetworkError):
-    # log_message("A network error occurred with Telegram.")
-
+    log_message(error_message)
 
 def initialize_telegram_bot():
     global updater, dp, TELEGRAM_TOKEN, telegram_enabled
     if not TELEGRAM_TOKEN:
         log_message("❌ Cannot start Telegram bot: TELEGRAM_TOKEN is empty.")
-        telegram_enabled = False # Ensure it's false if token is missing
+        telegram_enabled = False
         return False
     if updater and updater.running:
         log_message("Telegram bot is already running.")
-        telegram_enabled = True # It's already running, so it's enabled
+        telegram_enabled = True
         return True
     try:
         log_message("Initializing Telegram bot...")
-        # For python-telegram-bot v13.x, you might want to configure request timeouts
-        # This is optional but can sometimes help with network flakiness.
-        # from telegram.utils.request import Request
-        # req = Request(connect_timeout=7.0, read_timeout=15.0) # Example: 7s connect, 15s read
-        # updater = Updater(token=TELEGRAM_TOKEN, use_context=True, request=req)
-        updater = Updater(token=TELEGRAM_TOKEN, use_context=True) # Your original way, also fine
-
+        updater = Updater(token=TELEGRAM_TOKEN, use_context=True)
         dp = updater.dispatcher
-
-        # Add command handlers (as you had them)
         dp.add_handler(CommandHandler("start", start))
         dp.add_handler(CommandHandler("status", send_status))
         dp.add_handler(CommandHandler("chatlog", send_chatlog))
         dp.add_handler(CommandHandler("stop", stop_bot_telegram_command))
-
-        # Add the crucial error handler
         dp.add_error_handler(telegram_error_handler)
-
-        # Start polling (you can adjust timeout and read_latency if needed)
-        # Default timeout is 10s, default read_latency is 2s for Updater in v13.x
         updater.start_polling(timeout=20, read_latency=5.0)
-        # Or, stick to defaults if you prefer: updater.start_polling()
-
         log_message("✅ Telegram bot polling started successfully.")
-        telegram_enabled = True # Set the flag to True upon successful start
+        telegram_enabled = True
         return True
     except Exception as e:
         log_message(f"❌ Error starting Telegram bot: {e}")
         updater = None
         dp = None
-        telegram_enabled = False # Ensure it's false on any exception during init
+        telegram_enabled = False
         return False
 
+# --- Start Background Threads ---
 # Start Growatt Monitor Thread
 monitor_thread = threading.Thread(target=monitor_growatt, daemon=True, name="GrowattMonitorThread")
 monitor_thread.start()
 log_message("Growatt monitor thread started.")
 
-# Start GitHub Sync Thread  <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< THIS IS THE ADDED PART
+# Start GitHub Sync Thread
 github_sync_thread = threading.Thread(target=sync_github_repo, daemon=True, name="GitHubSyncThread")
 github_sync_thread.start()
 log_message("GitHub sync thread starter initialized.")
 
-
-# --- Flask Routes ---
+# --- Flask Routes (No changes in this section) ---
 @app.route("/")
 def home():
     global TELEGRAM_TOKEN, last_successful_growatt_update_time
@@ -817,40 +784,37 @@ def battery_chart():
         prepare_series(energy_obj.get("ppv"), "Photovoltaic Output", "#FFEB3B"),
         prepare_series(energy_obj.get("userLoad"), "Load Consumption", "#9C27B0"),
         prepare_series(energy_obj.get("pacToUser"), "Imported from Grid", "#00BCD4"),
-        # prepare_series(energy_obj.get("pacToGrid"), "Exported to Grid", "#4CAF50") # Example if you want to add it
-    ] if s and s['name'] != 'Exported to Grid'] # Filter out specific series if needed
+    ] if s and s['name'] != 'Exported to Grid']
     if not any(s and s['data'] for s in energy_series): log_message(f"⚠️ No usable energy chart data for {selected_date}")
     for s in energy_series: s["data"] = (s["data"] if s and s["data"] else []) + [None]*(288-len(s["data"] if s and s["data"] else []))
     return render_template("battery-chart.html", selected_date=selected_date, soc_data=soc_data,
                            raw_json=battery_data, energy_titles=energy_titles, energy_series=energy_series,
                            last_growatt_update=last_successful_growatt_update_time)
 
-@app.route("/details", methods=["GET", "POST"]) # Assuming app is your Flask app instance
+@app.route("/details", methods=["GET", "POST"])
 def details():
-    global last_successful_growatt_update_time # Make sure this global is updated appropriately elsewhere
+    global last_successful_growatt_update_time
     selected_date = request.form.get("date") if request.method == "POST" else get_today_date_utc_minus_5()
     if request.method != "POST":
         log_message(f"Selected date on GET for details page: {selected_date}")
 
-    growatt_login2() # Ensure this handles login and session/headers update if necessary
+    growatt_login2()
 
     NEW_API_PLANT_ID = '2817170'
-    NEW_API_STORAGE_SN = 'BNG7CH806N' 
+    NEW_API_STORAGE_SN = 'BNG7CH806N'
     DEVICES_DAY_CHART_URL = "https://server.growatt.com/energy/compare/getDevicesDayChart"
 
-    # --- Helper function provided in the original code (with robustness check) ---
     def prepare_series(dl, n, c):
         if not isinstance(dl, list):
             log_message(f"‼️ Warning: Input data for series '{n}' is not a list. Received type: {type(dl)}. Treating as empty.")
-            dl = [] # Ensure dl is a list to prevent iteration errors
-        
+            dl = []
+
         cd = [float(x) if (isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.', '', 1).isdigit())) else None for x in dl]
-        
+
         if any(x is not None for x in cd):
             return {"name": n, "data": cd, "color": c, "fillOpacity": 0.2, "lineWidth": 1}
         return None
 
-    # --- First Chart: Voltage Data (Grid Voltage & Output Voltage) ---
     volt_series_data = []
     raw_json_volts_response = {}
     volt_request_jsonData = [{"type": "storage", "sn": NEW_API_STORAGE_SN, "params": "vGrid,outPutVolt"}]
@@ -860,25 +824,18 @@ def details():
         response_volts = session.post(DEVICES_DAY_CHART_URL, headers=HEADERS, data=volt_payload, timeout=10)
         response_volts.raise_for_status()
         raw_json_volts_response = response_volts.json()
-        
+
         vGrid_values = []
         outPutVolt_values = []
-        
+
         obj_list_volts = raw_json_volts_response.get("obj")
         if isinstance(obj_list_volts, list) and len(obj_list_volts) > 0:
             first_item_volts = obj_list_volts[0]
             if isinstance(first_item_volts, dict):
                 datas_dict_volts = first_item_volts.get("datas")
                 if isinstance(datas_dict_volts, dict):
-                    vGrid_values = datas_dict_volts.get("vGrid", []) # Confirm case if issues arise
-                    outPutVolt_values = datas_dict_volts.get("outPutVolt", []) # Confirm case
-                    
-                    if not isinstance(vGrid_values, list):
-                        log_message(f"‼️ Warning: 'vGrid' data (after get) is not a list. Type: {type(vGrid_values)}. Defaulting to [].")
-                        vGrid_values = []
-                    if not isinstance(outPutVolt_values, list):
-                        log_message(f"‼️ Warning: 'outPutVolt' data (after get) is not a list. Type: {type(outPutVolt_values)}. Defaulting to [].")
-                        outPutVolt_values = []
+                    vGrid_values = datas_dict_volts.get("vGrid", [])
+                    outPutVolt_values = datas_dict_volts.get("outPutVolt", [])
                 else:
                     log_message(f"⚠️ 'datas' key for volts is not a dict or missing. Response: {raw_json_volts_response}")
             else:
@@ -886,12 +843,7 @@ def details():
         else:
             log_message(f"⚠️ 'obj' key for volts is not a list, is empty, or missing. Response: {raw_json_volts_response}")
 
-        if not vGrid_values and not outPutVolt_values and isinstance(raw_json_volts_response.get("obj"), list): # More specific logging
-            log_message(f"⚠️ No 'vGrid' or 'outPutVolt' data values found under obj[0].datas for {selected_date}. Response: {raw_json_volts_response}")
-        elif not vGrid_values and not outPutVolt_values:
-            log_message(f"⚠️ 'vGrid' and 'outPutVolt' data lists are empty for {selected_date}. Check earlier logs. Final raw_json_volts_response: {raw_json_volts_response}")
-
-        prepared_series_list_volts = [] # Renamed to avoid conflict
+        prepared_series_list_volts = []
         series_vgrid = prepare_series(vGrid_values, "Grid Voltage (V)", "#FF5733")
         if series_vgrid: prepared_series_list_volts.append(series_vgrid)
         series_outputvolt = prepare_series(outPutVolt_values, "Output Voltage (V)", "#33FF57")
@@ -900,16 +852,10 @@ def details():
 
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch voltage data for {selected_date}: {e}")
-        raw_json_volts_response = {"error_request": str(e)}
-    except json.JSONDecodeError as e:
-        log_message(f"❌ Failed to decode JSON for voltage data: {e}. Text: {response_volts.text if 'response_volts' in locals() else 'N/A'}")
-        raw_json_volts_response = {"error_json_decode": str(e), "responseText": response_volts.text if 'response_volts' in locals() else 'N/A'}
     except Exception as e:
         log_message(f"❌ Unexpected error processing voltage data for {selected_date}: {e}")
-        raw_json_volts_response = {"error_processing": str(e)}
 
 
-    # --- Second Chart: Current Data (ppv) ---
     amp_series_data = []
     raw_json_amps_response = {}
     amp_request_jsonData = [{"type": "storage", "sn": NEW_API_STORAGE_SN, "params": "ppv"}]
@@ -919,7 +865,7 @@ def details():
         response_amps = session.post(DEVICES_DAY_CHART_URL, headers=HEADERS, data=amp_payload, timeout=10)
         response_amps.raise_for_status()
         raw_json_amps_response = response_amps.json()
-        
+
         ppv_values = []
 
         obj_list_amps = raw_json_amps_response.get("obj")
@@ -928,12 +874,7 @@ def details():
             if isinstance(first_item_amps, dict):
                 datas_dict_amps = first_item_amps.get("datas")
                 if isinstance(datas_dict_amps, dict):
-                    # Using "ppv" (lowercase) as per your latest log for this specific parameter
-                    ppv_values = datas_dict_amps.get("ppv", []) 
-                    
-                    if not isinstance(ppv_values, list):
-                        log_message(f"‼️ Warning: 'ppv' data (after get) is not a list. Type: {type(ppv_values)}. Defaulting to [].")
-                        ppv_values = []
+                    ppv_values = datas_dict_amps.get("ppv", [])
                 else:
                     log_message(f"⚠️ 'datas' key for amps is not a dict or missing. Response: {raw_json_amps_response}")
             else:
@@ -941,35 +882,22 @@ def details():
         else:
             log_message(f"⚠️ 'obj' key for amps is not a list, is empty, or missing. Response: {raw_json_amps_response}")
 
-        if not ppv_values and isinstance(raw_json_amps_response.get("obj"), list) and len(raw_json_amps_response.get("obj")) > 0 :
-            log_message(f"⚠️ No 'ppv' data values found under obj[0].datas.ppv for {selected_date}. Response: {raw_json_amps_response}")
-        elif not ppv_values:
-             log_message(f"⚠️ 'ppv' data list is empty for {selected_date}. Check earlier logs. Final raw_json_amps_response: {raw_json_amps_response}")
-
         prepared_series_list_amps = []
-        series_ppv = prepare_series(ppv_values, "PV Current (A)", "#3357FF") # Name changed from PV2
+        series_ppv = prepare_series(ppv_values, "PV Current (A)", "#3357FF")
         if series_ppv: prepared_series_list_amps.append(series_ppv)
         amp_series_data = prepared_series_list_amps
 
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Failed to fetch amperage data for {selected_date}: {e}")
-        raw_json_amps_response = {"error_request": str(e)}
-    except json.JSONDecodeError as e:
-        log_message(f"❌ Failed to decode JSON for amperage data: {e}. Text: {response_amps.text if 'response_amps' in locals() else 'N/A'}")
-        raw_json_amps_response = {"error_json_decode": str(e), "responseText": response_amps.text if 'response_amps' in locals() else 'N/A'}
     except Exception as e:
         log_message(f"❌ Unexpected error processing amperage data for {selected_date}: {e}")
-        raw_json_amps_response = {"error_processing": str(e)}
 
-    # --- Pad data for all series to 288 data points ---
     for series_list_to_pad in [volt_series_data, amp_series_data]:
-        for s_object in series_list_to_pad: # s_object is a dictionary like {"name": ..., "data": ...}
-            if s_object and "data" in s_object: 
+        for s_object in series_list_to_pad:
+            if s_object and "data" in s_object:
                 current_data_list = s_object["data"] if s_object["data"] else []
-                if not isinstance(current_data_list, list): 
-                    current_data_list = []
                 s_object["data"] = current_data_list + [None] * (288 - len(current_data_list))
-    
+
     return render_template("details.html",
                            selected_date=selected_date,
                            chart1_data_series=volt_series_data,
@@ -988,12 +916,12 @@ def download_logs():
 def trigger_github_sync():
     current_time_str = datetime.now().strftime('%H:%M:%S')
     log_message(f"[{current_time_str}] MANUAL_SYNC: Received manual GitHub sync request from web.")
-    success, message = _perform_single_github_sync_operation(context_prefix="MANUAL_SYNC") 
+    success, message = _perform_single_github_sync_operation(context_prefix="MANUAL_SYNC")
     log_message(f"[{datetime.now().strftime('%H:%M:%S')}] MANUAL_SYNC: Manual sync web request result: Success={success}, Message='{message}'")
-    return redirect(url_for('logs')) 
+    return redirect(url_for('logs'))
 
 if __name__ == '__main__':
-    log_message("Starting Flask development server.") # Added log for server start
-    # Port should be set by Koyeb via PORT environment variable for production
-    port = int(os.environ.get("PORT", 8000)) 
+    log_message("Starting Flask development server.")
+    port = int(os.environ.get("PORT", 8000))
     app.run(host='0.0.0.0', port=port)
+
