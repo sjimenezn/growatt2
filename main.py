@@ -264,15 +264,12 @@ def save_data_to_file(data):
 def monitor_growatt():
     global last_processed_time, last_successful_growatt_update_time, last_saved_sensor_values, current_data
     threshold = 80
-
-    sent_lights_off = False
-    sent_lights_on = False
-    grid_was_up = None
+    grid_was_up = None  # Initialize state as unknown
 
     loop_counter = 0
-
     user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
+    # This block correctly attempts to load the last known state from the file
     if os.path.exists(data_file) and os.path.getsize(data_file) > 0:
         try:
             with open(data_file, "r") as f:
@@ -296,10 +293,9 @@ def monitor_growatt():
                             else:
                                 grid_was_up = False
                                 log_message("Initialized 'grid_was_up' to False based on last saved vGrid.")
-                        except ValueError:
+                        except (ValueError, TypeError):
                             log_message("Could not convert last saved vGrid to float for initial grid status.")
                             grid_was_up = None
-
         except json.JSONDecodeError as e:
             log_message(f"⚠️ Could not load last_saved_sensor_values from {data_file} due to JSON error: {e}")
         except Exception as e:
@@ -341,7 +337,6 @@ def monitor_growatt():
                 log_message("⚠️ Detected Growatt data is identical to last saved values. Skipping file save for this cycle.")
             else:
                 last_successful_growatt_update_time = current_loop_time_str
-
                 data_to_save_for_file = {
                     "timestamp": last_successful_growatt_update_time,
                     "vGrid": new_ac_input_v,
@@ -350,7 +345,6 @@ def monitor_growatt():
                     "capacity": new_battery_pct,
                     "freqOutPut": new_ac_output_f,
                 }
-
                 if loop_counter >= 4:
                     save_data_to_file(data_to_save_for_file)
                     loop_counter = 0
@@ -376,57 +370,73 @@ def monitor_growatt():
                 if current_data.get("ac_input_voltage") != "N/A":
                     try:
                         current_ac_input_v_float = float(current_data.get("ac_input_voltage"))
-                    except ValueError:
+                    except (ValueError, TypeError):
                         current_ac_input_v_float = 0.0
 
                     alert_timestamp = last_successful_growatt_update_time
 
+                    # --- START OF CORRECTED NOTIFICATION LOGIC ---
+
+                    # CASE 1: Grid voltage is LOW (possible outage)
                     if current_ac_input_v_float < threshold:
-                        if grid_was_up is None or grid_was_up is True:
+                        # ONLY send a message if the grid was previously considered ONLINE.
+                        if grid_was_up is True:
+                            log_message(f"Voltage drop detected ({current_ac_input_v_float}V). Confirming in 110 seconds...")
                             time.sleep(110)
                             data_confirm = api.storage_detail(inverter_sn)
-                            ac_input_v_confirm = data_confirm.get("vGrid", "0")
+                            ac_input_v_confirm_str = data_confirm.get("vGrid", "0")
                             try:
-                                current_ac_input_v_confirm = float(ac_input_v_confirm)
-                            except ValueError:
+                                current_ac_input_v_confirm = float(ac_input_v_confirm_str)
+                            except (ValueError, TypeError):
                                 current_ac_input_v_confirm = 0.0
 
                             if current_ac_input_v_confirm < threshold:
+                                log_message(f"Confirmed outage ({current_ac_input_v_confirm}V). Sending Telegram alert.")
+                                # Use the LATEST confirmed data for the message for accuracy
                                 msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
     🕒 Hora--> {alert_timestamp}
-Nivel de batería     : {current_data.get('battery_capacity', 'N/A')} %
-Voltaje de la red    : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
-Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
-Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
+Nivel de batería     : {data_confirm.get('capacity', 'N/A')} %
+Voltaje de la red    : {current_ac_input_v_confirm} V / {data_confirm.get('freqGrid', 'N/A')} Hz
+Voltaje del inversor: {data_confirm.get('outPutVolt', 'N/A')} V / {data_confirm.get('freqOutPut', 'N/A')} Hz
+Consumo actual     : {data_confirm.get('activePower', 'N/A')} W"""
                                 send_telegram_message(msg)
-                                sent_lights_off = True
-                                sent_lights_on = False
+                        
+                        # Always update the state to reflect reality for the next cycle
                         grid_was_up = False
 
+                    # CASE 2: Grid voltage is HIGH (normal)
                     elif current_ac_input_v_float >= threshold:
-                        if grid_was_up is None or grid_was_up is False:
+                        # ONLY send a message if the grid was previously considered OFFLINE.
+                        if grid_was_up is False:
+                            log_message(f"Voltage rise detected ({current_ac_input_v_float}V). Confirming in 110 seconds...")
                             time.sleep(110)
                             data_confirm = api.storage_detail(inverter_sn)
-                            ac_input_v_confirm = data_confirm.get("vGrid", "0")
+                            ac_input_v_confirm_str = data_confirm.get("vGrid", "0")
                             try:
-                                current_ac_input_v_confirm = float(ac_input_v_confirm)
-                            except ValueError:
+                                current_ac_input_v_confirm = float(ac_input_v_confirm_str)
+                            except (ValueError, TypeError):
                                 current_ac_input_v_confirm = 0.0
 
                             if current_ac_input_v_confirm >= threshold:
+                                log_message(f"Confirmed grid restoration ({current_ac_input_v_confirm}V). Sending Telegram alert.")
+                                # Use the LATEST confirmed data for the message for accuracy
                                 msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
     🕒 Hora--> {alert_timestamp}
-Nivel de batería     : {current_data.get('battery_capacity', 'N/A')} %
-Voltaje de la red    : {current_data.get('ac_input_voltage', 'N/A')} V / {current_data.get('ac_input_frequency', 'N/A')} Hz
-Voltaje del inversor: {current_data.get('ac_output_voltage', 'N/A')} V / {current_data.get('ac_output_frequency', 'N/A')} Hz
-Consumo actual     : {current_data.get('load_power', 'N/A')} W"""
+Nivel de batería     : {data_confirm.get('capacity', 'N/A')} %
+Voltaje de la red    : {current_ac_input_v_confirm} V / {data_confirm.get('freqGrid', 'N/A')} Hz
+Voltaje del inversor: {data_confirm.get('outPutVolt', 'N/A')} V / {data_confirm.get('freqOutPut', 'N/A')} Hz
+Consumo actual     : {data_confirm.get('activePower', 'N/A')} W"""
                                 send_telegram_message(msg)
-                                sent_lights_on = True
-                                sent_lights_off = False
+
+                        # Always update the state to reflect reality for the next cycle
+                        # This also sets the initial state on the very first run without sending an alert
                         grid_was_up = True
+                    
+                    # --- END OF CORRECTED NOTIFICATION LOGIC ---
 
         except Exception as e_inner:
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
+            # Reset IDs to force a re-login on the next attempt
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
         time.sleep(60)
