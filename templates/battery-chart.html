@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+
 <html>
 <head>
     <title>Battery SoC Chart</title>
@@ -162,7 +162,7 @@
 </div>
 
 <script>
-    // Function to get today's date in<x_bin_342>-MM-DD format
+    // Function to get today's date in YYYY-MM-DD format
     function getTodayDate() {
         const today = new Date();
         const year = today.getFullYear();
@@ -284,10 +284,16 @@
             title: { text: 'Hour' }
         },
         yAxis: {
-            title: { text: 'Power (W)' },
-            labels: { format: '{value} W' },
+            title: { text: 'Power' },
+            labels: { 
+                formatter: function() {
+                    if (this.value === 0) return '0';
+                    return this.value / 1000 + 'K';
+                }
+            },
             gridLineColor: '#e1e1e1',
-            max: 1000
+            max: 2000,
+            tickInterval: 500
         },
         tooltip: {
             shared: true,
@@ -343,3 +349,4 @@
 </script>
 </body>
 </html>
+ 
