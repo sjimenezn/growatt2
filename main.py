@@ -121,7 +121,7 @@ def login_growatt():
         plant_data = plant_info['data'][0]
         plant_id = plant_data['plantId']
         fetched_data['plant_id'] = plant_id
-        fetched_data['plant_name'] = plant_data['plantName')
+        fetched_data['plant_name'] = plant_data['plantName']
         fetched_data['plant_total_data'] = plant_info.get('totalData', {})
     except Exception as e:
         log_message(f"❌ Failed to retrieve plant info: {e}")
