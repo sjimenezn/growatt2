@@ -10,8 +10,10 @@ from datetime import datetime, timedelta
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
-import yt_dlp   # ADD THIS LINE
-import re 
+import yt_dlp
+import tempfile
+import shutil
+import re
 
 # --- Pre-computation Logging ---
 console_logs = []
@@ -37,7 +39,7 @@ updater = None
 dp = None
 
 # --- Cobalt API Config ---
-COBALT_API_URL = "https://genetic-britta-sjimenezn-80e305b4.koyeb.app/api/json"
+COBALT_API_URL = "https://genetic-britta-sjimenezn-80e305b4.koyeb.app/"
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -561,13 +563,11 @@ def yt_downloader_page():
 
 @app.route('/api/yt/search')
 def yt_search():
-    """Search YouTube videos - Simple search using yt-dlp (only for search, not download)"""
+    """Search YouTube videos"""
     query = request.args.get('q', '')
     if not query:
         return jsonify({'error': 'No query provided'}), 400
     
-    # Simple search using yt-dlp (still works for search)
-    import yt_dlp
     ydl_opts = {
         'quiet': True,
         'extract_flat': 'in_playlist',
@@ -601,16 +601,12 @@ def yt_get_formats():
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
     
-    # Get video title using yt-dlp (simple info extraction)
-    import yt_dlp
-    video_title = "Video"
-    try:
-        ydl_opts = {'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            video_title = info.get('title', 'Video')
-    except:
-        pass
+    # Extract video ID for thumbnail
+    video_id = None
+    if 'v=' in url:
+        video_id = url.split('v=')[1].split('&')[0]
+    elif 'youtu.be/' in url:
+        video_id = url.split('youtu.be/')[1].split('?')[0]
     
     # Standard quality options supported by Cobalt
     qualities = [
@@ -635,13 +631,16 @@ def yt_get_formats():
             'size': ''
         })
     
+    thumbnail = f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg" if video_id else ""
+    
     return jsonify({
-        'title': video_title,
-        'thumbnail': f"https://img.youtube.com/vi/{url.split('v=')[-1].split('&')[0]}/mqdefault.jpg",
+        'title': 'YouTube Video',
+        'thumbnail': thumbnail,
         'duration': '',
         'author': '',
         'webpage_url': url,
-        'formats': formats    })
+        'formats': formats
+    })
 
 @app.route('/api/yt/download')
 def yt_download():
@@ -650,8 +649,8 @@ def yt_download():
     quality = request.args.get('quality', '720p')
     format_id = request.args.get('format_id', '')
     
-    if not url:
-        return jsonify({'error': 'No URL provided'}), 400
+    if not url or url == 'undefined':
+        return jsonify({'error': 'No valid URL provided'}), 400
     
     # Extract quality number
     quality_num = 720
@@ -660,7 +659,7 @@ def yt_download():
     elif format_id:
         quality_num = int(''.join(filter(str.isdigit, format_id)))
     
-    # Map quality to Cobalt's vQuality format
+    # Map quality to Cobalt's videoQuality format
     quality_map = {
         2160: '2160',
         1440: '1440',
@@ -673,14 +672,13 @@ def yt_download():
     }
     cobalt_quality = quality_map.get(quality_num, '720')
     
-    # Prepare request to Cobalt
+    # Prepare request to Cobalt (correct format from documentation)
     payload = {
         'url': url,
-        'vQuality': cobalt_quality,
-        'vCodec': 'h264',
-        'aFormat': 'mp3',
+        'videoQuality': cobalt_quality,
+        'audioFormat': 'mp3',
         'isAudioOnly': False,
-        'filenamePattern': 'classic'
+        'filenameStyle': 'classic'
     }
     
     headers = {
@@ -689,7 +687,7 @@ def yt_download():
     }
     
     try:
-        log_message(f"📥 Cobalt request for: {url} with quality: {cobalt_quality}")
+        log_message(f"📥 Cobalt request: {url} quality: {cobalt_quality}")
         
         # Call Cobalt API
         response = requests.post(COBALT_API_URL, json=payload, headers=headers, timeout=60)
@@ -697,12 +695,10 @@ def yt_download():
         
         log_message(f"Cobalt response status: {data.get('status')}")
         
-        if data.get('status') == 'error':
-            log_message(f"❌ Cobalt error: {data.get('text')}")
-            return jsonify({'error': data.get('text')}), 500
-        
-        if data.get('status') == 'success' or data.get('status') == 'redirect':
+        # Handle tunnel, success, or redirect status
+        if data.get('status') in ['tunnel', 'success', 'redirect']:
             download_url = data.get('url')
+            filename = data.get('filename', f"video_{cobalt_quality}p.mp4")
             
             if not download_url:
                 return jsonify({'error': 'No download URL received'}), 500
@@ -715,18 +711,6 @@ def yt_download():
                     if chunk:
                         yield chunk
             
-            # Get video title from URL
-            video_title = "video"
-            try:
-                import re
-                video_id_match = re.search(r'v=([a-zA-Z0-9_-]+)', url)
-                if video_id_match:
-                    video_title = f"youtube_{video_id_match.group(1)}"
-            except:
-                pass
-            
-            filename = f"{video_title}_{cobalt_quality}p.mp4"
-            
             log_message(f"✅ Streaming download: {filename}")
             
             return Response(
@@ -738,7 +722,10 @@ def yt_download():
                 }
             )
         else:
-            return jsonify({'error': f'Unexpected response: {data}'}), 500
+            # Handle error
+            error_msg = data.get('error', {}).get('text', 'Unknown error')
+            log_message(f"❌ Cobalt error: {error_msg}")
+            return jsonify({'error': error_msg}), 500
             
     except requests.exceptions.RequestException as e:
         log_message(f"❌ Cobalt request error: {e}")
