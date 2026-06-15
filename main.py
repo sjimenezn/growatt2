@@ -622,7 +622,7 @@ def yt_get_formats():
     
     ydl_opts = {
         'quiet': True,
-        'cookiefile': '/app/cookies.txt',  # ADDED: Cookies for authentication
+        'cookiefile': '/app/cookies.txt',
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -731,12 +731,31 @@ def yt_download():
             'quiet': True,
             'merge_output_format': 'mp4',
             'no_warnings': True,
-            'cookiefile': '/app/cookies.txt',  # ADDED: Cookies for authentication
+            'cookiefile': '/app/cookies.txt',
         }
         
-        # If specific format_id provided, use it directly
+        # If specific format_id provided, use it directly with bestaudio fallback
         if format_id:
-            format_spec = format_id
+            # Try to get the actual format info
+            with yt_dlp.YoutubeDL({'quiet': True, 'cookiefile': '/app/cookies.txt'}) as ydl_temp:
+                try:
+                    info_temp = ydl_temp.extract_info(url, download=False)
+                    formats = info_temp.get('formats', [])
+                    
+                    # Check if the requested format has audio
+                    has_audio = False
+                    for f in formats:
+                        if f.get('format_id') == format_id and f.get('acodec') != 'none':
+                            has_audio = True
+                            break
+                    
+                    if has_audio:
+                        format_spec = format_id
+                    else:
+                        # Format is video-only, add best audio
+                        format_spec = f"{format_id}+bestaudio[ext=m4a]/bestaudio"
+                except:
+                    format_spec = format_id
         else:
             # Otherwise use quality-based selection (UPDATED: Added 240p)
             quality_map = {
@@ -756,7 +775,7 @@ def yt_download():
             'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
         }
         
-        log_message(f"📥 Downloading video: {url} with quality: {quality}")
+        log_message(f"📥 Downloading video: {url} with format: {format_spec}")
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -764,7 +783,7 @@ def yt_download():
             # Find the downloaded file
             downloaded_file = None
             for file in os.listdir(temp_dir):
-                if file.endswith('.mp4'):
+                if file.endswith(('.mp4', '.webm', '.mkv')):
                     downloaded_file = os.path.join(temp_dir, file)
                     break
             
