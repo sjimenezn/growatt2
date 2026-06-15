@@ -1,5 +1,5 @@
 import pytz
-from flask import Flask, render_template, render_template_string, jsonify, request, send_file, redirect, url_for
+from flask import Flask, render_template, render_template_string, jsonify, request, send_file, redirect, url_for, Response
 import threading
 import pprint
 import json
@@ -10,11 +10,8 @@ from datetime import datetime, timedelta
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
-import yt_dlp
-import tempfile
-import shutil
 
-# --- Pre-computation Logging --
+# --- Pre-computation Logging ---
 console_logs = []
 def log_message(message):
     timestamped = f"{(datetime.now() - timedelta(hours=5)).strftime('%H:%M:%S')} - {message}"
@@ -36,6 +33,9 @@ chat_log = set()
 telegram_enabled = False
 updater = None
 dp = None
+
+# --- Cobalt API Config ---
+COBALT_API_URL = "https://api.cobalt.tools/api/json"
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -550,7 +550,7 @@ def details():
                            raw_json_chart2=raw_json_amps_response,
                            last_growatt_update=last_successful_growatt_update_time)
 
-# ============ YOUTUBE DOWNLOADER ROUTES ============
+# ============ YOUTUBE DOWNLOADER ROUTES (COBALT API) ============
 
 @app.route('/yt')
 def yt_downloader_page():
@@ -559,11 +559,13 @@ def yt_downloader_page():
 
 @app.route('/api/yt/search')
 def yt_search():
-    """Search YouTube videos"""
+    """Search YouTube videos - Simple search using yt-dlp (only for search, not download)"""
     query = request.args.get('q', '')
     if not query:
         return jsonify({'error': 'No query provided'}), 400
     
+    # Simple search using yt-dlp (still works for search)
+    import yt_dlp
     ydl_opts = {
         'quiet': True,
         'extract_flat': 'in_playlist',
@@ -590,247 +592,158 @@ def yt_search():
             log_message(f"❌ YouTube search error: {e}")
             return jsonify({'error': str(e)}), 500
 
-@app.route('/api/yt/info')
-def yt_video_info():
-    """Get info for a single video"""
-    url = request.args.get('url', '')
-    if not url:
-        return jsonify({'error': 'No URL provided'}), 400
-    
-    ydl_opts = {'quiet': True}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(url, download=False)
-            return jsonify({
-                'id': info.get('id'),
-                'title': info.get('title'),
-                'webpage_url': url,
-                'thumbnail': info.get('thumbnail'),
-                'duration': info.get('duration_string'),
-                'author': info.get('uploader', 'Unknown')
-            })
-        except Exception as e:
-            log_message(f"❌ YouTube info error: {e}")
-            return jsonify({'error': str(e)}), 500
-
 @app.route('/api/yt/formats')
 def yt_get_formats():
-    """Get all available formats for a video"""
+    """Get available formats - Return standard quality options for Cobalt"""
     url = request.args.get('url', '')
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
     
-    ydl_opts = {
-        'quiet': True,
-        'cookiefile': '/app/cookies.txt',
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web'],  # Try android first, then web
-                'player_skip': ['webpage', 'configs'],  # Skip webpage extraction to avoid detection
-            },
-        },
-    }
-    
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
+    # Get video title using yt-dlp (simple info extraction)
+    import yt_dlp
+    video_title = "Video"
+    try:
+        ydl_opts = {'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            formats = info.get('formats', [])
-            
-            # Extract and organize quality options
-            quality_options = []
-            seen_qualities = set()
-            
-            for f in formats:
-                # Only include formats that have video
-                height = f.get('height')
-                vcodec = f.get('vcodec')
-                acodec = f.get('acodec')
-                ext = f.get('ext')
-                fps = f.get('fps')
-                format_note = f.get('format_note', '')
-                filesize = f.get('filesize')
-                
-                # Skip formats without video
-                if vcodec == 'none' or not height:
-                    continue
-                
-                # Create quality label (UPDATED: Added 240p support)
-                if height >= 2160:
-                    quality = "4K"
-                elif height >= 1440:
-                    quality = "1440p"
-                elif height >= 1080:
-                    quality = "1080p"
-                elif height >= 720:
-                    quality = "720p"
-                elif height >= 480:
-                    quality = "480p"
-                elif height >= 360:
-                    quality = "360p"
-                elif height >= 240:
-                    quality = "240p"
-                else:
-                    quality = f"{height}p"
-                
-                # Check if it has audio
-                has_audio = acodec != 'none'
-                
-                # Format size string
-                size_str = ""
-                if filesize:
-                    if filesize < 1024 * 1024:
-                        size_str = f"{filesize/1024:.1f}KB"
-                    else:
-                        size_str = f"{filesize/(1024*1024):.1f}MB"
-                
-                # Create unique key
-                quality_key = f"{quality}_{fps}fps" if fps else quality
-                
-                # Add to options if not duplicate
-                if quality_key not in seen_qualities:
-                    seen_qualities.add(quality_key)
-                    
-                    quality_options.append({
-                        'format_id': f.get('format_id'),
-                        'quality': quality,
-                        'height': height,
-                        'width': f.get('width'),
-                        'fps': fps,
-                        'ext': ext,
-                        'has_audio': has_audio,
-                        'size': size_str,
-                        'note': format_note
-                    })
-            
-            # Sort by quality (highest first)
-            quality_options.sort(key=lambda x: x['height'], reverse=True)
-            
-            return jsonify({
-                'title': info.get('title'),
-                'thumbnail': info.get('thumbnail'),
-                'duration': info.get('duration_string'),
-                'author': info.get('uploader'),
-                'webpage_url': url,
-                'formats': quality_options
-            })
-            
-        except Exception as e:
-            log_message(f"❌ Error getting formats: {e}")
-            return jsonify({'error': str(e)}), 500
+            video_title = info.get('title', 'Video')
+    except:
+        pass
+    
+    # Standard quality options supported by Cobalt
+    qualities = [
+        {'quality': '2160p', 'height': 2160},
+        {'quality': '1440p', 'height': 1440},
+        {'quality': '1080p', 'height': 1080},
+        {'quality': '720p', 'height': 720},
+        {'quality': '480p', 'height': 480},
+        {'quality': '360p', 'height': 360},
+        {'quality': '240p', 'height': 240},
+        {'quality': '144p', 'height': 144}
+    ]
+    
+    formats = []
+    for q in qualities:
+        formats.append({
+            'format_id': str(q['height']),
+            'quality': q['quality'],
+            'height': q['height'],
+            'has_audio': True,
+            'ext': 'mp4',
+            'size': ''
+        })
+    
+    return jsonify({
+        'title': video_title,
+        'thumbnail': f"https://img.youtube.com/vi/{url.split('v=')[-1].split('&')[0]}/mqdefault.jpg",
+        'duration': '',
+        'author': '',
+        'webpage_url': url,
+        'formats': formats    })
 
 @app.route('/api/yt/download')
 def yt_download():
-    """Download video with selected quality"""
+    """Download video using Cobalt API"""
     url = request.args.get('url', '')
     quality = request.args.get('quality', '720p')
     format_id = request.args.get('format_id', '')
     
-    if not url or url == 'undefined':
-        return jsonify({'error': 'No valid URL provided'}), 400
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
     
-    # Create a temporary directory for this download
-    temp_dir = tempfile.mkdtemp()
+    # Extract quality number
+    quality_num = 720
+    if quality:
+        quality_num = int(''.join(filter(str.isdigit, quality)))
+    elif format_id:
+        quality_num = int(''.join(filter(str.isdigit, format_id)))
+    
+    # Map quality to Cobalt's vQuality format
+    quality_map = {
+        2160: '2160',
+        1440: '1440',
+        1080: '1080',
+        720: '720',
+        480: '480',
+        360: '360',
+        240: '240',
+        144: '144'
+    }
+    cobalt_quality = quality_map.get(quality_num, '720')
+    
+    # Prepare request to Cobalt
+    payload = {
+        'url': url,
+        'vQuality': cobalt_quality,
+        'vCodec': 'h264',
+        'aFormat': 'mp3',
+        'isAudioOnly': False,
+        'filenamePattern': 'classic'
+    }
+    
+    headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
     
     try:
-        # Use cookies to avoid bot detection
-        ydl_opts_base = {
-            'quiet': True,
-            'merge_output_format': 'mp4',
-            'no_warnings': True,
-            'cookiefile': '/app/cookies.txt',
-        }
+        log_message(f"📥 Cobalt request for: {url} with quality: {cobalt_quality}")
         
-        # If specific format_id provided, use it directly with bestaudio fallback
-        if format_id:
-            # Try to get the actual format info
-            with yt_dlp.YoutubeDL({'quiet': True, 'cookiefile': '/app/cookies.txt'}) as ydl_temp:
-                try:
-                    info_temp = ydl_temp.extract_info(url, download=False)
-                    formats = info_temp.get('formats', [])
-                    
-                    # Check if the requested format has audio
-                    has_audio = False
-                    for f in formats:
-                        if f.get('format_id') == format_id and f.get('acodec') != 'none':
-                            has_audio = True
-                            break
-                    
-                    if has_audio:
-                        format_spec = format_id
-                    else:
-                        # Format is video-only, add best audio
-                        format_spec = f"{format_id}+bestaudio[ext=m4a]/bestaudio"
-                except:
-                    format_spec = format_id
+        # Call Cobalt API
+        response = requests.post(COBALT_API_URL, json=payload, headers=headers, timeout=60)
+        data = response.json()
+        
+        log_message(f"Cobalt response status: {data.get('status')}")
+        
+        if data.get('status') == 'error':
+            log_message(f"❌ Cobalt error: {data.get('text')}")
+            return jsonify({'error': data.get('text')}), 500
+        
+        if data.get('status') == 'success' or data.get('status') == 'redirect':
+            download_url = data.get('url')
+            
+            if not download_url:
+                return jsonify({'error': 'No download URL received'}), 500
+            
+            # Stream the file directly to user
+            file_response = requests.get(download_url, stream=True, timeout=60)
+            
+            def generate():
+                for chunk in file_response.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            
+            # Get video title from URL
+            video_title = "video"
+            try:
+                import re
+                video_id_match = re.search(r'v=([a-zA-Z0-9_-]+)', url)
+                if video_id_match:
+                    video_title = f"youtube_{video_id_match.group(1)}"
+            except:
+                pass
+            
+            filename = f"{video_title}_{cobalt_quality}p.mp4"
+            
+            log_message(f"✅ Streaming download: {filename}")
+            
+            return Response(
+                generate(),
+                mimetype='video/mp4',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Type': 'video/mp4'
+                }
+            )
         else:
-            # Otherwise use quality-based selection (UPDATED: Added 240p)
-            quality_map = {
-                '4K': 'bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                '1440p': 'bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                '1080p': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                '720p': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                '480p': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                '360p': 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                '240p': 'bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            }
-            format_spec = quality_map.get(quality, quality_map['720p'])
-        
-        ydl_opts = {
-            **ydl_opts_base,
-            'format': format_spec,
-            'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-        }
-        
-        log_message(f"📥 Downloading video: {url} with format: {format_spec}")
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            return jsonify({'error': f'Unexpected response: {data}'}), 500
             
-            # Find the downloaded file
-            downloaded_file = None
-            for file in os.listdir(temp_dir):
-                if file.endswith(('.mp4', '.webm', '.mkv')):
-                    downloaded_file = os.path.join(temp_dir, file)
-                    break
-            
-            if downloaded_file and os.path.exists(downloaded_file):
-                video_title = info.get('title', 'video')
-                # Clean filename (remove problematic characters)
-                video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
-                filename = f"{video_title}_{quality}.mp4"
-                
-                log_message(f"✅ Download complete: {filename}")
-                
-                # Send file and delete after
-                response = send_file(
-                    downloaded_file,
-                    as_attachment=True,
-                    download_name=filename,
-                    mimetype='video/mp4'
-                )
-                
-                @response.call_on_close
-                def cleanup():
-                    try:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        log_message(f"🗑️ Cleaned up temp files")
-                    except Exception as e:
-                        log_message(f"⚠️ Cleanup error: {e}")
-                
-                return response
-            else:
-                raise Exception("Downloaded file not found")
-                
-    except Exception as e:
-        log_message(f"❌ YouTube download error: {e}")
+    except requests.exceptions.RequestException as e:
+        log_message(f"❌ Cobalt request error: {e}")
         return jsonify({'error': str(e)}), 500
-    
-    finally:
-        # Fallback cleanup
-        try:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        except:
-            pass
+    except Exception as e:
+        log_message(f"❌ Cobalt error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     log_message("Starting Flask development server.")
