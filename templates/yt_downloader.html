@@ -143,10 +143,9 @@
             background: #3ea6ff;
             transform: scale(0.98);
         }
-        .quality-info {
-            font-size: 0.7rem;
-            color: #888;
-            margin-left: 5px;
+        .quality-btn.downloading {
+            background: #ff9800;
+            cursor: wait;
         }
         .error {
             background: #8b0000;
@@ -218,7 +217,7 @@
     const resultsArea = document.getElementById('resultsArea');
 
     function isYouTubeUrl(url) {
-        return url.includes('youtube.com/watch') || url.includes('youtu.be/');
+        return url && (url.includes('youtube.com/watch') || url.includes('youtu.be/'));
     }
 
     searchBtn.addEventListener('click', () => {
@@ -245,24 +244,17 @@
     }
 
     async function fetchVideoFormats(url) {
+        if (!url || url === 'undefined') {
+            resultsArea.innerHTML = '<div class="error">❌ Invalid video URL. Please try again.</div>';
+            return;
+        }
+        
         resultsArea.innerHTML = '<div class="loading">📡 Fetching available formats...</div>';
         try {
             const response = await fetch(`/api/yt/formats?url=${encodeURIComponent(url)}`);
             const data = await response.json();
             if (data.error) throw new Error(data.error);
             renderVideoWithFormats(data);
-        } catch (err) {
-            resultsArea.innerHTML = `<div class="error">❌ Failed to get video: ${err.message}</div>`;
-        }
-    }
-
-    async function fetchVideoInfo(url) {
-        resultsArea.innerHTML = '<div class="loading">📡 Fetching video details...</div>';
-        try {
-            const response = await fetch(`/api/yt/info?url=${encodeURIComponent(url)}`);
-            const data = await response.json();
-            if (data.error) throw new Error(data.error);
-            renderVideoList([data]);
         } catch (err) {
             resultsArea.innerHTML = `<div class="error">❌ Failed to get video: ${err.message}</div>`;
         }
@@ -283,13 +275,22 @@
         });
     }
 
-    function downloadVideo(url, quality, formatId) {
+    function downloadVideo(videoUrl, quality, formatId) {
+        // Validate URL
+        if (!videoUrl || videoUrl === 'undefined' || videoUrl === 'null') {
+            console.error('Invalid video URL:', videoUrl);
+            alert('Error: Video URL is missing. Please try selecting quality again.');
+            return;
+        }
+        
         let downloadUrl;
         if (formatId) {
-            downloadUrl = `/api/yt/download?url=${encodeURIComponent(url)}&format_id=${formatId}`;
+            downloadUrl = `/api/yt/download?url=${encodeURIComponent(videoUrl)}&format_id=${formatId}`;
         } else {
-            downloadUrl = `/api/yt/download?url=${encodeURIComponent(url)}&quality=${quality}`;
+            downloadUrl = `/api/yt/download?url=${encodeURIComponent(videoUrl)}&quality=${quality}`;
         }
+        
+        console.log('Download URL:', downloadUrl);
         
         // Create a temporary link and trigger download
         const link = document.createElement('a');
@@ -301,7 +302,12 @@
     }
 
     function renderVideoWithFormats(data) {
-        const video = data;
+        if (!data || !data.webpage_url) {
+            resultsArea.innerHTML = '<div class="error">❌ Invalid video data received.</div>';
+            return;
+        }
+        
+        const videoUrl = data.webpage_url;
         const formats = data.formats;
         
         if (!formats || formats.length === 0) {
@@ -313,12 +319,12 @@
             <div class="results-grid">
                 <div class="video-card">
                     <div class="video-header">
-                        <img class="thumbnail" src="${video.thumbnail}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
+                        <img class="thumbnail" src="${data.thumbnail || ''}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
                         <div class="video-info">
-                            <div class="video-title">${escapeHtml(video.title)}</div>
+                            <div class="video-title">${escapeHtml(data.title || 'Unknown Title')}</div>
                             <div class="video-meta">
-                                <span>⏱️ ${video.duration || '?'}</span>
-                                <span>📺 ${escapeHtml(video.author || 'Unknown')}</span>
+                                <span>⏱️ ${data.duration || '?'}</span>
+                                <span>📺 ${escapeHtml(data.author || 'Unknown')}</span>
                             </div>
                         </div>
                     </div>
@@ -329,8 +335,10 @@
                                 const audioInfo = format.has_audio ? '🔊' : '🎬';
                                 const sizeInfo = format.size ? ` (${format.size})` : '';
                                 const fpsInfo = format.fps ? ` ${format.fps}fps` : '';
+                                // Escape the videoUrl properly for the onclick
+                                const escapedUrl = videoUrl.replace(/'/g, "\\'");
                                 return `
-                                    <button class="quality-btn" onclick="downloadVideo('${video.webpage_url}', '${format.quality}', '${format.format_id}')">
+                                    <button class="quality-btn" onclick="downloadVideo('${escapedUrl}', '${format.quality}', '${format.format_id}')">
                                         ${format.quality}${fpsInfo} ${audioInfo}${sizeInfo}
                                     </button>
                                 `;
@@ -352,28 +360,31 @@
         
         const html = `
             <div class="results-grid">
-                ${videos.map(video => `
-                    <div class="video-card">
-                        <div class="video-header">
-                            <img class="thumbnail" src="${video.thumbnail}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
-                            <div class="video-info">
-                                <div class="video-title">${escapeHtml(video.title)}</div>
-                                <div class="video-meta">
-                                    <span>⏱️ ${formatDuration(video.duration)}</span>
-                                    <span>📺 ${escapeHtml(video.author)}</span>
+                ${videos.map(video => {
+                    const escapedUrl = video.webpage_url.replace(/'/g, "\\'");
+                    return `
+                        <div class="video-card">
+                            <div class="video-header">
+                                <img class="thumbnail" src="${video.thumbnail || ''}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
+                                <div class="video-info">
+                                    <div class="video-title">${escapeHtml(video.title)}</div>
+                                    <div class="video-meta">
+                                        <span>⏱️ ${formatDuration(video.duration)}</span>
+                                        <span>📺 ${escapeHtml(video.author)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="quality-section">
+                                <div class="quality-title">🎬 Click to see available qualities:</div>
+                                <div class="quality-buttons">
+                                    <button class="quality-btn" onclick="fetchVideoFormats('${escapedUrl}')">
+                                        Select Quality ▼
+                                    </button>
                                 </div>
                             </div>
                         </div>
-                        <div class="quality-section">
-                            <div class="quality-title">🎬 Click to see available qualities:</div>
-                            <div class="quality-buttons">
-                                <button class="quality-btn" onclick="fetchVideoFormats('${video.webpage_url}')">
-                                    Select Quality ▼
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `).join('')}
+                    `;
+                }).join('')}
             </div>
         `;
         resultsArea.innerHTML = html;
