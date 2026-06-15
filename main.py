@@ -550,7 +550,7 @@ def details():
                            raw_json_chart2=raw_json_amps_response,
                            last_growatt_update=last_successful_growatt_update_time)
 
-# ============ YOUTUBE DOWNLOADER ROUTES (ADDED) ============
+# ============ YOUTUBE DOWNLOADER ROUTES ============
 
 @app.route('/yt')
 def yt_downloader_page():
@@ -620,7 +620,12 @@ def yt_get_formats():
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
     
-    ydl_opts = {'quiet': True}
+    # Add remote components to fix JS challenges
+    ydl_opts = {
+        'quiet': True,
+        'remote_components': 'ejs:github',  # FIX: Required for YouTube JS challenges
+    }
+    
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
@@ -698,6 +703,7 @@ def yt_get_formats():
                 'thumbnail': info.get('thumbnail'),
                 'duration': info.get('duration_string'),
                 'author': info.get('uploader'),
+                'webpage_url': url,  # FIX: Explicitly include the URL
                 'formats': quality_options
             })
             
@@ -712,13 +718,21 @@ def yt_download():
     quality = request.args.get('quality', '720p')
     format_id = request.args.get('format_id', '')
     
-    if not url:
-        return jsonify({'error': 'No URL provided'}), 400
+    if not url or url == 'undefined':
+        return jsonify({'error': 'No valid URL provided'}), 400
     
     # Create a temporary directory for this download
     temp_dir = tempfile.mkdtemp()
     
     try:
+        # Add remote components for download as well
+        ydl_opts_base = {
+            'quiet': True,
+            'merge_output_format': 'mp4',
+            'no_warnings': True,
+            'remote_components': 'ejs:github',  # FIX: Required for YouTube JS challenges
+        }
+        
         # If specific format_id provided, use it directly
         if format_id:
             format_spec = format_id
@@ -735,11 +749,9 @@ def yt_download():
             format_spec = quality_map.get(quality, quality_map['720p'])
         
         ydl_opts = {
+            **ydl_opts_base,
             'format': format_spec,
             'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-            'quiet': True,
-            'merge_output_format': 'mp4',
-            'no_warnings': True,
         }
         
         log_message(f"📥 Downloading video: {url} with quality: {quality}")
@@ -756,7 +768,8 @@ def yt_download():
             
             if downloaded_file and os.path.exists(downloaded_file):
                 video_title = info.get('title', 'video')
-                video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                # Clean filename (remove problematic characters)
+                video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
                 filename = f"{video_title}_{quality}.mp4"
                 
                 log_message(f"✅ Download complete: {filename}")
