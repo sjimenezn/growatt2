@@ -23,6 +23,9 @@ ENV PATH="$DENO_INSTALL/bin:$PATH"
 # Copy the current directory contents into the container at /app
 COPY . /app
 
+# Copy cookies file for YouTube authentication
+COPY cookies.txt /app/cookies.txt
+
 # Install Python dependencies from requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
