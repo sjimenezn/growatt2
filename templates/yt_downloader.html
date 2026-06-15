@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>YouTube Downloader - Quality Selector</title>
+    <title>YouTube Downloader - Cobalt API</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -143,10 +143,6 @@
             background: #3ea6ff;
             transform: scale(0.98);
         }
-        .quality-btn.downloading {
-            background: #ff9800;
-            cursor: wait;
-        }
         .error {
             background: #8b0000;
             padding: 1rem;
@@ -207,7 +203,7 @@
     </div>
     <hr>
     <div style="font-size: 0.7rem; text-align: center; color: #555;">
-        ⚡ Choose from available qualities • Downloads MP4 file directly to your device
+        ⚡ Powered by Cobalt API • Downloads MP4 file directly to your device
     </div>
 </div>
 
@@ -276,7 +272,6 @@
     }
 
     function downloadVideo(videoUrl, quality, formatId) {
-        // Validate URL
         if (!videoUrl || videoUrl === 'undefined' || videoUrl === 'null') {
             console.error('Invalid video URL:', videoUrl);
             alert('Error: Video URL is missing. Please try selecting quality again.');
@@ -292,7 +287,6 @@
         
         console.log('Download URL:', downloadUrl);
         
-        // Create a temporary link and trigger download
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.download = '';
@@ -323,8 +317,7 @@
                         <div class="video-info">
                             <div class="video-title">${escapeHtml(data.title || 'Unknown Title')}</div>
                             <div class="video-meta">
-                                <span>⏱️ ${data.duration || '?'}</span>
-                                <span>📺 ${escapeHtml(data.author || 'Unknown')}</span>
+                                <span>📺 ${escapeHtml(data.author || 'YouTube')}</span>
                             </div>
                         </div>
                     </div>
@@ -334,12 +327,10 @@
                             ${formats.map(format => {
                                 const audioInfo = format.has_audio ? '🔊' : '🎬';
                                 const sizeInfo = format.size ? ` (${format.size})` : '';
-                                const fpsInfo = format.fps ? ` ${format.fps}fps` : '';
-                                // Escape the videoUrl properly for the onclick
                                 const escapedUrl = videoUrl.replace(/'/g, "\\'");
                                 return `
                                     <button class="quality-btn" onclick="downloadVideo('${escapedUrl}', '${format.quality}', '${format.format_id}')">
-                                        ${format.quality}${fpsInfo} ${audioInfo}${sizeInfo}
+                                        ${format.quality} ${audioInfo}${sizeInfo}
                                     </button>
                                 `;
                             }).join('')}
