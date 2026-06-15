@@ -98,6 +98,7 @@
             width: 120px;
             border-radius: 8px;
             flex-shrink: 0;
+            object-fit: cover;
         }
         .video-info {
             flex: 1;
@@ -106,6 +107,10 @@
             font-weight: 600;
             margin-bottom: 6px;
             font-size: 1rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .video-meta {
             font-size: 0.8rem;
@@ -159,6 +164,9 @@
             color: #3ea6ff;
             text-decoration: none;
             font-size: 0.9rem;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
         }
         hr {
             border-color: #333;
@@ -287,6 +295,7 @@
         
         console.log('Download URL:', downloadUrl);
         
+        // Create a temporary link and trigger download
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.download = '';
@@ -317,7 +326,7 @@
                         <div class="video-info">
                             <div class="video-title">${escapeHtml(data.title || 'Unknown Title')}</div>
                             <div class="video-meta">
-                                <span>📺 ${escapeHtml(data.author || 'YouTube')}</span>
+                                <span>📺 YouTube</span>
                             </div>
                         </div>
                     </div>
@@ -325,12 +334,10 @@
                         <div class="quality-title">📋 Select Quality to Download:</div>
                         <div class="quality-buttons">
                             ${formats.map(format => {
-                                const audioInfo = format.has_audio ? '🔊' : '🎬';
-                                const sizeInfo = format.size ? ` (${format.size})` : '';
                                 const escapedUrl = videoUrl.replace(/'/g, "\\'");
                                 return `
                                     <button class="quality-btn" onclick="downloadVideo('${escapedUrl}', '${format.quality}', '${format.format_id}')">
-                                        ${format.quality} ${audioInfo}${sizeInfo}
+                                        ${format.quality} 🔊
                                     </button>
                                 `;
                             }).join('')}
