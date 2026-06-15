@@ -550,7 +550,7 @@ def details():
                            raw_json_chart2=raw_json_amps_response,
                            last_growatt_update=last_successful_growatt_update_time)
 
-# ============ YOUTUBE DOWNLOADER ROUTES ============
+# ============ YOUTUBE DOWNLOADER ROUTES (ADDED) ============
 
 @app.route('/yt')
 def yt_downloader_page():
