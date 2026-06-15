@@ -623,6 +623,12 @@ def yt_get_formats():
     ydl_opts = {
         'quiet': True,
         'cookiefile': '/app/cookies.txt',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],  # Try android first, then web
+                'player_skip': ['webpage', 'configs'],  # Skip webpage extraction to avoid detection
+            },
+        },
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
