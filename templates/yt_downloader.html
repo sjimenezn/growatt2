@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>YouTube Downloader - 720p MP4</title>
+    <style>
+        /* Same CSS as before */
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1rem;
+            background: #0f0f0f;
+            color: #f1f1f1;
+        }
+        .container {
+            background: #1f1f1f;
+            border-radius: 24px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+        }
+        h1 {
+            font-size: 1.5rem;
+            margin: 0 0 0.25rem 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sub {
+            color: #aaa;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+        }
+        .search-area {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        input {
+            flex: 1;
+            padding: 12px 16px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 40px;
+            background: #2a2a2a;
+            color: white;
+            outline: none;
+            min-width: 200px;
+        }
+        input:focus {
+            background: #333;
+            box-shadow: 0 0 0 2px #3ea6ff;
+        }
+        button {
+            background: #3ea6ff;
+            border: none;
+            padding: 0 20px;
+            border-radius: 40px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: 0.2s;
+            color: #0f0f0f;
+        }
+        button:hover {
+            background: #5cb3ff;
+            transform: scale(0.98);
+        }
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #aaa;
+        }
+        .results-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 1rem;
+        }
+        .video-card {
+            background: #2a2a2a;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem;
+            transition: 0.1s;
+            flex-wrap: wrap;
+        }
+        .video-card:hover {
+            background: #333;
+        }
+        .thumbnail {
+            width: 100px;
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+        .video-info {
+            flex: 1;
+            min-width: 150px;
+        }
+        .video-title {
+            font-weight: 600;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .video-meta {
+            font-size: 0.75rem;
+            color: #aaa;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .download-btn {
+            background: #2e7d32;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 40px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+        .download-btn:hover {
+            background: #1b5e20;
+        }
+        .error {
+            background: #8b0000;
+            padding: 1rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+        }
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .nav-links a {
+            color: #3ea6ff;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        hr {
+            border-color: #333;
+            margin: 1rem 0;
+        }
+        @media (max-width: 600px) {
+            .video-card {
+                flex-direction: column;
+                text-align: center;
+            }
+            .thumbnail {
+                width: 160px;
+            }
+            .search-area {
+                flex-direction: column;
+            }
+            button {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="nav-links">
+        <a href="/">🏠 Home</a>
+        <a href="/logs">📊 Logs</a>
+        <a href="/console">📝 Console</a>
+        <a href="/yt">📥 YouTube Downloader</a>
+    </div>
+    
+    <h1>📥 YouTube Downloader</h1>
+    <div class="sub">Search YouTube → Click Download → Get 720p MP4 (or best available)</div>
+
+    <div class="search-area">
+        <input type="text" id="searchInput" placeholder="Paste YouTube URL or search term...">
+        <button id="searchBtn">🔍 Search / Fetch</button>
+    </div>
+    <div id="resultsArea">
+        <div class="loading">💡 Paste a YouTube URL and click Search, or type keywords to search.</div>
+    </div>
+    <hr>
+    <div style="font-size: 0.7rem; text-align: center; color: #555;">
+        ⚡ Downloads 720p MP4 • Falls back to best quality if 720p unavailable
+    </div>
+</div>
+
+<script>
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const resultsArea = document.getElementById('resultsArea');
+
+    function isYouTubeUrl(url) {
+        return url.includes('youtube.com/watch') || url.includes('youtu.be/');
+    }
+
+    searchBtn.addEventListener('click', () => {
+        const query = searchInput.value.trim();
+        if (!query) return;
+        
+        if (isYouTubeUrl(query)) {
+            fetchVideoInfo(query);
+        } else {
+            searchYouTube(query);
+        }
+    });
+
+    async function searchYouTube(searchTerm) {
+        resultsArea.innerHTML = '<div class="loading">🔎 Searching videos...</div>';
+        try {
+            const response = await fetch(`/api/yt/search?q=${encodeURIComponent(searchTerm)}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            renderVideoList(data.videos);
+        } catch (err) {
+            resultsArea.innerHTML = `<div class="error">❌ Search failed: ${err.message}</div>`;
+        }
+    }
+
+    async function fetchVideoInfo(url) {
+        resultsArea.innerHTML = '<div class="loading">📡 Fetching video details...</div>';
+        try {
+            const response = await fetch(`/api/yt/info?url=${encodeURIComponent(url)}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            renderVideoList([data]);
+        } catch (err) {
+            resultsArea.innerHTML = `<div class="error">❌ Failed to get video: ${err.message}</div>`;
+        }
+    }
+
+    function formatDuration(duration) {
+        if (!duration) return '?';
+        return duration;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    function renderVideoList(videos) {
+        if (!videos || videos.length === 0) {
+            resultsArea.innerHTML = '<div class="loading">😞 No videos found.</div>';
+            return;
+        }
+        
+        const html = `
+            <div class="results-grid">
+                ${videos.map(video => `
+                    <div class="video-card">
+                        <img class="thumbnail" src="${video.thumbnail}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
+                        <div class="video-info">
+                            <div class="video-title">${escapeHtml(video.title)}</div>
+                            <div class="video-meta">
+                                <span>⏱️ ${formatDuration(video.duration)}</span>
+                                <span>📺 ${escapeHtml(video.author)}</span>
+                            </div>
+                        </div>
+                        <a class="download-btn" href="/api/yt/download?url=${encodeURIComponent(video.webpage_url)}">⬇️ Download 720p</a>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        resultsArea.innerHTML = html;
+    }
+
+    // Allow Enter key to search
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') searchBtn.click();
+    });
+</script>
+</body>
+</html>
