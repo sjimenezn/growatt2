@@ -620,9 +620,9 @@ def yt_get_formats():
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
     
-    # REMOVED remote_components - it was causing bot detection
     ydl_opts = {
         'quiet': True,
+        'cookiefile': '/app/cookies.txt',  # ADDED: Cookies for authentication
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -726,11 +726,12 @@ def yt_download():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # REMOVED remote_components - it was causing bot detection
+        # Use cookies to avoid bot detection
         ydl_opts_base = {
             'quiet': True,
             'merge_output_format': 'mp4',
             'no_warnings': True,
+            'cookiefile': '/app/cookies.txt',  # ADDED: Cookies for authentication
         }
         
         # If specific format_id provided, use it directly
