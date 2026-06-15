@@ -620,10 +620,10 @@ def yt_get_formats():
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
     
-    # Add remote components to fix JS challenges
+    # Add remote components to fix JS challenges - MUST be a list
     ydl_opts = {
         'quiet': True,
-        'remote_components': 'ejs:github',  # FIX: Required for YouTube JS challenges
+        'remote_components': ['ejs:github'],  # FIXED: Using list instead of string
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -649,7 +649,7 @@ def yt_get_formats():
                 if vcodec == 'none' or not height:
                     continue
                 
-                # Create quality label
+                # Create quality label (UPDATED: Added 240p support)
                 if height >= 2160:
                     quality = "4K"
                 elif height >= 1440:
@@ -662,6 +662,8 @@ def yt_get_formats():
                     quality = "480p"
                 elif height >= 360:
                     quality = "360p"
+                elif height >= 240:  # ADDED: 240p support
+                    quality = "240p"
                 else:
                     quality = f"{height}p"
                 
@@ -703,7 +705,7 @@ def yt_get_formats():
                 'thumbnail': info.get('thumbnail'),
                 'duration': info.get('duration_string'),
                 'author': info.get('uploader'),
-                'webpage_url': url,  # FIX: Explicitly include the URL
+                'webpage_url': url,  # FIXED: Explicitly include the URL
                 'formats': quality_options
             })
             
@@ -725,19 +727,19 @@ def yt_download():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # Add remote components for download as well
+        # Add remote components for download as well - MUST be a list
         ydl_opts_base = {
             'quiet': True,
             'merge_output_format': 'mp4',
             'no_warnings': True,
-            'remote_components': 'ejs:github',  # FIX: Required for YouTube JS challenges
+            'remote_components': ['ejs:github'],  # FIXED: Using list instead of string
         }
         
         # If specific format_id provided, use it directly
         if format_id:
             format_spec = format_id
         else:
-            # Otherwise use quality-based selection
+            # Otherwise use quality-based selection (UPDATED: Added 240p)
             quality_map = {
                 '4K': 'bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 '1440p': 'bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -745,6 +747,7 @@ def yt_download():
                 '720p': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 '480p': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 '360p': 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                '240p': 'bestvideo[height<=240][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',  # ADDED: 240p support
             }
             format_spec = quality_map.get(quality, quality_map['720p'])
         
