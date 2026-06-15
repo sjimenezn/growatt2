@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
+import yt_dlp   # ADD THIS LINE
+import re 
 
 # --- Pre-computation Logging ---
 console_logs = []
@@ -35,7 +37,7 @@ updater = None
 dp = None
 
 # --- Cobalt API Config ---
-COBALT_API_URL = "https://api.cobalt.tools/api/json"
+COBALT_API_URL = "https://genetic-britta-sjimenezn-80e305b4.koyeb.app/api/json"
 
 # --- Flask App ---
 app = Flask(__name__)
