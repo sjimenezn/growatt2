@@ -11,298 +11,8 @@ from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
 import yt_dlp
-import re
-
-# --- YouTube Downloader HTML Template ---
-YT_DOWNLOADER_HTML = '''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>YouTube Downloader - 720p MP4</title>
-    <style>
-        * { box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 1rem;
-            background: #0f0f0f;
-            color: #f1f1f1;
-        }
-        .container {
-            background: #1f1f1f;
-            border-radius: 24px;
-            padding: 1.5rem;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
-        }
-        h1 {
-            font-size: 1.5rem;
-            margin: 0 0 0.25rem 0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .sub {
-            color: #aaa;
-            margin-bottom: 1.5rem;
-            font-size: 0.85rem;
-        }
-        .search-area {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-        input {
-            flex: 1;
-            padding: 12px 16px;
-            font-size: 1rem;
-            border: none;
-            border-radius: 40px;
-            background: #2a2a2a;
-            color: white;
-            outline: none;
-            min-width: 200px;
-        }
-        input:focus {
-            background: #333;
-            box-shadow: 0 0 0 2px #3ea6ff;
-        }
-        button {
-            background: #3ea6ff;
-            border: none;
-            padding: 0 20px;
-            border-radius: 40px;
-            font-weight: bold;
-            font-size: 0.9rem;
-            cursor: pointer;
-            transition: 0.2s;
-            color: #0f0f0f;
-        }
-        button:hover {
-            background: #5cb3ff;
-            transform: scale(0.98);
-        }
-        .loading {
-            text-align: center;
-            padding: 2rem;
-            color: #aaa;
-        }
-        .results-grid {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin-top: 1rem;
-        }
-        .video-card {
-            background: #2a2a2a;
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 0.75rem;
-            transition: 0.1s;
-            flex-wrap: wrap;
-        }
-        .video-card:hover {
-            background: #333;
-        }
-        .thumbnail {
-            width: 100px;
-            border-radius: 8px;
-            flex-shrink: 0;
-        }
-        .video-info {
-            flex: 1;
-            min-width: 150px;
-        }
-        .video-title {
-            font-weight: 600;
-            margin-bottom: 6px;
-            font-size: 0.9rem;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-        .video-meta {
-            font-size: 0.75rem;
-            color: #aaa;
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-        .download-btn {
-            background: #2e7d32;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 40px;
-            text-decoration: none;
-            font-weight: bold;
-            font-size: 0.85rem;
-            white-space: nowrap;
-        }
-        .download-btn:hover {
-            background: #1b5e20;
-        }
-        .error {
-            background: #8b0000;
-            padding: 1rem;
-            border-radius: 12px;
-            margin: 1rem 0;
-        }
-        .nav-links {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
-        }
-        .nav-links a {
-            color: #3ea6ff;
-            text-decoration: none;
-            font-size: 0.9rem;
-        }
-        hr {
-            border-color: #333;
-            margin: 1rem 0;
-        }
-        @media (max-width: 600px) {
-            .video-card {
-                flex-direction: column;
-                text-align: center;
-            }
-            .thumbnail {
-                width: 160px;
-            }
-            .search-area {
-                flex-direction: column;
-            }
-            button {
-                padding: 10px;
-            }
-        }
-    </style>
-</head>
-<body>
-<div class="container">
-    <div class="nav-links">
-        <a href="/">🏠 Home</a>
-        <a href="/logs">📊 Logs</a>
-        <a href="/console">📝 Console</a>
-        <a href="/yt">📥 YouTube Downloader</a>
-    </div>
-    
-    <h1>📥 YouTube Downloader</h1>
-    <div class="sub">Search YouTube → Click Download → Get 720p MP4 (or best available)</div>
-
-    <div class="search-area">
-        <input type="text" id="searchInput" placeholder="Paste YouTube URL or search term...">
-        <button id="searchBtn">🔍 Search / Fetch</button>
-    </div>
-    <div id="resultsArea">
-        <div class="loading">💡 Paste a YouTube URL and click Search, or type keywords to search.</div>
-    </div>
-    <hr>
-    <div style="font-size: 0.7rem; text-align: center; color: #555;">
-        ⚡ Downloads 720p MP4 • Falls back to best quality if 720p unavailable
-    </div>
-</div>
-
-<script>
-    const searchInput = document.getElementById('searchInput');
-    const searchBtn = document.getElementById('searchBtn');
-    const resultsArea = document.getElementById('resultsArea');
-
-    function isYouTubeUrl(url) {
-        return url.includes('youtube.com/watch') || url.includes('youtu.be/');
-    }
-
-    searchBtn.addEventListener('click', () => {
-        const query = searchInput.value.trim();
-        if (!query) return;
-        
-        if (isYouTubeUrl(query)) {
-            fetchVideoInfo(query);
-        } else {
-            searchYouTube(query);
-        }
-    });
-
-    async function searchYouTube(searchTerm) {
-        resultsArea.innerHTML = '<div class="loading">🔎 Searching videos...</div>';
-        try {
-            const response = await fetch(`/api/yt/search?q=${encodeURIComponent(searchTerm)}`);
-            const data = await response.json();
-            if (data.error) throw new Error(data.error);
-            renderVideoList(data.videos);
-        } catch (err) {
-            resultsArea.innerHTML = `<div class="error">❌ Search failed: ${err.message}</div>`;
-        }
-    }
-
-    async function fetchVideoInfo(url) {
-        resultsArea.innerHTML = '<div class="loading">📡 Fetching video details...</div>';
-        try {
-            const response = await fetch(`/api/yt/info?url=${encodeURIComponent(url)}`);
-            const data = await response.json();
-            if (data.error) throw new Error(data.error);
-            renderVideoList([data]);
-        } catch (err) {
-            resultsArea.innerHTML = `<div class="error">❌ Failed to get video: ${err.message}</div>`;
-        }
-    }
-
-    function formatDuration(duration) {
-        if (!duration) return '?';
-        return duration;
-    }
-
-    function escapeHtml(str) {
-        if (!str) return '';
-        return str.replace(/[&<>]/g, function(m) {
-            if (m === '&') return '&amp;';
-            if (m === '<') return '&lt;';
-            if (m === '>') return '&gt;';
-            return m;
-        });
-    }
-
-    function renderVideoList(videos) {
-        if (!videos || videos.length === 0) {
-            resultsArea.innerHTML = '<div class="loading">😞 No videos found.</div>';
-            return;
-        }
-        
-        const html = `
-            <div class="results-grid">
-                ${videos.map(video => `
-                    <div class="video-card">
-                        <img class="thumbnail" src="${video.thumbnail}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
-                        <div class="video-info">
-                            <div class="video-title">${escapeHtml(video.title)}</div>
-                            <div class="video-meta">
-                                <span>⏱️ ${formatDuration(video.duration)}</span>
-                                <span>📺 ${escapeHtml(video.author)}</span>
-                            </div>
-                        </div>
-                        <a class="download-btn" href="/api/yt/download?url=${encodeURIComponent(video.webpage_url)}">⬇️ Download 720p</a>
-                    </div>
-                `).join('')}
-            </div>
-        `;
-        resultsArea.innerHTML = html;
-    }
-
-    // Allow Enter key to search
-    searchInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') searchBtn.click();
-    });
-</script>
-</body>
-</html>
-'''
+import tempfile
+import shutil
 
 # --- Pre-computation Logging ---
 console_logs = []
@@ -318,18 +28,14 @@ username1 = "vospina"
 password1 = "Vospina.2025"
 
 # --- Telegram Config ---
-TELEGRAM_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo" # <--- YOUR CURRENT TOKEN
+TELEGRAM_TOKEN = "7653969082:AAGGuY6-sZz0KbVDTa0zfNanMF4MH1vP_oo"
 CHAT_IDS = ["5715745951", "7524705169", "7812545729", "7862573365", "7650630450"]
 chat_log = set()
 
 # Global variable to control Telegram bot state
 telegram_enabled = False
-updater = None  # Global reference for the Updater object
-dp = None       # Global reference for the Dispatcher object
-
-# --- YouTube Downloader Config ---
-DOWNLOAD_FOLDER = 'downloads'
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+updater = None
+dp = None
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -361,7 +67,6 @@ def get_today_date_utc_minus_5():
     now = datetime.utcnow() - timedelta(hours=5)
     return now.strftime('%Y-%m-%d')
 
-
 # Growatt API
 api = GrowattApi()
 api.session.headers.update({
@@ -371,7 +76,7 @@ api.session.headers.update({
 # --- Shared Data ---
 current_data = {}
 last_processed_time = "Never"
-last_successful_growatt_update_time = "Never" # This will be the time of the last *fresh* data received
+last_successful_growatt_update_time = "Never"
 
 fetched_data = {}
 
@@ -502,7 +207,7 @@ def monitor_growatt():
 
             last_processed_time = current_loop_time_str
 
-            # Simplified Telegram alerting - send immediate alerts without confirmation delays
+            # Simplified Telegram alerting
             if telegram_enabled and current_data.get("ac_input_voltage") != "N/A":
                 try:
                     current_ac_input_v_float = float(current_data.get("ac_input_voltage"))
@@ -511,7 +216,6 @@ def monitor_growatt():
 
                 alert_timestamp = last_successful_growatt_update_time
                 
-                # Grid outage detection
                 if current_ac_input_v_float < threshold:
                     msg = f"""🔴🔴¡Se fue la luz en Acacías!🔴🔴
     🕒 Hora--> {alert_timestamp}
@@ -520,7 +224,6 @@ Voltaje de la red    : {current_ac_input_v_float} V / {raw_growatt_data.get('fre
 Voltaje del inversor: {raw_growatt_data.get('outPutVolt', 'N/A')} V / {raw_growatt_data.get('freqOutPut', 'N/A')} Hz
 Consumo actual     : {raw_growatt_data.get('activePower', 'N/A')} W"""
                     send_telegram_message(msg)
-                # Grid restoration detection
                 elif current_ac_input_v_float >= threshold:
                     msg = f"""✅✅¡Llegó la luz en Acacías!✅✅
     🕒 Hora--> {alert_timestamp}
@@ -532,25 +235,9 @@ Consumo actual     : {raw_growatt_data.get('activePower', 'N/A')} W"""
 
         except Exception as e_inner:
             log_message(f"❌ Error during Growatt data fetch or processing (API error): {e_inner}")
-            # Reset IDs to force a re-login on the next attempt
             user_id, plant_id, inverter_sn, datalog_sn = None, None, None, None
 
         time.sleep(60)
-
-# Cleanup old downloads every hour
-def cleanup_old_downloads():
-    """Delete downloads older than 1 hour"""
-    while True:
-        time.sleep(3600)  # Run every hour
-        now = time.time()
-        for filename in os.listdir(DOWNLOAD_FOLDER):
-            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-            try:
-                if os.path.isfile(filepath) and (now - os.path.getmtime(filepath)) > 3600:
-                    os.remove(filepath)
-                    log_message(f"🗑️ Cleaned up old download: {filename}")
-            except Exception as e:
-                log_message(f"⚠️ Could not delete {filename}: {e}")
 
 # Telegram Handlers
 def start(update: Update, context: CallbackContext):
@@ -589,7 +276,6 @@ def stop_bot_telegram_command(update: Update, context: CallbackContext):
         log_message("Telegram bot not running to be stopped.")
 
 def telegram_error_handler(update: object, context: CallbackContext) -> None:
-    """Log Errors caused by Updates."""
     if update and hasattr(update, 'effective_chat') and update.effective_chat:
         chat_info = f"Chat ID: {update.effective_chat.id}"
     elif update and hasattr(update, 'effective_user') and update.effective_user:
@@ -631,15 +317,9 @@ def initialize_telegram_bot():
         return False
 
 # --- Start Background Threads ---
-# Start Growatt Monitor Thread
 monitor_thread = threading.Thread(target=monitor_growatt, daemon=True, name="GrowattMonitorThread")
 monitor_thread.start()
 log_message("Growatt monitor thread started.")
-
-# Start cleanup thread
-cleanup_thread = threading.Thread(target=cleanup_old_downloads, daemon=True, name="CleanupThread")
-cleanup_thread.start()
-log_message("Download cleanup thread started.")
 
 # --- Flask Routes ---
 @app.route("/")
@@ -700,7 +380,6 @@ def update_telegram_token():
 @app.route("/logs")
 def logs():
     global last_successful_growatt_update_time
-    # Return empty charts since data logging is removed
     return render_template("logs.html", timestamps=[], ac_input=[], ac_output=[],
                            active_power=[], battery_capacity=[],
                            last_growatt_update=last_successful_growatt_update_time)
@@ -821,7 +500,6 @@ def details():
     except Exception as e:
         log_message(f"❌ Unexpected error processing voltage data for {selected_date}: {e}")
 
-
     amp_series_data = []
     raw_json_amps_response = {}
     amp_request_jsonData = [{"type": "storage", "sn": NEW_API_STORAGE_SN, "params": "ppv"}]
@@ -872,12 +550,12 @@ def details():
                            raw_json_chart2=raw_json_amps_response,
                            last_growatt_update=last_successful_growatt_update_time)
 
-# --- YouTube Downloader Routes ---
+# ============ YOUTUBE DOWNLOADER ROUTES ============
 
 @app.route('/yt')
 def yt_downloader_page():
     """Serve the YouTube downloader HTML page"""
-    return render_template_string(YT_DOWNLOADER_HTML)
+    return render_template('yt_downloader.html')
 
 @app.route('/api/yt/search')
 def yt_search():
@@ -935,50 +613,184 @@ def yt_video_info():
             log_message(f"❌ YouTube info error: {e}")
             return jsonify({'error': str(e)}), 500
 
-@app.route('/api/yt/download')
-def yt_download():
-    """Download video in 720p MP4 or best available"""
+@app.route('/api/yt/formats')
+def yt_get_formats():
+    """Get all available formats for a video"""
     url = request.args.get('url', '')
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
     
-    # Format selector: best video up to 720p MP4 + best audio, fallback to best MP4
-    ydl_opts = {
-        'format': '(bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best)',
-        'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s_%(id)s.%(ext)s'),
-        'quiet': True,
-        'merge_output_format': 'mp4',
-        'no_warnings': True,
-    }
-    
+    ydl_opts = {'quiet': True}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
-            log_message(f"📥 Downloading: {url}")
+            info = ydl.extract_info(url, download=False)
+            formats = info.get('formats', [])
+            
+            # Extract and organize quality options
+            quality_options = []
+            seen_qualities = set()
+            
+            for f in formats:
+                # Only include formats that have video
+                height = f.get('height')
+                vcodec = f.get('vcodec')
+                acodec = f.get('acodec')
+                ext = f.get('ext')
+                fps = f.get('fps')
+                format_note = f.get('format_note', '')
+                filesize = f.get('filesize')
+                
+                # Skip formats without video
+                if vcodec == 'none' or not height:
+                    continue
+                
+                # Create quality label
+                if height >= 2160:
+                    quality = "4K"
+                elif height >= 1440:
+                    quality = "1440p"
+                elif height >= 1080:
+                    quality = "1080p"
+                elif height >= 720:
+                    quality = "720p"
+                elif height >= 480:
+                    quality = "480p"
+                elif height >= 360:
+                    quality = "360p"
+                else:
+                    quality = f"{height}p"
+                
+                # Check if it has audio
+                has_audio = acodec != 'none'
+                
+                # Format size string
+                size_str = ""
+                if filesize:
+                    if filesize < 1024 * 1024:
+                        size_str = f"{filesize/1024:.1f}KB"
+                    else:
+                        size_str = f"{filesize/(1024*1024):.1f}MB"
+                
+                # Create unique key
+                quality_key = f"{quality}_{fps}fps" if fps else quality
+                
+                # Add to options if not duplicate
+                if quality_key not in seen_qualities:
+                    seen_qualities.add(quality_key)
+                    
+                    quality_options.append({
+                        'format_id': f.get('format_id'),
+                        'quality': quality,
+                        'height': height,
+                        'width': f.get('width'),
+                        'fps': fps,
+                        'ext': ext,
+                        'has_audio': has_audio,
+                        'size': size_str,
+                        'note': format_note
+                    })
+            
+            # Sort by quality (highest first)
+            quality_options.sort(key=lambda x: x['height'], reverse=True)
+            
+            return jsonify({
+                'title': info.get('title'),
+                'thumbnail': info.get('thumbnail'),
+                'duration': info.get('duration_string'),
+                'author': info.get('uploader'),
+                'formats': quality_options
+            })
+            
+        except Exception as e:
+            log_message(f"❌ Error getting formats: {e}")
+            return jsonify({'error': str(e)}), 500
+
+@app.route('/api/yt/download')
+def yt_download():
+    """Download video with selected quality"""
+    url = request.args.get('url', '')
+    quality = request.args.get('quality', '720p')
+    format_id = request.args.get('format_id', '')
+    
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+    
+    # Create a temporary directory for this download
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        # If specific format_id provided, use it directly
+        if format_id:
+            format_spec = format_id
+        else:
+            # Otherwise use quality-based selection
+            quality_map = {
+                '4K': 'bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                '1440p': 'bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                '1080p': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                '720p': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                '480p': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                '360p': 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            }
+            format_spec = quality_map.get(quality, quality_map['720p'])
+        
+        ydl_opts = {
+            'format': format_spec,
+            'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+            'quiet': True,
+            'merge_output_format': 'mp4',
+            'no_warnings': True,
+        }
+        
+        log_message(f"📥 Downloading video: {url} with quality: {quality}")
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             
-            # Get the actual filename
-            filename = ydl.prepare_filename(info)
+            # Find the downloaded file
+            downloaded_file = None
+            for file in os.listdir(temp_dir):
+                if file.endswith('.mp4'):
+                    downloaded_file = os.path.join(temp_dir, file)
+                    break
             
-            # Handle if format changed extension
-            if not os.path.exists(filename):
-                for f in os.listdir(DOWNLOAD_FOLDER):
-                    if info.get('id') in f and f.endswith('.mp4'):
-                        filename = os.path.join(DOWNLOAD_FOLDER, f)
-                        break
-            
-            if os.path.exists(filename):
-                log_message(f"✅ Download complete: {info.get('title')}")
-                return send_file(
-                    filename, 
-                    as_attachment=True,
-                    download_name=f"{info.get('title')}.mp4"
-                )
-            else:
-                return jsonify({'error': 'File not found after download'}), 500
+            if downloaded_file and os.path.exists(downloaded_file):
+                video_title = info.get('title', 'video')
+                video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                filename = f"{video_title}_{quality}.mp4"
                 
-        except Exception as e:
-            log_message(f"❌ YouTube download error: {e}")
-            return jsonify({'error': str(e)}), 500
+                log_message(f"✅ Download complete: {filename}")
+                
+                # Send file and delete after
+                response = send_file(
+                    downloaded_file,
+                    as_attachment=True,
+                    download_name=filename,
+                    mimetype='video/mp4'
+                )
+                
+                @response.call_on_close
+                def cleanup():
+                    try:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        log_message(f"🗑️ Cleaned up temp files")
+                    except Exception as e:
+                        log_message(f"⚠️ Cleanup error: {e}")
+                
+                return response
+            else:
+                raise Exception("Downloaded file not found")
+                
+    except Exception as e:
+        log_message(f"❌ YouTube download error: {e}")
+        return jsonify({'error': str(e)}), 500
+    
+    finally:
+        # Fallback cleanup
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except:
+            pass
 
 if __name__ == '__main__':
     log_message("Starting Flask development server.")
