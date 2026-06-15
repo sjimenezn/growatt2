@@ -10,6 +10,299 @@ from datetime import datetime, timedelta
 from growattServer import GrowattApi
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackContext
+import yt_dlp
+import re
+
+# --- YouTube Downloader HTML Template ---
+YT_DOWNLOADER_HTML = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>YouTube Downloader - 720p MP4</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1rem;
+            background: #0f0f0f;
+            color: #f1f1f1;
+        }
+        .container {
+            background: #1f1f1f;
+            border-radius: 24px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+        }
+        h1 {
+            font-size: 1.5rem;
+            margin: 0 0 0.25rem 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .sub {
+            color: #aaa;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+        }
+        .search-area {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        input {
+            flex: 1;
+            padding: 12px 16px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 40px;
+            background: #2a2a2a;
+            color: white;
+            outline: none;
+            min-width: 200px;
+        }
+        input:focus {
+            background: #333;
+            box-shadow: 0 0 0 2px #3ea6ff;
+        }
+        button {
+            background: #3ea6ff;
+            border: none;
+            padding: 0 20px;
+            border-radius: 40px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: 0.2s;
+            color: #0f0f0f;
+        }
+        button:hover {
+            background: #5cb3ff;
+            transform: scale(0.98);
+        }
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #aaa;
+        }
+        .results-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 1rem;
+        }
+        .video-card {
+            background: #2a2a2a;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem;
+            transition: 0.1s;
+            flex-wrap: wrap;
+        }
+        .video-card:hover {
+            background: #333;
+        }
+        .thumbnail {
+            width: 100px;
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+        .video-info {
+            flex: 1;
+            min-width: 150px;
+        }
+        .video-title {
+            font-weight: 600;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .video-meta {
+            font-size: 0.75rem;
+            color: #aaa;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .download-btn {
+            background: #2e7d32;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 40px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+        .download-btn:hover {
+            background: #1b5e20;
+        }
+        .error {
+            background: #8b0000;
+            padding: 1rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+        }
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .nav-links a {
+            color: #3ea6ff;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        hr {
+            border-color: #333;
+            margin: 1rem 0;
+        }
+        @media (max-width: 600px) {
+            .video-card {
+                flex-direction: column;
+                text-align: center;
+            }
+            .thumbnail {
+                width: 160px;
+            }
+            .search-area {
+                flex-direction: column;
+            }
+            button {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="nav-links">
+        <a href="/">🏠 Home</a>
+        <a href="/logs">📊 Logs</a>
+        <a href="/console">📝 Console</a>
+        <a href="/yt">📥 YouTube Downloader</a>
+    </div>
+    
+    <h1>📥 YouTube Downloader</h1>
+    <div class="sub">Search YouTube → Click Download → Get 720p MP4 (or best available)</div>
+
+    <div class="search-area">
+        <input type="text" id="searchInput" placeholder="Paste YouTube URL or search term...">
+        <button id="searchBtn">🔍 Search / Fetch</button>
+    </div>
+    <div id="resultsArea">
+        <div class="loading">💡 Paste a YouTube URL and click Search, or type keywords to search.</div>
+    </div>
+    <hr>
+    <div style="font-size: 0.7rem; text-align: center; color: #555;">
+        ⚡ Downloads 720p MP4 • Falls back to best quality if 720p unavailable
+    </div>
+</div>
+
+<script>
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const resultsArea = document.getElementById('resultsArea');
+
+    function isYouTubeUrl(url) {
+        return url.includes('youtube.com/watch') || url.includes('youtu.be/');
+    }
+
+    searchBtn.addEventListener('click', () => {
+        const query = searchInput.value.trim();
+        if (!query) return;
+        
+        if (isYouTubeUrl(query)) {
+            fetchVideoInfo(query);
+        } else {
+            searchYouTube(query);
+        }
+    });
+
+    async function searchYouTube(searchTerm) {
+        resultsArea.innerHTML = '<div class="loading">🔎 Searching videos...</div>';
+        try {
+            const response = await fetch(`/api/yt/search?q=${encodeURIComponent(searchTerm)}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            renderVideoList(data.videos);
+        } catch (err) {
+            resultsArea.innerHTML = `<div class="error">❌ Search failed: ${err.message}</div>`;
+        }
+    }
+
+    async function fetchVideoInfo(url) {
+        resultsArea.innerHTML = '<div class="loading">📡 Fetching video details...</div>';
+        try {
+            const response = await fetch(`/api/yt/info?url=${encodeURIComponent(url)}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            renderVideoList([data]);
+        } catch (err) {
+            resultsArea.innerHTML = `<div class="error">❌ Failed to get video: ${err.message}</div>`;
+        }
+    }
+
+    function formatDuration(duration) {
+        if (!duration) return '?';
+        return duration;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    function renderVideoList(videos) {
+        if (!videos || videos.length === 0) {
+            resultsArea.innerHTML = '<div class="loading">😞 No videos found.</div>';
+            return;
+        }
+        
+        const html = `
+            <div class="results-grid">
+                ${videos.map(video => `
+                    <div class="video-card">
+                        <img class="thumbnail" src="${video.thumbnail}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
+                        <div class="video-info">
+                            <div class="video-title">${escapeHtml(video.title)}</div>
+                            <div class="video-meta">
+                                <span>⏱️ ${formatDuration(video.duration)}</span>
+                                <span>📺 ${escapeHtml(video.author)}</span>
+                            </div>
+                        </div>
+                        <a class="download-btn" href="/api/yt/download?url=${encodeURIComponent(video.webpage_url)}">⬇️ Download 720p</a>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        resultsArea.innerHTML = html;
+    }
+
+    // Allow Enter key to search
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') searchBtn.click();
+    });
+</script>
+</body>
+</html>
+'''
 
 # --- Pre-computation Logging ---
 console_logs = []
@@ -33,6 +326,10 @@ chat_log = set()
 telegram_enabled = False
 updater = None  # Global reference for the Updater object
 dp = None       # Global reference for the Dispatcher object
+
+# --- YouTube Downloader Config ---
+DOWNLOAD_FOLDER = 'downloads'
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
 # --- Flask App ---
 app = Flask(__name__)
@@ -240,6 +537,21 @@ Consumo actual     : {raw_growatt_data.get('activePower', 'N/A')} W"""
 
         time.sleep(60)
 
+# Cleanup old downloads every hour
+def cleanup_old_downloads():
+    """Delete downloads older than 1 hour"""
+    while True:
+        time.sleep(3600)  # Run every hour
+        now = time.time()
+        for filename in os.listdir(DOWNLOAD_FOLDER):
+            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+            try:
+                if os.path.isfile(filepath) and (now - os.path.getmtime(filepath)) > 3600:
+                    os.remove(filepath)
+                    log_message(f"🗑️ Cleaned up old download: {filename}")
+            except Exception as e:
+                log_message(f"⚠️ Could not delete {filename}: {e}")
+
 # Telegram Handlers
 def start(update: Update, context: CallbackContext):
     chat_log.add(update.effective_chat.id)
@@ -324,6 +636,11 @@ monitor_thread = threading.Thread(target=monitor_growatt, daemon=True, name="Gro
 monitor_thread.start()
 log_message("Growatt monitor thread started.")
 
+# Start cleanup thread
+cleanup_thread = threading.Thread(target=cleanup_old_downloads, daemon=True, name="CleanupThread")
+cleanup_thread.start()
+log_message("Download cleanup thread started.")
+
 # --- Flask Routes ---
 @app.route("/")
 def home():
@@ -393,7 +710,7 @@ def chatlog_view():
     return render_template_string("""
         <html><head><title>Growatt Monitor - Chatlog</title><meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
         <style>body{font-family:Arial,sans-serif;margin:0;padding:0}nav{background-color:#333;overflow:hidden;position:sticky;top:0;z-index:100}nav ul{list-style-type:none;margin:0;padding:0;display:flex;justify-content:center}nav ul li{padding:14px 20px}nav ul li a{color:white;text-decoration:none;font-size:18px}nav ul li a:hover{background-color:#ddd;color:black}</style></head>
-        <body><nav><ul><li><a href="/">Home</a></li><li><a href="/logs">Logs</a></li><li><a href="/chatlog">Chatlog</a></li><li><a href="/console">Console</a></li><li><a href="/details">Details</a></li><li><a href="/battery-chart">Battery Chart</a></li></ul></nav>
+        <body><nav><ul><li><a href="/">Home</a></li><li><a href="/logs">Logs</a></li><li><a href="/chatlog">Chatlog</a></li><li><a href="/console">Console</a></li><li><a href="/details">Details</a></li><li><a href="/battery-chart">Battery Chart</a></li><li><a href="/yt">YouTube</a></li></ul></nav>
         <h1>Chatlog</h1><pre>{{ chat_log }}</pre></body></html>""", chat_log="\n".join(str(cid) for cid in sorted(list(chat_log))))
 
 @app.route("/console")
@@ -401,7 +718,7 @@ def console_view():
     return render_template_string("""
         <html><head><title>Console Logs</title><meta name="viewport" content="width=device-width, initial-scale=0.6, maximum-scale=1.0, user-scalable=yes">
         <style>body{font-family:Arial,sans-serif;margin:0;padding:0}nav{background-color:#333;overflow:hidden;position:sticky;top:0;z-index:100}nav ul{list-style-type:none;margin:0;padding:0;display:flex;justify-content:center}nav ul li{padding:14px 20px}nav ul li a{color:white;text-decoration:none;font-size:18px}nav ul li a:hover{background-color:#ddd;color:black}</style></head>
-        <body><nav><ul><li><a href="/">Home</a></li><li><a href="/logs">Logs</a></li><li><a href="/chatlog">Chatlog</a></li><li><a href="/console">Console</a></li><li><a href="/details">Details</a></li><li><a href="/battery-chart">Battery Chart</a></li></ul></nav>
+        <body><nav><ul><li><a href="/">Home</a></li><li><a href="/logs">Logs</a></li><li><a href="/chatlog">Chatlog</a></li><li><a href="/console">Console</a></li><li><a href="/details">Details</a></li><li><a href="/battery-chart">Battery Chart</a></li><li><a href="/yt">YouTube</a></li></ul></nav>
         <h2>Console Output (últimos 100 minutos)</h2><pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ logs }}</pre>
         <h2>📦 Fetched Growatt Data</h2><pre style="white-space: pre; font-family: monospace; overflow-x: auto;">{{ data }}</pre></body></html>""",
     logs="\n\n".join(m for _, m in console_logs), data=pprint.pformat(fetched_data, indent=2))
@@ -554,6 +871,114 @@ def details():
                            raw_json_chart1=raw_json_volts_response,
                            raw_json_chart2=raw_json_amps_response,
                            last_growatt_update=last_successful_growatt_update_time)
+
+# --- YouTube Downloader Routes ---
+
+@app.route('/yt')
+def yt_downloader_page():
+    """Serve the YouTube downloader HTML page"""
+    return render_template_string(YT_DOWNLOADER_HTML)
+
+@app.route('/api/yt/search')
+def yt_search():
+    """Search YouTube videos"""
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify({'error': 'No query provided'}), 400
+    
+    ydl_opts = {
+        'quiet': True,
+        'extract_flat': 'in_playlist',
+        'playlistend': 15,
+    }
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            search_url = f"ytsearch15:{query}"
+            info = ydl.extract_info(search_url, download=False)
+            entries = info.get('entries', [])
+            results = []
+            for entry in entries:
+                results.append({
+                    'id': entry.get('id'),
+                    'title': entry.get('title'),
+                    'webpage_url': entry.get('webpage_url') or f"https://youtube.com/watch?v={entry.get('id')}",
+                    'thumbnail': entry.get('thumbnail'),
+                    'duration': entry.get('duration_string'),
+                    'author': entry.get('uploader', 'Unknown')
+                })
+            return jsonify({'videos': results})
+        except Exception as e:
+            log_message(f"❌ YouTube search error: {e}")
+            return jsonify({'error': str(e)}), 500
+
+@app.route('/api/yt/info')
+def yt_video_info():
+    """Get info for a single video"""
+    url = request.args.get('url', '')
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+    
+    ydl_opts = {'quiet': True}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(url, download=False)
+            return jsonify({
+                'id': info.get('id'),
+                'title': info.get('title'),
+                'webpage_url': url,
+                'thumbnail': info.get('thumbnail'),
+                'duration': info.get('duration_string'),
+                'author': info.get('uploader', 'Unknown')
+            })
+        except Exception as e:
+            log_message(f"❌ YouTube info error: {e}")
+            return jsonify({'error': str(e)}), 500
+
+@app.route('/api/yt/download')
+def yt_download():
+    """Download video in 720p MP4 or best available"""
+    url = request.args.get('url', '')
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+    
+    # Format selector: best video up to 720p MP4 + best audio, fallback to best MP4
+    ydl_opts = {
+        'format': '(bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best)',
+        'outtmpl': os.path.join(DOWNLOAD_FOLDER, '%(title)s_%(id)s.%(ext)s'),
+        'quiet': True,
+        'merge_output_format': 'mp4',
+        'no_warnings': True,
+    }
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            log_message(f"📥 Downloading: {url}")
+            info = ydl.extract_info(url, download=True)
+            
+            # Get the actual filename
+            filename = ydl.prepare_filename(info)
+            
+            # Handle if format changed extension
+            if not os.path.exists(filename):
+                for f in os.listdir(DOWNLOAD_FOLDER):
+                    if info.get('id') in f and f.endswith('.mp4'):
+                        filename = os.path.join(DOWNLOAD_FOLDER, f)
+                        break
+            
+            if os.path.exists(filename):
+                log_message(f"✅ Download complete: {info.get('title')}")
+                return send_file(
+                    filename, 
+                    as_attachment=True,
+                    download_name=f"{info.get('title')}.mp4"
+                )
+            else:
+                return jsonify({'error': 'File not found after download'}), 500
+                
+        except Exception as e:
+            log_message(f"❌ YouTube download error: {e}")
+            return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     log_message("Starting Flask development server.")
