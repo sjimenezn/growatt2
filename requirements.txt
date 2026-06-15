@@ -1,8 +1,9 @@
 Flask
 requests
-growattServer
+growattServer==1.7.1
 gunicorn
 Werkzeug
 python-telegram-bot==13.15
 chromedriver-autoinstaller
 GitPython
+yt-dlp
