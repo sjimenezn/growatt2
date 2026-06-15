@@ -3,13 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>YouTube Downloader - 720p MP4</title>
+    <title>YouTube Downloader - Quality Selector</title>
     <style>
-        /* Same CSS as before */
         * { box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 1rem;
             background: #0f0f0f;
@@ -83,53 +82,71 @@
         .video-card {
             background: #2a2a2a;
             border-radius: 16px;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 0.75rem;
+            padding: 1rem;
             transition: 0.1s;
-            flex-wrap: wrap;
         }
         .video-card:hover {
             background: #333;
         }
+        .video-header {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
         .thumbnail {
-            width: 100px;
+            width: 120px;
             border-radius: 8px;
             flex-shrink: 0;
         }
         .video-info {
             flex: 1;
-            min-width: 150px;
         }
         .video-title {
             font-weight: 600;
             margin-bottom: 6px;
-            font-size: 0.9rem;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+            font-size: 1rem;
         }
         .video-meta {
-            font-size: 0.75rem;
+            font-size: 0.8rem;
             color: #aaa;
             display: flex;
-            gap: 12px;
+            gap: 16px;
             flex-wrap: wrap;
         }
-        .download-btn {
-            background: #2e7d32;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 40px;
-            text-decoration: none;
-            font-weight: bold;
-            font-size: 0.85rem;
-            white-space: nowrap;
+        .quality-section {
+            margin-top: 1rem;
+            border-top: 1px solid #444;
+            padding-top: 1rem;
         }
-        .download-btn:hover {
-            background: #1b5e20;
+        .quality-title {
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+            color: #ccc;
+        }
+        .quality-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .quality-btn {
+            background: #383838;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: 0.2s;
+        }
+        .quality-btn:hover {
+            background: #3ea6ff;
+            transform: scale(0.98);
+        }
+        .quality-info {
+            font-size: 0.7rem;
+            color: #888;
+            margin-left: 5px;
         }
         .error {
             background: #8b0000;
@@ -153,12 +170,13 @@
             margin: 1rem 0;
         }
         @media (max-width: 600px) {
-            .video-card {
+            .video-header {
                 flex-direction: column;
                 text-align: center;
             }
             .thumbnail {
                 width: 160px;
+                margin: 0 auto;
             }
             .search-area {
                 flex-direction: column;
@@ -179,7 +197,7 @@
     </div>
     
     <h1>📥 YouTube Downloader</h1>
-    <div class="sub">Search YouTube → Click Download → Get 720p MP4 (or best available)</div>
+    <div class="sub">Search YouTube → Select Quality → Download to your device</div>
 
     <div class="search-area">
         <input type="text" id="searchInput" placeholder="Paste YouTube URL or search term...">
@@ -190,7 +208,7 @@
     </div>
     <hr>
     <div style="font-size: 0.7rem; text-align: center; color: #555;">
-        ⚡ Downloads 720p MP4 • Falls back to best quality if 720p unavailable
+        ⚡ Choose from available qualities • Downloads MP4 file directly to your device
     </div>
 </div>
 
@@ -208,7 +226,7 @@
         if (!query) return;
         
         if (isYouTubeUrl(query)) {
-            fetchVideoInfo(query);
+            fetchVideoFormats(query);
         } else {
             searchYouTube(query);
         }
@@ -223,6 +241,18 @@
             renderVideoList(data.videos);
         } catch (err) {
             resultsArea.innerHTML = `<div class="error">❌ Search failed: ${err.message}</div>`;
+        }
+    }
+
+    async function fetchVideoFormats(url) {
+        resultsArea.innerHTML = '<div class="loading">📡 Fetching available formats...</div>';
+        try {
+            const response = await fetch(`/api/yt/formats?url=${encodeURIComponent(url)}`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            renderVideoWithFormats(data);
+        } catch (err) {
+            resultsArea.innerHTML = `<div class="error">❌ Failed to get video: ${err.message}</div>`;
         }
     }
 
@@ -253,6 +283,67 @@
         });
     }
 
+    function downloadVideo(url, quality, formatId) {
+        let downloadUrl;
+        if (formatId) {
+            downloadUrl = `/api/yt/download?url=${encodeURIComponent(url)}&format_id=${formatId}`;
+        } else {
+            downloadUrl = `/api/yt/download?url=${encodeURIComponent(url)}&quality=${quality}`;
+        }
+        
+        // Create a temporary link and trigger download
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function renderVideoWithFormats(data) {
+        const video = data;
+        const formats = data.formats;
+        
+        if (!formats || formats.length === 0) {
+            resultsArea.innerHTML = '<div class="loading">😞 No formats available for this video.</div>';
+            return;
+        }
+        
+        const html = `
+            <div class="results-grid">
+                <div class="video-card">
+                    <div class="video-header">
+                        <img class="thumbnail" src="${video.thumbnail}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
+                        <div class="video-info">
+                            <div class="video-title">${escapeHtml(video.title)}</div>
+                            <div class="video-meta">
+                                <span>⏱️ ${video.duration || '?'}</span>
+                                <span>📺 ${escapeHtml(video.author || 'Unknown')}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quality-section">
+                        <div class="quality-title">📋 Select Quality to Download:</div>
+                        <div class="quality-buttons">
+                            ${formats.map(format => {
+                                const audioInfo = format.has_audio ? '🔊' : '🎬';
+                                const sizeInfo = format.size ? ` (${format.size})` : '';
+                                const fpsInfo = format.fps ? ` ${format.fps}fps` : '';
+                                return `
+                                    <button class="quality-btn" onclick="downloadVideo('${video.webpage_url}', '${format.quality}', '${format.format_id}')">
+                                        ${format.quality}${fpsInfo} ${audioInfo}${sizeInfo}
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        resultsArea.innerHTML = html;
+    }
+
     function renderVideoList(videos) {
         if (!videos || videos.length === 0) {
             resultsArea.innerHTML = '<div class="loading">😞 No videos found.</div>';
@@ -263,15 +354,24 @@
             <div class="results-grid">
                 ${videos.map(video => `
                     <div class="video-card">
-                        <img class="thumbnail" src="${video.thumbnail}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
-                        <div class="video-info">
-                            <div class="video-title">${escapeHtml(video.title)}</div>
-                            <div class="video-meta">
-                                <span>⏱️ ${formatDuration(video.duration)}</span>
-                                <span>📺 ${escapeHtml(video.author)}</span>
+                        <div class="video-header">
+                            <img class="thumbnail" src="${video.thumbnail}" alt="thumbnail" onerror="this.src='https://placehold.co/120x68?text=No+Image'">
+                            <div class="video-info">
+                                <div class="video-title">${escapeHtml(video.title)}</div>
+                                <div class="video-meta">
+                                    <span>⏱️ ${formatDuration(video.duration)}</span>
+                                    <span>📺 ${escapeHtml(video.author)}</span>
+                                </div>
                             </div>
                         </div>
-                        <a class="download-btn" href="/api/yt/download?url=${encodeURIComponent(video.webpage_url)}">⬇️ Download 720p</a>
+                        <div class="quality-section">
+                            <div class="quality-title">🎬 Click to see available qualities:</div>
+                            <div class="quality-buttons">
+                                <button class="quality-btn" onclick="fetchVideoFormats('${video.webpage_url}')">
+                                    Select Quality ▼
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 `).join('')}
             </div>
